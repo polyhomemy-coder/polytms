@@ -806,7 +806,19 @@
 // ============================================================
 //  POLYHOME RMS APP — vanilla JS SPA
 // ============================================================
-const LS_URL='pf_supa_url', LS_KEY='pf_supa_key';
+// Namespaced per-app so polyTMS doesn't fight other apps under the same
+// GitHub Pages origin (e.g. polyhomemy-coder.github.io/propfix would
+// otherwise overwrite our credentials when both used "pf_*" keys).
+const LS_URL='polytms_supa_url', LS_KEY='polytms_supa_key';
+// One-time migration: copy values from the old shared keys (if present)
+// into the new namespaced keys, then leave the old keys alone so other
+// apps under the same origin keep working.
+try {
+  const _oldUrl = localStorage.getItem('pf_supa_url');
+  const _oldKey = localStorage.getItem('pf_supa_key');
+  if(_oldUrl && !localStorage.getItem(LS_URL)) localStorage.setItem(LS_URL, _oldUrl);
+  if(_oldKey && !localStorage.getItem(LS_KEY)) localStorage.setItem(LS_KEY, _oldKey);
+} catch(_){}
 let sb = null;
 let state = {
   properties:[], tenants:[], payments:[], aircon:[], expenses:[], extras:[],
@@ -991,7 +1003,13 @@ async function connect(url, key){
 // ============================================================
 //  DEMO MODE — in-browser mock of the Supabase client
 // ============================================================
-const LS_DEMO='pf_demo_db';
+const LS_DEMO='polytms_demo_db';
+// One-time migration from the old shared key (mirrors the LS_URL/LS_KEY
+// migration above so polytms's demo data doesn't collide with other apps).
+try {
+  const _oldDemo = localStorage.getItem('pf_demo_db');
+  if(_oldDemo && !localStorage.getItem(LS_DEMO)) localStorage.setItem(LS_DEMO, _oldDemo);
+} catch(_){}
 function demoDB(){
   const raw = localStorage.getItem(LS_DEMO);
   return raw ? JSON.parse(raw) : null;
