@@ -1248,6 +1248,10 @@ $('#btnConnect').onclick = async ()=>{
   try{
     await connect(url,key);
     localStorage.setItem(LS_URL,url); localStorage.setItem(LS_KEY,key);
+    // Connecting to real Supabase → fully exit Demo Mode. Without this the
+    // demo data + 🎮 DEMO MODE badge linger in localStorage and confuse the
+    // user into thinking they're still on the seed dataset.
+    exitDemoMode();
     $('#setupStatus').innerHTML='<span class="text-emerald-600">✓ Connected</span>';
     hideSetup(); await bootApp();
   }catch(e){
@@ -7975,6 +7979,10 @@ end$$;`;
     enterDemoMode(false); return;
   }
   if(url && key){
+    // Real Supabase wins over Demo Mode — clear any leftover demo state so
+    // the 🎮 badge doesn't persist and the demo seed doesn't reappear on
+    // refresh after the user switched to a real backend.
+    try{ exitDemoMode(); }catch(_){}
     try{ await connect(url,key); hideSetup(); await bootApp(); }
     catch(e){ showSetup(); $('#inpUrl').value=url; $('#inpKey').value=key; $('#setupStatus').innerHTML='<span class="text-rose-600">'+esc(e.message||'Failed')+'</span>'; }
   }else{
