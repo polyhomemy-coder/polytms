@@ -823,8 +823,8 @@
 //  Leave as empty strings to keep the old setup-modal flow (e.g. for
 //  local development against a different project).
 // ============================================================
-const BAKED_SUPA_URL = 'https://nqnskbvgaajnxvjqzcck.supabase.co';   // e.g. 'https://nqnskbvgaajnxvjqzcck.supabase.co'
-const BAKED_SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xbnNrYnZnYWFqbnh2anF6Y2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0Mjg2MzksImV4cCI6MjA5NDAwNDYzOX0.-XI0bnscd-Pnc2euw4hLt5nBoRpTUoW4FVII_KWg-Hs';   // e.g. 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ...'
+const BAKED_SUPA_URL = 'https://nqnskbvgaajnxvjqzcck.supabase.co';
+const BAKED_SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xbnNrYnZnYWFqbnh2anF6Y2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0Mjg2MzksImV4cCI6MjA5NDAwNDYzOX0.-XI0bnscd-Pnc2euw4hLt5nBoRpTUoW4FVII_KWg-Hs';
 const BAKED = !!(BAKED_SUPA_URL && BAKED_SUPA_KEY);
 
 // Namespaced per-app so polyTMS doesn't fight other apps under the same
@@ -8023,8 +8023,11 @@ end$$;`;
       localStorage.removeItem(LS_DEMO);
       const badge = document.getElementById('demoBadge');
       if(badge) badge.classList.add('hidden');
-      // Hide the demo-mode launch buttons + the "Just want to test-drive" panel
-      ['btnDemo','btnDemoReset'].forEach(id=>{
+      // Hide the demo-mode launch buttons + the "Just want to test-drive"
+      // panel + the Settings gear button. Clicking Settings re-opens the
+      // setup modal, which has no Close button — that would trap the user
+      // in a modal with nothing to close. Hide it entirely in production.
+      ['btnDemo','btnDemoReset','btnSettings'].forEach(id=>{
         const el = document.getElementById(id);
         if(el) el.style.display = 'none';
       });
