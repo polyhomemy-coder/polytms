@@ -223,8 +223,8 @@
       <span id="setupStatus" class="text-xs ml-auto"></span>
     </div>
 
-    <!-- DEMO MODE -->
-    <div class="mt-4 p-4 rounded-xl border-2 border-dashed border-[color:var(--accent)] bg-[#FFF6EE]">
+    <!-- DEMO MODE — hidden in production when baked credentials are set -->
+    <div data-demo-card class="mt-4 p-4 rounded-xl border-2 border-dashed border-[color:var(--accent)] bg-[#FFF6EE]">
       <div class="flex items-start gap-3">
         <div class="text-2xl">🎮</div>
         <div class="flex-1">
@@ -806,6 +806,27 @@
 // ============================================================
 //  POLYHOME RMS APP — vanilla JS SPA
 // ============================================================
+
+// ============================================================
+//  >>> PASTE YOUR SUPABASE CREDENTIALS HERE <<<
+// ============================================================
+//  Once you fill these in, the app will auto-connect on every browser /
+//  device with no setup modal. The anon key is PUBLIC by design — Row
+//  Level Security policies (in SCHEMA.sql) control what each user can
+//  read/write, so it's safe to commit to GitHub.
+//
+//  Where to find them:
+//    Supabase dashboard → Project Settings → API
+//    • "Project URL"      → BAKED_SUPA_URL
+//    • "anon public" key  → BAKED_SUPA_KEY
+//
+//  Leave as empty strings to keep the old setup-modal flow (e.g. for
+//  local development against a different project).
+// ============================================================
+const BAKED_SUPA_URL = 'https://nqnskbvgaajnxvjqzcck.supabase.co';   // e.g. 'https://nqnskbvgaajnxvjqzcck.supabase.co'
+const BAKED_SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xbnNrYnZnYWFqbnh2anF6Y2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0Mjg2MzksImV4cCI6MjA5NDAwNDYzOX0.-XI0bnscd-Pnc2euw4hLt5nBoRpTUoW4FVII_KWg-Hs';   // e.g. 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ...'
+const BAKED = !!(BAKED_SUPA_URL && BAKED_SUPA_KEY);
+
 // Namespaced per-app so polyTMS doesn't fight other apps under the same
 // GitHub Pages origin (e.g. polyhomemy-coder.github.io/propfix would
 // otherwise overwrite our credentials when both used "pf_*" keys).
@@ -7991,15 +8012,50 @@ end$$;`;
 //  BOOT
 // ============================================================
 (async()=>{
+  // ----- PRODUCTION PATH: baked credentials -----
+  // Skip every setup-modal / demo-mode code path entirely. The browser
+  // just connects and goes — works on any device, no re-entry, no demo
+  // pollution. We also nuke any stale demo data left in localStorage
+  // from earlier visits, and hide the demo-mode UI bits in the DOM.
+  if(BAKED){
+    try {
+      // Wipe leftover demo data from any prior visit
+      localStorage.removeItem(LS_DEMO);
+      const badge = document.getElementById('demoBadge');
+      if(badge) badge.classList.add('hidden');
+      // Hide the demo-mode launch buttons + the "Just want to test-drive" panel
+      ['btnDemo','btnDemoReset'].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el) el.style.display = 'none';
+      });
+      // The entire dashed-orange "test-drive it first" card — hide if found
+      const demoCard = document.querySelector('[data-demo-card]');
+      if(demoCard) demoCard.style.display = 'none';
+    } catch(_){}
+    try {
+      await connect(BAKED_SUPA_URL, BAKED_SUPA_KEY);
+      hideSetup();
+      await bootApp();
+    } catch(e){
+      // Baked-cred connect failure → show a clear inline error rather than
+      // pop the setup modal (which has been removed from the user's UX).
+      document.body.innerHTML = `<div style="max-width:560px;margin:80px auto;padding:24px;font-family:system-ui,sans-serif;background:#FEE2E2;border:1px solid #FCA5A5;border-radius:12px;color:#991B1B">
+        <h2 style="margin:0 0 8px;font-size:20px">⚠ Cannot connect to Supabase</h2>
+        <p style="margin:0 0 8px">${esc(e.message || 'Connection failed')}</p>
+        <p style="margin:0;font-size:13px">The baked credentials at the top of <code>index.html</code> are invalid or the project is offline. Check the URL + anon key and re-deploy.</p>
+      </div>`;
+    }
+    return;
+  }
+
+  // ----- DEV / FIRST-RUN PATH: setup modal + localStorage -----
+  // (Only reached when BAKED_SUPA_URL / BAKED_SUPA_KEY are empty at top.)
   const url = localStorage.getItem(LS_URL); const key=localStorage.getItem(LS_KEY);
   // resume demo if it was the last-used mode and no real creds are set
   if(!url && !key && demoDB()){
     enterDemoMode(false); return;
   }
   if(url && key){
-    // Real Supabase wins over Demo Mode — clear any leftover demo state so
-    // the 🎮 badge doesn't persist and the demo seed doesn't reappear on
-    // refresh after the user switched to a real backend.
     try{ exitDemoMode(); }catch(_){}
     try{ await connect(url,key); hideSetup(); await bootApp(); }
     catch(e){ showSetup(); $('#inpUrl').value=url; $('#inpKey').value=key; $('#setupStatus').innerHTML='<span class="text-rose-600">'+esc(e.message||'Failed')+'</span>'; }
