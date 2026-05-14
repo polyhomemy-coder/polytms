@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<!-- Force browser to always fetch latest version from GitHub — never serve cached copy -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>Polyhome TMS — Tenant Management System</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Barlow+Condensed:wght@700;800;900&display=swap" rel="stylesheet">
 
@@ -344,6 +348,18 @@
       <select id="monthPick" class="input"></select>
       <span id="demoBadge" class="chip hidden" style="background:#FFF0E6;color:#F4811F">🎮 DEMO MODE</span>
       <button id="btnSettings" title="Settings" class="bg-white border border-[color:var(--line)] hover:bg-slate-50">⚙️ Settings</button>
+      <!-- Force Refresh — loads latest version from GitHub, bypassing cache -->
+      <button id="btnForceRefresh" title="Force Refresh — loads the latest version, clears browser cache"
+        class="bg-white border border-[color:var(--line)] hover:bg-slate-50"
+        style="width:100%;padding:9px 8px;border-radius:12px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;color:#486870;cursor:pointer">
+        🔄 Force Refresh
+      </button>
+      <!-- Auto-Refresh toggle — reloads data every 30 seconds -->
+      <button id="btnAutoRefresh" title="Toggle auto-refresh every 30 seconds"
+        class="bg-white border border-[color:var(--line)] hover:bg-slate-50"
+        style="width:100%;padding:9px 8px;border-radius:12px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;color:#486870;cursor:pointer">
+        ⏱ Auto-Refresh: OFF
+      </button>
       <!-- Signed-in user pill + sign-out (shown only when auth session is active) -->
       <div id="userBox" class="hidden" style="font-size:11px;color:#64748B;text-align:center;line-height:1.3">
         <div id="userEmail" style="font-weight:700;color:#0F172A;word-break:break-all"></div>
@@ -1043,11 +1059,12 @@ function endFromTenure(startStr, months){
 
 // --- helpers -------------------------------------------------
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
-const toast=(msg,type='ok')=>{
+const toast=(msg,type='ok',duration=2600)=>{
   const t=$('#toast'); t.textContent=msg; t.className='fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-semibold shadow-lg';
   t.classList.add(type==='ok'?'bg-emerald-600':type==='warn'?'bg-amber-500':'bg-rose-600','text-white');
   t.classList.remove('hidden');
-  setTimeout(()=>t.classList.add('hidden'), 2600);
+  clearTimeout(t._hideTimer);
+  t._hideTimer=setTimeout(()=>t.classList.add('hidden'), duration);
 };
 const fmt = n=> (Number(n||0)).toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2});
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -8234,6 +8251,115 @@ async function signOutAndReturnToLogin(){
   }else{
     showSetup();
   }
+})();
+
+// ============================================================
+//  FORCE REFRESH
+//  Cache-busting reload — appends ?_v=timestamp so the browser
+//  treats it as a new URL and fetches fresh from GitHub Pages.
+// ============================================================
+document.getElementById('btnForceRefresh')?.addEventListener('click', () => {
+  const url = location.pathname + '?_v=' + Date.now();
+  toast('🔄 Fetching latest version…', 'ok', 1500);
+  setTimeout(() => { location.href = url; }, 400);
+});
+
+// ============================================================
+//  AUTO-REFRESH (30-second countdown, toggleable)
+//  Reloads the page every 30 s so the dashboard always shows
+//  live Supabase data. State survives via localStorage so the
+//  toggle stays ON after the reload. Click again to turn OFF.
+// ============================================================
+(function initAutoRefresh(){
+  let timer = null;
+  let countdown = 30;
+  const btn = document.getElementById('btnAutoRefresh');
+  if(!btn) return;
+
+  function tick(){
+    countdown--;
+    btn.textContent = '⏱ Auto: ' + countdown + 's';
+    if(countdown <= 0){
+      clearInterval(timer);
+      location.href = location.pathname + '?_v=' + Date.now();
+    }
+  }
+
+  function startAR(){
+    countdown = 30;
+    btn.textContent = '⏱ Auto: 30s';
+    btn.style.background = '#E8F8FA';
+    btn.style.color = 'var(--brand)';
+    btn.style.borderColor = 'var(--brand2)';
+    timer = setInterval(tick, 1000);
+    localStorage.setItem('polytms_autorefresh', '1');
+  }
+
+  function stopAR(){
+    clearInterval(timer);
+    timer = null;
+    btn.textContent = '⏱ Auto-Refresh: OFF';
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    localStorage.removeItem('polytms_autorefresh');
+    toast('Auto-refresh paused', 'ok');
+  }
+
+  btn.addEventListener('click', () => {
+    if(timer) stopAR(); else { startAR(); toast('Auto-refresh ON — every 30 s', 'ok'); }
+  });
+
+  // Resume if it was active before the last reload
+  if(localStorage.getItem('polytms_autorefresh')) startAR();
+})();
+
+// ============================================================
+//  IDLE AUTO-LOGOUT (1 hour)
+//  Tracks mouse/key/touch activity. At 55 min shows a warning
+//  toast; at 60 min signs the user out automatically.
+//  Only runs after a Supabase session is established (when
+//  #userBox is visible), so it won't fire on the login screen.
+// ============================================================
+(function initIdleLogout(){
+  const IDLE_MS  = 60 * 60 * 1000;  // 60 minutes
+  const WARN_MS  = 55 * 60 * 1000;  // warn at 55 minutes
+  let idleTimer  = null;
+  let warnTimer  = null;
+  let warnShown  = false;
+
+  function resetTimers(){
+    // Only enforce idle logout once the user is actually logged in
+    const userBox = document.getElementById('userBox');
+    if(!userBox || userBox.classList.contains('hidden')) return;
+
+    clearTimeout(idleTimer);
+    clearTimeout(warnTimer);
+    if(warnShown){ warnShown = false; }
+
+    warnTimer = setTimeout(() => {
+      warnShown = true;
+      toast('⚠️ Idle warning: you will be logged out in 5 minutes.', 'warn', 10000);
+    }, WARN_MS);
+
+    idleTimer = setTimeout(async () => {
+      toast('🔒 Logging out due to 1 hour of inactivity…', 'warn', 3000);
+      setTimeout(async () => {
+        if(typeof signOutAndReturnToLogin === 'function') await signOutAndReturnToLogin();
+        else location.reload();
+      }, 1500);
+    }, IDLE_MS);
+  }
+
+  // Reset on any user interaction
+  ['mousemove','mousedown','keydown','scroll','touchstart','click'].forEach(ev => {
+    document.addEventListener(ev, resetTimers, { passive: true });
+  });
+
+  // Kick off the timer once the page is ready; re-check every minute
+  // in case the user logs in after the page loads (BAKED auth flow).
+  resetTimers();
+  setInterval(resetTimers, 60 * 1000);
 })();
 </script>
 </body>
