@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>Polyhome RMS — Room Management System</title>
+<title>Polyhome TMS — Tenant Management System</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
 <!-- ===== EXTERNAL DEPS (all version-pinned for production stability) ===== -->
@@ -202,7 +202,7 @@
 <!-- ========== SETUP WIZARD (first run) ========== -->
 <div id="setupOverlay" class="fixed inset-0 z-50 modal-bg hidden items-center justify-center p-4">
   <div class="card w-full max-w-xl">
-    <div class="text-xs font-bold tracking-widest text-[color:var(--brand)]">POLYHOME RMS · FIRST-RUN SETUP</div>
+    <div class="text-xs font-bold tracking-widest text-[color:var(--brand)]">POLYHOME TMS · FIRST-RUN SETUP</div>
     <h2 class="section-title mt-1">Connect to your Supabase project</h2>
     <p class="help mt-1">One-time setup. These keys are stored only in your browser (localStorage) and are never sent anywhere except Supabase.</p>
 
@@ -258,7 +258,7 @@
      here. -->
 <div id="loginOverlay" class="fixed inset-0 z-50 modal-bg hidden items-center justify-center p-4">
   <div class="card w-full max-w-md">
-    <div class="text-[10px] font-bold tracking-widest text-[color:var(--brand)] uppercase">POLYHOME RMS · Sign In</div>
+    <div class="text-[10px] font-bold tracking-widest text-[color:var(--brand)] uppercase">POLYHOME TMS · Sign In</div>
     <h2 class="section-title mt-1">Welcome back</h2>
     <p class="help mt-2">Sign in with the email + password your admin gave you. If you don't have an account yet, ask your admin to create one in the Supabase dashboard.</p>
 
@@ -284,8 +284,8 @@
     <div class="brand-row">
       <div class="w-10 h-10 rounded-xl btn-brand grid place-items-center text-white font-extrabold flex-shrink-0">P</div>
       <div class="min-w-0">
-        <div class="text-[10px] font-bold tracking-widest text-[color:var(--brand)]">POLYHOME RMS</div>
-        <div class="text-xs font-extrabold leading-tight truncate">Room Management</div>
+        <div class="text-[10px] font-bold tracking-widest text-[color:var(--brand)]">POLYHOME TMS</div>
+        <div class="text-xs font-extrabold leading-tight truncate">Tenant Management</div>
       </div>
     </div>
     <nav id="tabs">
@@ -835,7 +835,7 @@
 
 <script>
 // ============================================================
-//  POLYHOME RMS APP — vanilla JS SPA
+//  POLYHOME TMS APP — vanilla JS SPA
 // ============================================================
 
 // ============================================================
@@ -1897,7 +1897,7 @@ function _showLaunchSummary(pid, y, m){
   const phoneRaw = (P.owner_contact||'').replace(/\D/g,'');
   const email    = P.owner_email||'';
   const subject  = `Income Report — ${monthLabel} — ${P.condo} ${P.unit}`;
-  const body     = `Hi ${P.owner_name||'Landlord'},\n\nYour ${monthLabel} income report for ${P.condo} ${P.unit} is ready.\n\nA PDF has been prepared — please find it attached.\n\n— Polyhome RMS`;
+  const body     = `Hi ${P.owner_name||'Landlord'},\n\nYour ${monthLabel} income report for ${P.condo} ${P.unit} is ready.\n\nA PDF has been prepared — please find it attached.\n\n— Polyhome TMS`;
   const waUrl    = phoneRaw ? `https://wa.me/${phoneRaw}?text=${encodeURIComponent(body)}` : '';
   const mailUrl  = email ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` : '';
   openModal('🚀 Launched — '+P.condo+' '+P.unit,
@@ -1927,7 +1927,7 @@ async function launchToOwner(pid, y, m){
   const phoneRaw = (P.owner_contact||'').replace(/\D/g,'');
   const email    = P.owner_email||'';
   const subject  = `Income Report — ${monthLabel} — ${P.condo} ${P.unit}`;
-  const body     = `Hi ${P.owner_name||'Landlord'},\n\nYour ${monthLabel} income report for ${P.condo} ${P.unit} is ready.\n\nA PDF has been prepared — please find it attached.\n\n— Polyhome RMS`;
+  const body     = `Hi ${P.owner_name||'Landlord'},\n\nYour ${monthLabel} income report for ${P.condo} ${P.unit} is ready.\n\nA PDF has been prepared — please find it attached.\n\n— Polyhome TMS`;
   // 1) WhatsApp — open in new tab
   if(phoneRaw){
     const waUrl = `https://wa.me/${phoneRaw}?text=${encodeURIComponent(body)}`;
@@ -4813,11 +4813,11 @@ function waPersonalize(tpl, t){
 // Canned templates keyed by <select> values
 const WA_TEMPLATES = {
   custom: '',
-  rent: `Hi {name},\n\nFriendly reminder that your rental for {month} ({amount}) for room {room} at {property} · {unit} is due.\n\nKindly transfer and send the receipt when done. Thank you!\n\n— Polyhome RMS`,
-  received: `Hi {name},\n\nWe've received your rental payment for {month} — room {room} at {property} · {unit}.\n\nThank you and have a great month!\n\n— Polyhome RMS`,
-  overdue: `Hi {name},\n\nOur records show your rental for {month} ({amount}) for room {room} at {property} · {unit} is still outstanding.\n\nKindly settle at your earliest convenience. Please reply if there's been a payment we haven't matched yet.\n\n— Polyhome RMS`,
-  maintenance: `Hi {name},\n\nJust letting you know we'll be carrying out maintenance at {property} · {unit} soon. We'll coordinate a convenient time with you beforehand.\n\nThanks for your patience.\n\n— Polyhome RMS`,
-  renewal: `Hi {name},\n\nYour tenancy for room {room} at {property} · {unit} is approaching its end. Let us know whether you'd like to renew and we'll prepare the paperwork.\n\n— Polyhome RMS`,
+  rent: `Hi {name},\n\nFriendly reminder that your rental for {month} ({amount}) for room {room} at {property} · {unit} is due.\n\nKindly transfer and send the receipt when done. Thank you!\n\n— Polyhome TMS`,
+  received: `Hi {name},\n\nWe've received your rental payment for {month} — room {room} at {property} · {unit}.\n\nThank you and have a great month!\n\n— Polyhome TMS`,
+  overdue: `Hi {name},\n\nOur records show your rental for {month} ({amount}) for room {room} at {property} · {unit} is still outstanding.\n\nKindly settle at your earliest convenience. Please reply if there's been a payment we haven't matched yet.\n\n— Polyhome TMS`,
+  maintenance: `Hi {name},\n\nJust letting you know we'll be carrying out maintenance at {property} · {unit} soon. We'll coordinate a convenient time with you beforehand.\n\nThanks for your patience.\n\n— Polyhome TMS`,
+  renewal: `Hi {name},\n\nYour tenancy for room {room} at {property} · {unit} is approaching its end. Let us know whether you'd like to renew and we'll prepare the paperwork.\n\n— Polyhome TMS`,
 };
 
 function openWaBroadcast(){
@@ -6872,7 +6872,7 @@ function renderReportHTML(ctx, opts){
 
   const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Polyhome RMS — Landlord Income Report</title>
+<title>Polyhome TMS — Landlord Income Report</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -6938,7 +6938,7 @@ function renderReportHTML(ctx, opts){
 <div class="header-card">
   <div class="hdr-row">
     <div>
-      <div class="report-label">POLYHOME RMS</div>
+      <div class="report-label">POLYHOME TMS</div>
       <div class="report-title">Landlord Income Report</div>
       <div class="report-period">${esc(P.condo)} Residences  ·  Unit ${esc(P.unit)}</div>
     </div>
@@ -6998,7 +6998,7 @@ function renderReportHTML(ctx, opts){
 
 <div class="footer">
   Thank you for trusting us to manage your property.<br>
-  <strong style="color:#007B8A">POLYHOME RMS</strong>
+  <strong style="color:#007B8A">POLYHOME TMS</strong>
   <div style="margin-top:10px;padding-top:10px;border-top:1px solid #C8EDF2;font-size:11px;color:#486870;line-height:1.5">
     <b style="color:#007B8A">Polyhome Properties Sdn Bhd</b><br>
     202601005226 (1667324-H)
@@ -7172,7 +7172,7 @@ function renderReportDesktopHTML(ctx, opts){
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Polyhome RMS — Landlord Income Report (${esc(P.condo)} ${esc(P.unit)})</title>
+<title>Polyhome TMS — Landlord Income Report (${esc(P.condo)} ${esc(P.unit)})</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -7232,7 +7232,7 @@ function renderReportDesktopHTML(ctx, opts){
 
   <div class="top">
     <div>
-      <div class="brand-label">POLYHOME RMS</div>
+      <div class="brand-label">POLYHOME TMS</div>
       <div class="doc-title">Landlord Income Report</div>
       <div class="doc-period">Report Period: ${periodText}</div>
       <div class="month-tag">${MONTHS[month-1].toUpperCase()}</div>
@@ -7317,7 +7317,7 @@ function renderReportDesktopHTML(ctx, opts){
 
   <div class="foot">
     <div>Thank you for trusting us to manage your property.</div>
-    <div><b>POLYHOME RMS</b> · ${esc(P.condo)} · Unit ${esc(P.unit)} · ${issueText}</div>
+    <div><b>POLYHOME TMS</b> · ${esc(P.condo)} · Unit ${esc(P.unit)} · ${issueText}</div>
   </div>
   <div style="margin-top:14px;padding-top:12px;border-top:1px solid #C8EDF2;text-align:center;font-size:11px;color:#486870;line-height:1.5">
     <b style="color:#007B8A">Polyhome Properties Sdn Bhd</b>
@@ -7965,7 +7965,7 @@ async function saveAllReceipts(){
 // ============================================================
 //  SCHEMA SQL (embedded for easy copy)
 // ============================================================
-const SCHEMA_SQL = `-- POLYHOME RMS schema — run in Supabase SQL editor
+const SCHEMA_SQL = `-- POLYHOME TMS schema — run in Supabase SQL editor
 create table if not exists public.properties (
   id uuid primary key default gen_random_uuid(),
   condo text not null, unit text not null,
@@ -8052,6 +8052,7 @@ create table if not exists public.rental_payments (
   year int not null, month int not null check (month between 1 and 12),
   room_code text not null, item_type text not null default 'room',
   item_label text, amount numeric(10,2) not null default 0,
+  payment_kind text,
   paid_on date, remark text, created_at timestamptz default now()
 );
 create table if not exists public.aircon_topups (
