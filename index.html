@@ -5079,7 +5079,7 @@ function openTenantView(id){
         <div class="font-bold text-slate-700 mb-2">👥 Second Person (co-tenant)</div>
         <div class="grid md:grid-cols-2 gap-x-4 gap-y-0">
           ${row('Name', t.secondary_name)}
-          ${row('IC', t.secondary_ic)}
+          ${row('IC / Passport', t.secondary_ic)}
           ${row('Contact', t.secondary_contact)}
           ${row('Email', t.secondary_email)}
           ${row('Gender', t.secondary_gender)}
@@ -5088,6 +5088,8 @@ function openTenantView(id){
           ${row('Marital Status', t.secondary_marital_status)}
           ${row('Occupation', t.secondary_occupation)}
           ${row('Company', t.secondary_company)}
+          ${row('Emergency Name', t.secondary_emergency_name)}
+          ${row('Emergency Contact', t.secondary_emergency_contact)}
         </div>
       </div>`;
   }
@@ -5100,7 +5102,7 @@ function openTenantView(id){
       ${row('Room Rental', t.room_rental!=null ? 'RM '+fmt(t.room_rental) : null)}
       ${row('Carpark', t.carpark)}
       ${row('Carpark Rental', t.carpark_rental!=null ? 'RM '+fmt(t.carpark_rental) : null)}
-      ${row('IC', t.ic)}
+      ${row('IC / Passport', t.ic)}
       ${row('Contact', t.contact)}
       ${row('Email', t.email)}
       ${row('Gender', t.gender)}
@@ -5802,6 +5804,16 @@ function waNormalizePhone(raw){
   if(s.startsWith('0'))  return '60' + s.slice(1);
   // short numbers (e.g. 123456789) — assume MY mobile missing leading 0
   return '60' + s;
+}
+
+// Normalise a phone number for storage: +60XXXXXXXXX display format.
+// Used on tenant contact fields so WA blast and reports are consistent.
+function normalizePhone(raw){
+  if(!raw || !raw.trim()) return raw || '';
+  const digits = waNormalizePhone(raw);   // gives '60XXXXXXXXX'
+  if(!digits) return raw;
+  // Format as +60XX-XXXXXXX  (keeps original if it doesn't look like MY)
+  return '+' + digits;
 }
 
 // Build the group key + label for a tenant given the active grouping.
@@ -7245,14 +7257,27 @@ function parseTenantBookingText(raw){
   }
 
   // ── Auto-match property ───────────────────────────────────────
-  if(result._condo && state.properties){
-    const cn = result._condo.toLowerCase();
-    const un = (result._unit||'').toLowerCase();
-    const hit = state.properties.find(p=>{
-      const pc = p.condo.toLowerCase(), pu = p.unit.toLowerCase();
-      const condoMatch = pc.includes(cn) || cn.includes(pc);
-      return un ? (condoMatch && pu===un) : condoMatch;
-    }) || state.properties.find(p=> p.condo.toLowerCase().includes(cn));
+  // Strip everything except alphanumerics for loose unit comparison
+  // e.g. "8A-27-06" === "8A2706" after normalization.
+  if(state.properties){
+    const normStr = s => String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    const cn  = normStr(result._condo);
+    const un  = normStr(result._unit);
+
+    const condoMatch = p => {
+      const pc = normStr(p.condo);
+      return cn && (pc.includes(cn) || cn.includes(pc));
+    };
+    const unitMatch  = p => un && normStr(p.unit) === un;
+
+    const hit =
+      // 1) condo + unit both match (best)
+      state.properties.find(p => condoMatch(p) && unitMatch(p)) ||
+      // 2) condo match only (no unit in paste, or unit format unknown)
+      (cn ? state.properties.find(p => condoMatch(p)) : null) ||
+      // 3) unit match only (condo abbreviation not recognised)
+      (un ? state.properties.find(p => unitMatch(p))  : null);
+
     if(hit) result.property_id = hit.id;
   }
 
@@ -7317,8 +7342,16 @@ function fillTenantFormFromPaste(){
   const set = (id, val) => { const el=$('#'+id); if(el && val!=null && val!=='') el.value=val; };
   const setNum = (id, val) => { const el=$('#'+id); if(el && val!=null) el.value=val; };
 
-  // Property auto-match
-  if(d.property_id) set('f_prop', d.property_id);
+  // Property auto-match — warn clearly if not found so user selects manually
+  if(d.property_id){
+    set('f_prop', d.property_id);
+  } else {
+    const detected = [d._condo, d._unit].filter(Boolean).join(' · ');
+    toast(`⚠ Property not matched${detected ? ' ("'+detected+'" not found)' : ''} — please select manually`, 'warn');
+    // Keep paste panel visible so user can see what was detected
+    const panel = document.getElementById('taPastePanel');
+    if(panel) panel.style.display = '';
+  }
 
   // Primary tenant
   set('f_name',    d.name);
@@ -7368,21 +7401,24 @@ function fillTenantFormFromPaste(){
     if(d.secondary_gender) set('f2_gender', d.secondary_gender);
   }
 
-  // Collapse paste panel + show summary
-  const panel = document.getElementById('taPastePanel');
-  if(panel){ panel.style.display='none'; }
+  // Collapse paste panel only when property was matched (otherwise keep open for manual fix)
+  if(d.property_id){
+    const panel = document.getElementById('taPastePanel');
+    if(panel){ panel.style.display='none'; }
+  }
 
-  // Show what was parsed so user can spot any misses
-  const props = d.property_id ? (state.properties.find(p=>p.id===d.property_id)||{}) : {};
-  const propLabel = props.condo ? `${props.condo} · ${props.unit}` : (d._condo||'? — check property');
-  const parts = [
-    d.name        ? `✓ ${d.name}`                         : '✗ name missing',
-    d.room_code   ? `Room ${d.room_code}`                  : '✗ room missing',
-    propLabel     ? `@ ${propLabel}`                       : '',
-    d.agreement_start ? `from ${d.agreement_start}`        : '',
-    d.no_of_staying===2 ? `+ ${d.secondary_name||'2nd tenant'}` : '',
-  ].filter(Boolean).join(' · ');
-  toast('Parsed → '+parts, d.name ? 'ok' : 'warn');
+  // Show summary toast (only if property was matched — property-miss toast already shown above)
+  if(d.property_id){
+    const props = state.properties.find(p=>p.id===d.property_id) || {};
+    const parts = [
+      d.name        ? `✓ ${d.name}`                            : '✗ name missing',
+      d.room_code   ? `Room ${d.room_code}`                     : '✗ room missing',
+      props.condo   ? `@ ${props.condo} · ${props.unit}`        : '',
+      d.agreement_start ? `from ${d.agreement_start}`           : '',
+      d.no_of_staying===2 ? `+ ${d.secondary_name||'2nd person'}` : '',
+    ].filter(Boolean).join(' · ');
+    toast('Parsed → '+parts, d.name ? 'ok' : 'warn');
+  }
 }
 
 // -- Tenant modal --
@@ -7408,8 +7444,8 @@ function openTenantModal(id, prefill){
     <div class="grid md:grid-cols-2 gap-3">
       <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
       <div><label class="label">Name *</label><input id="f_name" class="input" value="${esc(t.name||'')}"></div>
-      <div><label class="label">IC</label><input id="f_ic" class="input" value="${esc(t.ic||'')}"></div>
-      <div><label class="label">Contact</label><input id="f_contact" class="input" value="${esc(t.contact||'')}"></div>
+      <div><label class="label">IC / Passport</label><input id="f_ic" class="input" value="${esc(t.ic||'')}"></div>
+      <div><label class="label">Contact <span class="help">auto-formats to +60…</span></label><input id="f_contact" class="input" value="${esc(t.contact||'')}" onblur="this.value=normalizePhone(this.value)"></div>
       <div><label class="label">Email</label><input id="f_email" class="input" value="${esc(t.email||'')}"></div>
       <div><label class="label">Gender</label>
         <select id="f_gender" class="input">
@@ -7464,8 +7500,8 @@ function openTenantModal(id, prefill){
       </div>
       <div class="grid md:grid-cols-2 gap-3">
         <div><label class="label">Name *</label><input id="f2_name" class="input" value="${esc(t.secondary_name||'')}"></div>
-        <div><label class="label">IC</label><input id="f2_ic" class="input" value="${esc(t.secondary_ic||'')}"></div>
-        <div><label class="label">Contact</label><input id="f2_contact" class="input" value="${esc(t.secondary_contact||'')}"></div>
+        <div><label class="label">IC / Passport</label><input id="f2_ic" class="input" value="${esc(t.secondary_ic||'')}"></div>
+        <div><label class="label">Contact <span class="help">auto-formats to +60…</span></label><input id="f2_contact" class="input" value="${esc(t.secondary_contact||'')}" onblur="this.value=normalizePhone(this.value)"></div>
         <div><label class="label">Email</label><input id="f2_email" class="input" value="${esc(t.secondary_email||'')}"></div>
         <div><label class="label">Gender</label>
           <select id="f2_gender" class="input">
@@ -7486,6 +7522,8 @@ function openTenantModal(id, prefill){
           </select></div>
         <div><label class="label">Occupation</label><input id="f2_occ" class="input" value="${esc(t.secondary_occupation||'')}"></div>
         <div><label class="label">Company</label><input id="f2_comp" class="input" value="${esc(t.secondary_company||'')}"></div>
+        <div><label class="label">Emergency Name</label><input id="f2_en" class="input" value="${esc(t.secondary_emergency_name||'')}"></div>
+        <div><label class="label">Emergency Contact</label><input id="f2_ec" class="input" value="${esc(t.secondary_emergency_contact||'')}" onblur="this.value=normalizePhone(this.value)"></div>
       </div>
     </div>`, async ()=>{
       const rrVal  = Number($('#f_rr').value)||0;
@@ -7497,30 +7535,33 @@ function openTenantModal(id, prefill){
       // otherwise wipe them so a 1-person record never carries stale co-tenant data.
       const has2 = nosVal >= 2;
       const sec = has2 ? {
-        secondary_name:           $('#f2_name').value.trim(),
-        secondary_ic:             $('#f2_ic').value.trim(),
-        secondary_contact:        $('#f2_contact').value.trim(),
-        secondary_email:          $('#f2_email').value.trim(),
-        secondary_gender:         $('#f2_gender').value,
-        secondary_nationality:    $('#f2_nat').value.trim(),
-        secondary_race:           ($('#f2_nat').value.trim().toLowerCase()==='malaysian')
-                                    ? $('#f2_race').value.trim().toLowerCase()
-                                    : null,
-        secondary_marital_status: $('#f2_marital').value,
-        secondary_occupation:     $('#f2_occ').value.trim(),
-        secondary_company:        $('#f2_comp').value.trim(),
+        secondary_name:              $('#f2_name').value.trim(),
+        secondary_ic:                $('#f2_ic').value.trim(),
+        secondary_contact:           normalizePhone($('#f2_contact').value.trim()),
+        secondary_email:             $('#f2_email').value.trim(),
+        secondary_gender:            $('#f2_gender').value,
+        secondary_nationality:       $('#f2_nat').value.trim(),
+        secondary_race:              ($('#f2_nat').value.trim().toLowerCase()==='malaysian')
+                                       ? $('#f2_race').value.trim().toLowerCase()
+                                       : null,
+        secondary_marital_status:    $('#f2_marital').value,
+        secondary_occupation:        $('#f2_occ').value.trim(),
+        secondary_company:           $('#f2_comp').value.trim(),
+        secondary_emergency_name:    $('#f2_en').value.trim(),
+        secondary_emergency_contact: normalizePhone($('#f2_ec').value.trim()),
       } : {
         secondary_name:null, secondary_ic:null, secondary_contact:null,
         secondary_email:null, secondary_gender:null, secondary_nationality:null,
         secondary_race:null, secondary_marital_status:null,
         secondary_occupation:null, secondary_company:null,
+        secondary_emergency_name:null, secondary_emergency_contact:null,
       };
       if(has2 && !sec.secondary_name){
         throw new Error('No. of Staying = '+nosVal+' so the Second Person Name is required. Either fill it in or change No. of Staying to 1.');
       }
       const payload = {
         property_id:$('#f_prop').value, name:$('#f_name').value.trim(),
-        ic:$('#f_ic').value.trim(), contact:$('#f_contact').value.trim(),
+        ic:$('#f_ic').value.trim(), contact:normalizePhone($('#f_contact').value.trim()),
         email:$('#f_email').value.trim(), gender:$('#f_gender').value,
         nationality:$('#f_nat').value.trim(),
         race:($('#f_nat').value.trim().toLowerCase()==='malaysian')
@@ -7531,7 +7572,7 @@ function openTenantModal(id, prefill){
         marital_status:$('#f_marital').value,
         no_of_staying:nosVal,
         key_card_set:Number($('#f_kcs').value)||0,
-        emergency_name:$('#f_en').value.trim(), emergency_contact:$('#f_ec').value.trim(),
+        emergency_name:$('#f_en').value.trim(), emergency_contact:normalizePhone($('#f_ec').value.trim()),
         room_code:$('#f_room').value.trim().toUpperCase(),
         room_rental:rrVal,
         room_deposit: rdRaw==='' ? rrVal : (Number(rdRaw)||0),
@@ -9374,8 +9415,10 @@ create table if not exists public.tenants (
   secondary_nationality  text,
   secondary_race         text,
   secondary_marital_status text,
-  secondary_occupation   text,
-  secondary_company      text,
+  secondary_occupation          text,
+  secondary_company             text,
+  secondary_emergency_name      text,
+  secondary_emergency_contact   text,
   carpark_property_id    uuid references public.properties(id),
   created_at timestamptz default now(),
   updated_at timestamptz default now()
