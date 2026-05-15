@@ -87,7 +87,7 @@
   table.data{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
   table.data th{background:#E8F8FA;color:var(--brand);font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.4px;padding:10px 12px;text-align:left;border-bottom:1px solid #C8EDF2}
   table.data td{padding:10px 12px;border-bottom:1px solid var(--line);background:#fff}
-  table.data tr:hover td{background:#F7FDFE}
+  table.data tr:hover td{background:#FFF4E0}
   /* Generic inline "add row" — amber tint, dashed top border, no bottom border so
      it visually clamps to the bottom of the table as an "input area". Shared by
      the Expenses, Aircon, and Extra Income tabs. */
@@ -98,6 +98,9 @@
   table.data tr.add-row .input:focus{border-color:#F4811F;box-shadow:0 0 0 3px rgba(244,129,31,.18)}
   .input, select, textarea{border:1px solid #D5E7EB;border-radius:10px;padding:9px 11px;font-size:13px;background:#fff;width:100%;outline:none}
   .input:focus, select:focus, textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(0,123,138,.15)}
+  /* Inputs inside the Room / Carpark field blocks — borderless, extra-round, soft shadow */
+  .form-field-block .input,.form-field-block select{border:0!important;border-radius:14px!important;box-shadow:0 1px 4px rgba(0,0,0,.08)!important}
+  .form-field-block .input:focus,.form-field-block select:focus{box-shadow:0 0 0 3px rgba(0,123,138,.18)!important}
   .label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:block}
   .card{background:#fff;border-radius:20px;padding:22px;box-shadow:0 2px 12px rgba(0,123,138,.06)}
   .badge-ok{background:#DCF5E8;color:#0F7A3E}
@@ -134,8 +137,8 @@
   .row-bad td{background:#FEF2F2 !important}
   .row-bad:hover td{background:#FEE2E2 !important}
   /* Alternating property-group banding in the tenant table */
-  .prop-grp-alt td{background:#F0FAFB}
-  .prop-grp-alt:hover td{background:#E4F5F7}
+  .prop-grp-alt td{background:#EEF9FB}
+  .prop-grp-alt:hover td{background:#FFF4E0}
   /* Inline SVG action-button helpers */
   .icon-wrap{display:inline-flex;align-items:center;gap:4px;line-height:1}
   .icon-wrap svg{flex:0 0 auto;display:block}
@@ -7618,18 +7621,18 @@ function openTenantModal(id, prefill){
       <div><label class="label">Emergency Name</label><input id="f_en" class="input" value="${esc(t.emergency_name||'')}"></div>
       <div><label class="label">Emergency Contact</label><input id="f_ec" class="input" value="${esc(t.emergency_contact||'')}"></div>
       <!-- ── Room block ── -->
-      <div class="md:col-span-2 bg-[#EEF9FB] border border-[#C8EDF2] rounded-xl p-3">
-        <div class="text-[10px] font-extrabold uppercase tracking-wider text-[color:var(--brand)] mb-2">🏠 Room</div>
-        <div class="grid md:grid-cols-3 gap-3">
+      <div class="form-field-block md:col-span-2 bg-[#EEF9FB] rounded-xl p-3">
+        <div class="text-[10px] font-extrabold uppercase tracking-wider text-[color:var(--brand)] mb-2"><span style="filter:grayscale(1) opacity(.7)">🏠</span> Room</div>
+        <div class="grid md:grid-cols-3 gap-3 items-end">
           <div><label class="label">Room Code * (A/M/C/I/N…)</label><input id="f_room" class="input" value="${esc(t.room_code||'')}"></div>
           <div><label class="label">Room Rental (RM)</label><input type="number" step="0.01" id="f_rr" class="input" value="${t.room_rental??''}"></div>
           <div><label class="label">Room Deposit (RM) <span class="help">defaults to rental</span></label><input type="number" step="0.01" id="f_rd" class="input" value="${t.room_deposit??''}" placeholder="auto = room rental"></div>
         </div>
       </div>
       <!-- ── Carpark block ── -->
-      <div class="md:col-span-2 bg-[#FFF8F0] border border-[#FFD9A8] rounded-xl p-3">
-        <div class="text-[10px] font-extrabold uppercase tracking-wider text-[#F4811F] mb-2">🚗 Carpark</div>
-        <div class="grid md:grid-cols-3 gap-3">
+      <div class="form-field-block md:col-span-2 bg-[#FFF8F0] rounded-xl p-3">
+        <div class="text-[10px] font-extrabold uppercase tracking-wider text-[#BF8355] mb-2"><span style="filter:grayscale(1) opacity(.7)">🚗</span> Carpark</div>
+        <div class="grid md:grid-cols-3 gap-3 items-end">
           <div><label class="label">Carpark</label><input id="f_cp" class="input" value="${esc(t.carpark||'')}"></div>
           <div><label class="label">Carpark Rental (RM)</label><input type="number" step="0.01" id="f_cpr" class="input" value="${t.carpark_rental??0}"></div>
           <div><label class="label">Carpark Deposit (RM) <span class="help">defaults to rental</span></label><input type="number" step="0.01" id="f_cpd" class="input" value="${t.carpark_deposit??''}" placeholder="auto = carpark rental"></div>
