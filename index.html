@@ -1268,7 +1268,9 @@
           </div>
           <div id="vacSummary" class="help"></div>
         </div>
-        <div id="vacList" class="mt-2"></div>
+        <!-- Vacancy filter bar — City + Type chips, shared state with All Properties -->
+        <div id="vacFilterBar" class="flex items-center flex-wrap gap-x-4 gap-y-2 pt-2 pb-3 mb-1 border-b border-[color:var(--line)]"></div>
+        <div id="vacList" class="mt-3"></div>
       </div>
     </div>
   </section>
@@ -2253,7 +2255,9 @@ document.addEventListener('click', e=>{
 // delegated listener on the bar. Toggling = add to / remove from the array;
 // re-render to update active styling and the row list.
 document.addEventListener('click', e=>{
-  const chip = e.target.closest('#propFilterBar .prop-fchip');
+  // Chips work in both #propFilterBar (All Properties) and #vacFilterBar (Vacancies) —
+  // they share the same state so filtering one also filters the other.
+  const chip = e.target.closest('#propFilterBar .prop-fchip, #vacFilterBar .prop-fchip');
   if(chip){
     const group = chip.dataset.group;
     const value = chip.dataset.value;
@@ -2264,7 +2268,7 @@ document.addEventListener('click', e=>{
     renderProperties();
     return;
   }
-  if(e.target.closest('#propFilterClear')){
+  if(e.target.closest('#propFilterClear, #vacFilterClear')){
     state.propCityFilter = [];
     state.propTypeFilter = [];
     renderProperties();
@@ -7089,6 +7093,50 @@ function openPropertyView(id){
 // and "X days vacant till now". The "vacant since" is taken from the most
 // recent moved-out tenant on that exact room/carpark; if none, falls back to
 // the property's commence date.
+// Renders the City + Type filter chips inside the Vacancies subtab.
+// Uses the same propCityFilter / propTypeFilter state as the All Properties bar.
+function renderVacFilterBar(){
+  const bar = $('#vacFilterBar');
+  if(!bar) return;
+  const cityFil = state.propCityFilter || [];
+  const typeFil = state.propTypeFilter || [];
+
+  // Collect distinct cities from ALL properties (not just vacant ones) so chips
+  // don't disappear when every property in a city is fully occupied.
+  const seen = new Set();
+  let hasNoCity = false;
+  state.properties.forEach(p=>{ if(p.city) seen.add(p.city); else hasNoCity = true; });
+  const cities = [...seen].sort((a,b)=>a.localeCompare(b));
+
+  const chip = (label, isActive, group, value) =>
+    `<button type="button" class="prop-fchip ${isActive?'active':''}" data-group="${group}" data-value="${esc(value)}">${esc(label)}</button>`;
+
+  const cityChips = [
+    ...cities.map(c => chip(c, cityFil.includes(c), 'city', c)),
+    hasNoCity ? chip('(no city)', cityFil.includes('__none__'), 'city', '__none__') : ''
+  ].filter(Boolean).join('');
+
+  const typeChips =
+    chip('🏢 Help Manage', typeFil.includes('H2M'), 'type', 'H2M') +
+    chip('🏠 Own Unit',    typeFil.includes('R2R'), 'type', 'R2R');
+
+  const totalActive = cityFil.length + typeFil.length;
+  const clearBtn = totalActive
+    ? `<button type="button" id="vacFilterClear" class="ml-auto text-xs font-bold text-rose-600 hover:underline">✕ Clear (${totalActive})</button>`
+    : `<span class="ml-auto text-xs text-slate-400">Filter by city or type</span>`;
+
+  bar.innerHTML = `
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">City</span>
+      ${cityChips || '<span class="text-xs text-slate-400">no cities set</span>'}
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Type</span>
+      ${typeChips}
+    </div>
+    ${clearBtn}`;
+}
+
 function renderVacancies(){
   const today = new Date(); today.setHours(0,0,0,0);
   const ymd = d => {
@@ -7125,8 +7173,18 @@ function renderVacancies(){
     return p.commence_date || null;
   };
 
+  // Apply city + type filters (shared with All Properties tab)
+  const cityFil = state.propCityFilter || [];
+  const typeFil = state.propTypeFilter || [];
+  const filteredProps = state.properties.filter(p=>{
+    const cityOK = !cityFil.length || cityFil.includes(p.city || '__none__');
+    const ptype  = String(p.property_type||'H2M').toUpperCase();
+    const typeOK = !typeFil.length || typeFil.includes(ptype);
+    return cityOK && typeOK;
+  });
+
   const active = state.tenants.filter(t=>t.active!==false);
-  const data = state.properties.map(p=>{
+  const data = filteredProps.map(p=>{
     const rooms = parseRoomCodes(p.room_codes);
     const lots  = parseCarparkLots(p.carpark_lots);
     const tList = active.filter(t=>t.property_id===p.id);
@@ -7143,11 +7201,18 @@ function renderVacancies(){
   const totalRooms    = data.reduce((s,d)=>s+d.rooms.length, 0);
   const totalLots     = data.reduce((s,d)=>s+d.lots.length, 0);
 
+  // Summary — note if a filter is active
+  const filterNote = (cityFil.length || typeFil.length) ? ' <span class="text-[color:var(--muted)] font-normal">(filtered)</span>' : '';
   const sumEl = $('#vacSummary');
-  if(sumEl) sumEl.innerHTML = `<b class="text-[#92400E]">${totalVacRooms}</b> / ${totalRooms} rooms vacant${totalLots ? ` · <b class="text-[#991B1B]">${totalVacLots}</b> / ${totalLots} carparks vacant` : ''}`;
+  if(sumEl) sumEl.innerHTML = `<b class="text-[#92400E]">${totalVacRooms}</b> / ${totalRooms} rooms vacant${totalLots ? ` · <b class="text-[#991B1B]">${totalVacLots}</b> / ${totalLots} carparks vacant` : ''}${filterNote}`;
+
+  // Always render the filter bar first
+  renderVacFilterBar();
 
   if(!propsWithVacs.length){
-    $('#vacList').innerHTML = '<div class="text-center text-slate-400 py-10 text-sm">🎉 No vacancies — every configured room and carpark is occupied.</div>';
+    $('#vacList').innerHTML = (cityFil.length || typeFil.length)
+      ? '<div class="text-center text-slate-400 py-10 text-sm">No vacancies match the current filter.</div>'
+      : '<div class="text-center text-slate-400 py-10 text-sm">🎉 No vacancies — every configured room and carpark is occupied.</div>';
     return;
   }
 
@@ -7173,8 +7238,12 @@ function renderVacancies(){
       </div>`;
     }).join('');
     const cityBadge = d.p.city ? ` <span class="ml-1 px-1.5 py-0.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-[10px] font-bold">${esc(d.p.city)}</span>` : '';
+    const ptype = String(d.p.property_type||'H2M').toUpperCase();
+    const typeBadge = ptype==='R2R'
+      ? ' <span class="ml-0.5 px-1.5 py-0.5 rounded bg-[#FFF4E5] text-[#F4811F] text-[10px] font-bold">Own Unit</span>'
+      : ' <span class="ml-0.5 px-1.5 py-0.5 rounded bg-[#E8F8FA] text-[color:var(--brand)] text-[10px] font-bold">Help Manage</span>';
     return `<div class="mb-4">
-      <div class="font-extrabold text-sm text-slate-800">${esc(d.p.condo)} ${esc(d.p.unit)}${cityBadge}</div>
+      <div class="font-extrabold text-sm text-slate-800">${esc(d.p.condo)} ${esc(d.p.unit)}${cityBadge}${typeBadge}</div>
       ${lines}
     </div>`;
   }).join('');
