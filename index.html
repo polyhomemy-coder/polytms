@@ -7462,18 +7462,10 @@ function buildReportLineMap(P, ctx, roomTenancies){
     if(!lineMap.has(k)) lineMap.set(k, {type, code, rental:0, aircond:0, tenant:null});
     return lineMap.get(k);
   };
-  // Seed: property's configured rooms + tenancies.
-  // Carpark lots are NOT pre-seeded from property config — a carpark row
-  // only appears in the report once a tenant is assigned to that lot (or a
-  // payment is recorded). This prevents empty carpark rows on new properties.
+  // Seed: property's configured rooms AND carpark lots from property config.
+  // Both always appear in the report — vacant lots show "—" for tenancy.
   parseRoomCodes(P && P.room_codes).forEach(code=> ensureLine('room', code));
-  // Seed carpark lines only for lots that have an assigned tenant
-  (allTenants||tenants||[]).forEach(t=>{
-    const cpProp = t.carpark_property_id || t.property_id;
-    if(t.carpark && Number(t.carpark_rental||0) > 0 && cpProp === (P && P.id)){
-      ensureLine('carpark', normCarpark(t.carpark));
-    }
-  });
+  parseCarparkLots(P && P.carpark_lots).forEach(lot=> ensureLine('carpark', lot));
   roomTenancies.forEach(t=>{
     const line = ensureLine('room', t.room_code);
     if(!line.tenant) line.tenant = t;
@@ -7681,25 +7673,32 @@ function renderReportHTML(ctx, opts){
       start: t.agreement_start, end: t.agreement_end, mo
     });
   });
-  // Carparks belonging to THIS property (cross-property aware)
+  // Carparks belonging to THIS property (cross-property aware) — assigned tenants
+  const assignedCpLots = new Set();
   (allTenants||tenants||[]).forEach(t=>{
     const cpFull = Number(t.carpark_rental||0);
     const cpProp = t.carpark_property_id || t.property_id;
     if(!t.carpark || cpFull<=0 || cpProp!==P.id) return;
-    // Skip if tenant's room already covers this period AND it's the same
-    // person — show one row keyed to the carpark code instead.
+    const lot = normCarpark(t.carpark);
+    assignedCpLots.add(lot);
     const mo = tenureMonths(t.agreement_start, t.agreement_end);
     tenancyEntries.push({
-      label: 'Carpark '+normCarpark(t.carpark),
+      label: 'Carpark '+lot,
       start: t.agreement_start, end: t.agreement_end, mo
     });
   });
+  // Vacant carpark lots — configured on the property but no tenant assigned yet
+  parseCarparkLots(P && P.carpark_lots).forEach(lot=>{
+    if(!assignedCpLots.has(lot)){
+      tenancyEntries.push({ label:'Carpark '+lot, start:null, end:null, mo:null, vacant:true });
+    }
+  });
   const tenancyRows = tenancyEntries.map((e,i)=>`
     <div class="tbl-row grid-tenancy ${i%2?'alt':''}">
-      <span class="tbl-cell">${esc(e.label)}</span>
-      <span class="tbl-cell muted">${fmtDate(e.start)}</span>
-      <span class="tbl-cell muted">${fmtDate(e.end)}</span>
-      <span class="tbl-cell" style="text-align:center;font-weight:700;color:#F4811F">${e.mo!=null?e.mo+' mo':'—'}</span>
+      <span class="tbl-cell"${e.vacant?' style="color:#94A3B8"':''}>${esc(e.label)}${e.vacant?' <span style="font-size:10px;font-weight:600;background:#F1F5F9;color:#94A3B8;border-radius:4px;padding:1px 5px;margin-left:4px">Vacant</span>':''}</span>
+      <span class="tbl-cell muted">${fmtDate(e.start)||'—'}</span>
+      <span class="tbl-cell muted">${fmtDate(e.end)||'—'}</span>
+      <span class="tbl-cell" style="text-align:center;font-weight:700;color:${e.vacant?'#94A3B8':'#F4811F'}">${e.mo!=null?e.mo+' mo':'—'}</span>
     </div>`).join('') || `<div class="tbl-row grid-tenancy"><span class="tbl-cell muted" style="grid-column:1/5;text-align:center">No tenancies active this month</span></div>`;
 
   const incomeRows = lines.map((l,i)=>`
