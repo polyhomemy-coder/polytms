@@ -137,7 +137,7 @@
   .row-bad td{background:#FEF2F2 !important}
   .row-bad:hover td{background:#FEE2E2 !important}
   /* Alternating property-group banding in the tenant table */
-  table.data tr.prop-grp-alt td{background:#EEF9FB}
+  table.data tr.prop-grp-alt td{background:#DCF2FA}
   table.data tr.prop-grp-alt:hover td{background:#FFF4E0}
   /* Inline SVG action-button helpers */
   .icon-wrap{display:inline-flex;align-items:center;gap:4px;line-height:1}
@@ -283,7 +283,24 @@
      via the Supabase dashboard). After successful sign-in, the app boots
      normally. Sign-out button in the sidebar bottom returns the user
      here. -->
-<div id="loginOverlay" class="fixed inset-0 z-50 flex" style="background:#091922">
+<!-- ── APP LOADING SCREEN ──────────────────────────────────────
+     Shown immediately on every page load. Hidden once the session
+     check completes — avoids the flash of the login page on refresh.
+──────────────────────────────────────────────────────────────── -->
+<div id="appLoadingScreen" class="fixed inset-0 z-[60] flex flex-col items-center justify-center" style="background:#091922">
+  <!-- Logo -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+    <div style="font-size:32px;font-weight:900;letter-spacing:-1px;color:#fff;font-family:'Plus Jakarta Sans',sans-serif">
+      POLY<span style="color:#00B4CC">H</span><span style="color:#00B4CC">O</span>ME
+    </div>
+    <div style="font-size:10px;font-weight:800;letter-spacing:4px;color:#4A8A95;text-transform:uppercase">Tenant Management System</div>
+  </div>
+  <!-- Spinner -->
+  <div style="margin-top:40px;width:36px;height:36px;border:3px solid rgba(0,180,204,.2);border-top-color:#00B4CC;border-radius:50%;animation:appSpinner .8s linear infinite"></div>
+  <style>@keyframes appSpinner{to{transform:rotate(360deg)}}</style>
+</div>
+
+<div id="loginOverlay" class="fixed inset-0 z-50 flex hidden" style="background:#091922">
 
   <!-- LEFT HERO PANEL -->
   <div id="loginLeft" style="flex:1;background:linear-gradient(155deg,#091922 0%,#004C56 45%,#00626E 75%,#0090A3 100%);display:flex;flex-direction:column;justify-content:space-between;padding:52px 60px;position:relative;overflow:hidden;min-height:100vh">
@@ -9649,7 +9666,12 @@ end$$;`;
 // ============================================================
 //  AUTH UI helpers (production login flow)
 // ============================================================
+function hideAppLoading(){
+  const el = document.getElementById('appLoadingScreen');
+  if(el) el.style.display = 'none';
+}
 function showLogin(){
+  hideAppLoading();
   const o = document.getElementById('loginOverlay');
   if(o){ o.classList.remove('hidden'); o.classList.add('flex'); o.style.display=''; }
 }
@@ -9709,7 +9731,8 @@ async function signOutAndReturnToLogin(){
       showLogin();
       return;
     }
-    // Session present → hide login overlay, show user info + boot the app.
+    // Session present → hide loading screen + login overlay, boot the app.
+    hideAppLoading();
     hideLogin();
     showUserBox(sess.user?.email);
     await bootApp();
@@ -9725,7 +9748,7 @@ async function signOutAndReturnToLogin(){
   }
   if(url && key){
     try{ exitDemoMode(); }catch(_){}
-    try{ await connect(url,key); hideSetup(); hideLogin(); await bootApp(); }
+    try{ await connect(url,key); hideAppLoading(); hideSetup(); hideLogin(); await bootApp(); }
     catch(e){ showSetup(); $('#inpUrl').value=url; $('#inpKey').value=key; $('#setupStatus').innerHTML='<span class="text-rose-600">'+esc(e.message||'Failed')+'</span>'; }
   }else{
     showSetup();
