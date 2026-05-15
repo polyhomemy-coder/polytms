@@ -3733,17 +3733,26 @@ function renderHelpManageDashboard(){
     if(nett >  0) ownIssued += nett;
     if(nett <  0) ownDue    += nett; // stays negative
     // ── Balance Repayment ────────────────────────────────────────────────
-    // gross = net rental income BEFORE balance forward deduction
-    const gross = nett + bfAmt;
-    // Conditions to trigger:
-    //   1. bfAmt > 0  — there is a balance forward expense this month
-    //   2. gross > 0  — property generated positive net income (before BF)
-    // Formula: balRepay = bfAmt − gross  (remaining balance after this month's income)
-    //   e.g. bfAmt=1500, gross=100  →  remaining = 1500−100 = 1400
-    //   If gross >= bfAmt: balance fully cleared this month (capped at 0)
-    if(bfAmt > 0 && gross > 0){
+    // Only triggered when this month has a balance forward expense (bfAmt > 0).
+    //
+    // Condition A — nett < 0 (Nett Rental Income is negative):
+    //   Owner is still at a loss even with BF included.
+    //   repayment = bfAmt + nett   (gross income before BF deduction)
+    //   e.g. bfAmt=1500, nett=−300  →  1500 + (−300) = 1200
+    //
+    // Condition B — nett > 0 (Nett Rental Income is positive):
+    //   This month's income covered everything; repayment = the BF amount itself.
+    //   repayment = bfAmt
+    //   e.g. bfAmt=1500, nett=+200  →  repayment = 1500
+    //
+    // Sum across all units that have a BF this month.
+    if(bfAmt > 0){
       balRepayHasData = true;
-      balRepay += Math.max(0, bfAmt - gross);
+      if(nett < 0){
+        balRepay += bfAmt + nett;   // Condition A: bfAmt + nett (e.g. 1500 + (−300) = 1200)
+      } else {
+        balRepay += bfAmt;          // Condition B: full BF amount (e.g. 1500 + 200 → 1500)
+      }
     }
   }
   animateNumber($('#stOwnIssued'), ownIssued, {prefix:'RM '});
@@ -3758,9 +3767,7 @@ function renderHelpManageDashboard(){
   ['#stOwnIssuedSub','#stOwnDueSub','#stBalRepaySub'].forEach((id,i)=>{
     const el = document.querySelector(id); if(!el) return;
     const brSubText = balRepayHasData
-      ? (balRepay === 0
-          ? 'balance forward fully cleared this month'
-          : 'remaining balance after this month’s net income')
+      ? 'total balance to recover from owner this month'
       : 'no balance forward active this month';
     const txt = ['positive net incomes paid out','cumulative loss carried by owners', brSubText][i];
     el.textContent = txt + ' · ' + monthName;
