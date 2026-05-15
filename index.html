@@ -133,6 +133,9 @@
   .row-warn:hover td{background:#FFF6D6 !important}
   .row-bad td{background:#FEF2F2 !important}
   .row-bad:hover td{background:#FEE2E2 !important}
+  /* Alternating property-group banding in the tenant table */
+  .prop-grp-alt td{background:#F0FAFB}
+  .prop-grp-alt:hover td{background:#E4F5F7}
   /* Inline SVG action-button helpers */
   .icon-wrap{display:inline-flex;align-items:center;gap:4px;line-height:1}
   .icon-wrap svg{flex:0 0 auto;display:block}
@@ -1297,6 +1300,8 @@
         <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openTenantModal()">+ Add Tenant</button>
       </div>
     </div>
+    <!-- City filter chip bar -->
+    <div id="tenantCityBar" class="flex items-center flex-wrap gap-2 mb-2"></div>
     <div class="card p-0 overflow-hidden">
       <div class="overflow-x-auto"><table class="data" id="tenantTable"></table></div>
     </div>
@@ -1659,6 +1664,7 @@ let state = {
   propSub: 'all',             // 'all' | 'vacancies' — Properties parent sub-pane
   propCityFilter: [],         // selected city values — empty = show all cities
   propTypeFilter: [],         // selected types ('H2M'|'R2R') — empty = show both
+  tenantCityFilter: [],       // selected city values for tenant list — empty = show all
   tenantSub: 'active',        // 'active' | 'movedout' — Tenants parent sub-pane
 };
 
@@ -2278,9 +2284,25 @@ document.addEventListener('click', e=>{
 // --- Tenants sub-tabs (Active / Moved Out) ---
 document.addEventListener('click', e=>{
   const btn = e.target.closest('#tenantSubtabs .subtab-btn');
-  if(!btn) return;
-  state.tenantSub = btn.dataset.tsub;
-  renderTenants();
+  if(btn){
+    state.tenantSub = btn.dataset.tsub;
+    renderTenants();
+    return;
+  }
+  // Tenant city filter chips
+  const chip = e.target.closest('#tenantCityBar .prop-fchip');
+  if(chip){
+    const val = chip.dataset.value;
+    const arr = state.tenantCityFilter = (state.tenantCityFilter||[]).slice();
+    const idx = arr.indexOf(val);
+    if(idx>=0) arr.splice(idx,1); else arr.push(val);
+    renderTenants();
+    return;
+  }
+  if(e.target.closest('#tenantCityClear')){
+    state.tenantCityFilter = [];
+    renderTenants();
+  }
 });
 
 // --- month change -------------------------------------------
@@ -4234,15 +4256,59 @@ function endingSoonClass(t){
   return null;
 }
 
+// Renders city filter chips above the tenant table.
+function renderTenantCityBar(){
+  const bar = $('#tenantCityBar');
+  if(!bar) return;
+  const cityFil = state.tenantCityFilter || [];
+
+  // Derive distinct cities from all properties
+  const seen = new Set();
+  let hasNoCity = false;
+  state.properties.forEach(p=>{ if(p.city) seen.add(p.city); else hasNoCity = true; });
+  const cities = [...seen].sort((a,b)=>a.localeCompare(b));
+
+  if(!cities.length && !hasNoCity){ bar.innerHTML=''; return; }
+
+  const chip = (label, isActive, value) =>
+    `<button type="button" class="prop-fchip ${isActive?'active':''}" data-value="${esc(value)}">${esc(label)}</button>`;
+
+  const chips = [
+    ...cities.map(c => chip(c, cityFil.includes(c), c)),
+    hasNoCity ? chip('(no city)', cityFil.includes('__none__'), '__none__') : ''
+  ].filter(Boolean).join('');
+
+  const clearBtn = cityFil.length
+    ? `<button type="button" id="tenantCityClear" class="text-xs font-bold text-rose-600 hover:underline ml-1">✕ Clear</button>`
+    : '';
+
+  bar.innerHTML = `
+    <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">City</span>
+    ${chips}${clearBtn}`;
+}
+
 function renderTenants(){
   // Reflect stored sub-tab selection on pane visibility
   const sub = state.tenantSub || 'active';
   document.querySelectorAll('#tenantSubtabs .subtab-btn').forEach(x=>x.classList.toggle('active', x.dataset.tsub===sub));
   const filt = $('#tenantFilter')?.value || '';
   const q = (state.tenantQuery||'').toLowerCase();
+  const cityFil = state.tenantCityFilter || [];
+
+  // Render city filter bar
+  renderTenantCityBar();
+
   // Filter by Active vs Moved Out first
   let tenants = state.tenants.filter(t=> sub==='movedout' ? t.active===false : t.active!==false);
   if(filt) tenants = tenants.filter(t=>t.property_id===filt);
+  // City filter — match via the tenant's property city
+  if(cityFil.length){
+    tenants = tenants.filter(t=>{
+      const p = state.properties.find(x=>x.id===t.property_id);
+      const city = p?.city || '__none__';
+      return cityFil.includes(city);
+    });
+  }
   if(q){
     tenants = tenants.filter(t=>{
       const p = state.properties.find(x=>x.id===t.property_id);
@@ -4265,9 +4331,14 @@ function renderTenants(){
     return compareRoom(a.room_code, b.room_code);
   });
   const isMovedOut = sub==='movedout';
+  // Track property groups for alternating row banding
+  let _lastPropId = null, _propGrp = -1;
   const rows = tenants.map(t=>{
     const p = state.properties.find(x=>x.id===t.property_id);
     const mo = tenureMonths(t.agreement_start, t.agreement_end);
+    // Alternate background per property group
+    if(t.property_id !== _lastPropId){ _lastPropId = t.property_id; _propGrp++; }
+    const grpCls = (_propGrp % 2 === 1) ? 'prop-grp-alt' : '';
     // Highlight rows whose contract ends within 60 days (only on the Active list)
     const cls = isMovedOut ? '' : (endingSoonClass(t)||'');
     const dte = daysToEnd(t);
@@ -4279,7 +4350,7 @@ function renderTenants(){
     }
     if(isMovedOut){
       const moDate = t.move_out_date ? fmtDate(t.move_out_date) : (t.agreement_end ? fmtDate(t.agreement_end) : '—');
-      return `<tr>
+      return `<tr class="${grpCls}">
         <td class="font-semibold">${esc(t.name)}</td>
         <td>${esc(p ? (p.condo+' · '+p.unit) : '—')}</td>
         <td class="text-center font-bold">${esc(t.room_code||'')}</td>
@@ -4295,7 +4366,7 @@ function renderTenants(){
         </td>
       </tr>`;
     }
-    return `<tr class="${cls}">
+    return `<tr class="${[cls, grpCls].filter(Boolean).join(' ')}">
       <td class="font-semibold">${esc(t.name)}${endingChip}</td>
       <td>${esc(p ? (p.condo+' · '+p.unit) : '—')}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
@@ -7546,17 +7617,29 @@ function openTenantModal(id, prefill){
       <div><label class="label">Key Card Set</label><input type="number" min="0" step="1" id="f_kcs" class="input" value="${t.key_card_set??1}"></div>
       <div><label class="label">Emergency Name</label><input id="f_en" class="input" value="${esc(t.emergency_name||'')}"></div>
       <div><label class="label">Emergency Contact</label><input id="f_ec" class="input" value="${esc(t.emergency_contact||'')}"></div>
-      <div><label class="label">Room Code * (A/M/C/I/N…)</label><input id="f_room" class="input" value="${esc(t.room_code||'')}"></div>
-      <div><label class="label">Room Rental (RM)</label><input type="number" step="0.01" id="f_rr" class="input" value="${t.room_rental??''}"></div>
-      <div><label class="label">Room Deposit (RM) <span class="help">defaults to room rental</span></label><input type="number" step="0.01" id="f_rd" class="input" value="${t.room_deposit??''}" placeholder="auto = room rental"></div>
-      <div><label class="label">Carpark</label><input id="f_cp" class="input" value="${esc(t.carpark||'')}"></div>
-      <div><label class="label">Carpark Rental (RM)</label><input type="number" step="0.01" id="f_cpr" class="input" value="${t.carpark_rental??0}"></div>
-      <div class="md:col-span-2"><label class="label">Carpark belongs to <span class="help">(only set if the carpark is on a different property than the room)</span></label>
-        <select id="f_cppid" class="input">
-          <option value="">— Same as room property —</option>
-          ${state.properties.map(p=>`<option value="${p.id}" ${t.carpark_property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
-        </select></div>
-      <div class="md:col-span-2"><label class="label">Carpark Deposit (RM) <span class="help">defaults to carpark rental</span></label><input type="number" step="0.01" id="f_cpd" class="input" value="${t.carpark_deposit??''}" placeholder="auto = carpark rental"></div>
+      <!-- ── Room block ── -->
+      <div class="md:col-span-2 bg-[#EEF9FB] border border-[#C8EDF2] rounded-xl p-3">
+        <div class="text-[10px] font-extrabold uppercase tracking-wider text-[color:var(--brand)] mb-2">🏠 Room</div>
+        <div class="grid md:grid-cols-3 gap-3">
+          <div><label class="label">Room Code * (A/M/C/I/N…)</label><input id="f_room" class="input" value="${esc(t.room_code||'')}"></div>
+          <div><label class="label">Room Rental (RM)</label><input type="number" step="0.01" id="f_rr" class="input" value="${t.room_rental??''}"></div>
+          <div><label class="label">Room Deposit (RM) <span class="help">defaults to rental</span></label><input type="number" step="0.01" id="f_rd" class="input" value="${t.room_deposit??''}" placeholder="auto = room rental"></div>
+        </div>
+      </div>
+      <!-- ── Carpark block ── -->
+      <div class="md:col-span-2 bg-[#FFF8F0] border border-[#FFD9A8] rounded-xl p-3">
+        <div class="text-[10px] font-extrabold uppercase tracking-wider text-[#F4811F] mb-2">🚗 Carpark</div>
+        <div class="grid md:grid-cols-3 gap-3">
+          <div><label class="label">Carpark</label><input id="f_cp" class="input" value="${esc(t.carpark||'')}"></div>
+          <div><label class="label">Carpark Rental (RM)</label><input type="number" step="0.01" id="f_cpr" class="input" value="${t.carpark_rental??0}"></div>
+          <div><label class="label">Carpark Deposit (RM) <span class="help">defaults to rental</span></label><input type="number" step="0.01" id="f_cpd" class="input" value="${t.carpark_deposit??''}" placeholder="auto = carpark rental"></div>
+          <div class="md:col-span-3"><label class="label">Carpark belongs to <span class="help">(only set if carpark is at a different property than the room)</span></label>
+            <select id="f_cppid" class="input">
+              <option value="">— Same as room property —</option>
+              ${state.properties.map(p=>`<option value="${p.id}" ${t.carpark_property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
+            </select></div>
+        </div>
+      </div>
       <div><label class="label">Agreement Start</label><input type="date" id="f_start" class="input" value="${t.agreement_start||''}"></div>
       <div><label class="label">Tenure (months)</label><input type="number" min="1" step="1" id="f_tenure" class="input" value="${tenureMonths(t.agreement_start,t.agreement_end)??''}" placeholder="e.g. 12"></div>
       <div class="md:col-span-2"><label class="label">Agreement End <span class="help">(auto-calculated from start + tenure)</span></label><input type="date" id="f_end" class="input" value="${t.agreement_end||''}"></div>
