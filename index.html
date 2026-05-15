@@ -6213,12 +6213,20 @@ function renderAircon(){
   });
   const rows = list.map(r=>{
     const p = state.properties.find(x=>x.id===r.property_id);
-    return `<tr>
+    const isIsewa = !!(r.isewa_tran_id);
+    const isewaTag = isIsewa
+      ? `<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-200 ml-1" title="Auto-imported from iSewa">⚡ iSewa</span>`
+      : '';
+    // For iSewa rows show a cleaner remark (strip the raw IDs from display)
+    const displayRemark = isIsewa
+      ? (r.remark||'').replace(/\s*·?\s*TranID:[^\s·]+/,'').trim()
+      : esc(r.remark||'');
+    return `<tr${isIsewa ? ' class="bg-sky-50/40"' : ''}>
       <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
       <td class="font-bold">Room ${esc(r.room_code)}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td>${fmtDate(r.topped_up_on)}</td>
-      <td>${esc(r.remark||'')}</td>
+      <td>${displayRemark}${isewaTag}</td>
       <td class="text-right whitespace-nowrap">
         <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openAirModal('${r.id}')">Edit</button>
         <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delAircon('${r.id}')">Del</button>
@@ -8905,8 +8913,13 @@ create table if not exists public.aircon_topups (
   property_id uuid references public.properties(id) on delete cascade,
   year int not null, month int not null check (month between 1 and 12),
   room_code text not null, amount numeric(10,2) not null default 0,
-  topped_up_on date, remark text, created_at timestamptz default now()
+  topped_up_on date, remark text,
+  isewa_tran_id text,
+  created_at timestamptz default now()
 );
+create unique index if not exists uq_aircon_topups_isewa_tran_id
+  on public.aircon_topups (isewa_tran_id)
+  where isewa_tran_id is not null;
 create table if not exists public.expenses (
   id uuid primary key default gen_random_uuid(),
   property_id uuid references public.properties(id) on delete cascade,
