@@ -3713,7 +3713,7 @@ function renderHelpManageDashboard(){
   //   ownIssued = Σ max(nett, 0)              (paid out to owners)
   //   ownDue    = Σ min(nett, 0)              (negative — total owed back)
   //   balRepay  = Σ |min(thisMonthGross, 0)|  (this month's NEW loss only)
-  let ownIssued = 0, ownDue = 0, balRepay = 0;
+  let ownIssued = 0, ownDue = 0, balRepay = 0, balRepayHasData = false;
   // Use the loaded month data (state.expenses etc.) — no DB roundtrip needed.
   // Compute base nett per property in the current month, then fold in
   // any chained BF that's already been auto-materialized into the
@@ -3732,16 +3732,37 @@ function renderHelpManageDashboard(){
     const nett = pPay + pAir + pExt - pExp;
     if(nett >  0) ownIssued += nett;
     if(nett <  0) ownDue    += nett; // stays negative
-    // This month's gross loss (before BF was deducted)
+    // ── Balance Repayment ────────────────────────────────────────────────
+    // gross = net rental income BEFORE balance forward deduction
     const gross = nett + bfAmt;
-    if(gross < 0) balRepay += -gross;
+    // Conditions to trigger:
+    //   1. bfAmt > 0  — there is a balance forward expense this month
+    //   2. gross > 0  — property generated positive net income (before BF)
+    // Formula: balRepay = bfAmt − gross  (remaining balance after this month's income)
+    //   e.g. bfAmt=1500, gross=100  →  remaining = 1500−100 = 1400
+    //   If gross >= bfAmt: balance fully cleared this month (capped at 0)
+    if(bfAmt > 0 && gross > 0){
+      balRepayHasData = true;
+      balRepay += Math.max(0, bfAmt - gross);
+    }
   }
   animateNumber($('#stOwnIssued'), ownIssued, {prefix:'RM '});
   animateNumber($('#stOwnDue'),    ownDue,    {prefix:'RM '});
-  animateNumber($('#stBalRepay'),  balRepay,  {prefix:'RM '});
+  // Balance Repayment card: only animate when repayment conditions are met
+  const brEl = $('#stBalRepay');
+  if(balRepayHasData){
+    animateNumber(brEl, balRepay, {prefix:'RM '});
+  } else {
+    if(brEl){ brEl.textContent = 'RM –'; brEl._lastNum = 0; }
+  }
   ['#stOwnIssuedSub','#stOwnDueSub','#stBalRepaySub'].forEach((id,i)=>{
     const el = document.querySelector(id); if(!el) return;
-    const txt = ['positive net incomes paid out','cumulative loss carried by owners','this month\u2019s gross loss (excl. BF)'][i];
+    const brSubText = balRepayHasData
+      ? (balRepay === 0
+          ? 'balance forward fully cleared this month'
+          : 'remaining balance after this month’s net income')
+      : 'no balance forward active this month';
+    const txt = ['positive net incomes paid out','cumulative loss carried by owners', brSubText][i];
     el.textContent = txt + ' · ' + monthName;
   });
 
