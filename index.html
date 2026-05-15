@@ -136,9 +136,12 @@
   .row-warn:hover td{background:#FFF6D6 !important}
   .row-bad td{background:#FEF2F2 !important}
   .row-bad:hover td{background:#FEE2E2 !important}
-  /* Alternating property-group banding in the tenant table */
+  /* Alternating property-group banding — tenant, income, expenses tables */
   table.data tr.prop-grp-alt td{background:#F1F9FD}
   table.data tr.prop-grp-alt:hover td{background:#FFF4E0}
+  /* iSewa auto-import row tint (overrides group band) */
+  table.data tr.isewa-row td{background:rgba(224,242,254,.45)!important}
+  table.data tr.isewa-row:hover td{background:#FFF4E0!important}
   /* Inline SVG action-button helpers */
   .icon-wrap{display:inline-flex;align-items:center;gap:4px;line-height:1}
   .icon-wrap svg{flex:0 0 auto;display:block}
@@ -6177,8 +6180,11 @@ function renderPayments(){
     return compareRoom(a.room_code, b.room_code);
   });
 
+  let _payLastPid = null, _payGrp = -1;
   const rows = list.map(r=>{
     const p = state.properties.find(x=>x.id===r.property_id);
+    if(r.property_id !== _payLastPid){ _payLastPid = r.property_id; _payGrp++; }
+    const grpCls = (_payGrp % 2 === 1) ? 'prop-grp-alt' : '';
     // Look up the tenant for this (property, room) so we can show a
     // little chip indicating that this consolidated amount matches their
     // room+carpark expected total — gives the user instant visual feedback.
@@ -6202,7 +6208,7 @@ function renderPayments(){
         ? `<span class="ml-2 chip" style="background:#DCFCE7;color:#065F46;font-size:10px">↔ Splits ${fmt(t.room_rental)} + ${fmt(t.carpark_rental)}</span>`
         : `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">≠ Expected ${fmt(expected)}</span>`;
     }
-    return `<tr>
+    return `<tr class="${grpCls}">
       <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
       <td class="font-bold">Room ${esc(r.room_code)}${splitChip}</td>
       <td class="num">${fmt(r.amount)}</td>
@@ -6488,8 +6494,11 @@ function renderRentStatus(pid){
   const totExp  = rows.reduce((s,r)=>s+r.expected,0);
   const totPaid = rows.reduce((s,r)=>s+r.paid,0);
 
+  let _rsLastPid = null, _rsGrp = -1;
   const html = rows.map(r=>{
     const t=r.tenant;
+    if((r.prop?.id||'') !== _rsLastPid){ _rsLastPid = r.prop?.id||''; _rsGrp++; }
+    const grpCls = (_rsGrp % 2 === 1) ? 'prop-grp-alt' : '';
     // ----- Pro-rate notice chips -----
     // 🆕  First-month pro-rate: tenant moved in this month — recognize the
     //     pro-rated portion as income; expect their cash next month.
@@ -6514,7 +6523,7 @@ function renderRentStatus(pid){
     if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month){
       proChips += `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FFE4E6;color:#9F1239">🚪 Last-month pro-rate RM ${lp.total} (${lp.daysOccupied}/${lp.daysInMonth}d)</span></div>`;
     }
-    return `<tr>
+    return `<tr class="${grpCls}">
       <td class="font-semibold"><button class="text-left hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.name||'')}</button>${proChips}</td>
       <td>${esc(r.prop? r.prop.condo+' · '+r.prop.unit : '')}</td>
       <td class="text-center font-bold"><button class="font-bold hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.room_code||'')}</button></td>
@@ -6561,8 +6570,11 @@ function renderAircon(){
     if(pc) return pc;
     return compareRoom(a.room_code, b.room_code);
   });
+  let _airLastPid = null, _airGrp = -1;
   const rows = list.map(r=>{
     const p = state.properties.find(x=>x.id===r.property_id);
+    if(r.property_id !== _airLastPid){ _airLastPid = r.property_id; _airGrp++; }
+    const grpCls = (_airGrp % 2 === 1) ? 'prop-grp-alt' : '';
     const isIsewa = !!(r.isewa_tran_id);
     const isewaTag = isIsewa
       ? `<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-200 ml-1" title="Auto-imported from iSewa">⚡ iSewa</span>`
@@ -6571,7 +6583,8 @@ function renderAircon(){
     const displayRemark = isIsewa
       ? (r.remark||'').replace(/\s*·?\s*TranID:[^\s·]+/,'').trim()
       : esc(r.remark||'');
-    return `<tr${isIsewa ? ' class="bg-sky-50/40"' : ''}>
+    const trCls = [grpCls, isIsewa ? 'isewa-row' : ''].filter(Boolean).join(' ');
+    return `<tr class="${trCls}">
       <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
       <td class="font-bold">Room ${esc(r.room_code)}</td>
       <td class="num">${fmt(r.amount)}</td>
@@ -6682,9 +6695,12 @@ function buildExpenseSection(items, opts){
   const showSubtotal = opts.showSubtotal !== false;
   const cat = opts.cat;
   const defaultPid = opts.defaultPid || '';
+  let _expLastPid = null, _expGrp = -1;
   const rows = items.map(r=>{
     const p = state.properties.find(x=>x.id===r.property_id);
-    return `<tr class="anim-row">
+    if(r.property_id !== _expLastPid){ _expLastPid = r.property_id; _expGrp++; }
+    const grpCls = (_expGrp % 2 === 1) ? 'prop-grp-alt' : '';
+    return `<tr class="anim-row ${grpCls}">
       <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
       <td>${esc(r.description||'')}</td>
       <td class="num">${fmt(r.amount)}</td>
@@ -6911,9 +6927,12 @@ function renderExpenses(){
 function renderExtras(){
   const pid = $('#extSelProp').value;
   const list = pid ? state.extras.filter(p=>p.property_id===pid) : state.extras;
+  let _extLastPid = null, _extGrp = -1;
   const rows = list.map(r=>{
     const p = state.properties.find(x=>x.id===r.property_id);
-    return `<tr>
+    if(r.property_id !== _extLastPid){ _extLastPid = r.property_id; _extGrp++; }
+    const grpCls = (_extGrp % 2 === 1) ? 'prop-grp-alt' : '';
+    return `<tr class="${grpCls}">
       <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
       <td>${esc(r.description||'')}</td>
       <td class="num">${fmt(r.amount)}</td>
