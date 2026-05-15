@@ -7168,6 +7168,223 @@ function renderVacancies(){
   }).join('');
 }
 
+// ============================================================
+//  TENANT BOOKING TEXT PARSER
+//  Parses WhatsApp-style booking confirmations and returns a
+//  prefill object that matches the tenant form fields.
+// ============================================================
+function parseTenantBookingText(raw){
+  const lines = raw.split('\n').map(s=>s.trim()).filter(Boolean);
+
+  // Extract the first match of a regex from a list of lines.
+  // Returns '' for dash/nil/n/a values (treated as empty).
+  const get = (lines_, re) => {
+    for(const l of lines_){
+      const m = l.match(re);
+      if(m && m[1]!=null){
+        const v = m[1].trim().replace(/^\*+|\*+$/g,''); // strip bold markers
+        return /^[-–—]$/.test(v) || /^(nil|n\/a|tbc)$/i.test(v) ? '' : v;
+      }
+    }
+    return '';
+  };
+
+  // Parse DD/M/YY or DD/MM/YYYY → YYYY-MM-DD
+  const toISO = s => {
+    if(!s) return '';
+    const m = s.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+    if(!m) return '';
+    let [,d,mo,y] = m;
+    if(y.length===2) y = '20'+y;
+    return `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  };
+
+  // Contract period string → months integer
+  const toMonths = s => {
+    if(!s) return null;
+    const yr = s.match(/(\d+)\s*year/i);  if(yr) return Number(yr[1])*12;
+    const mo = s.match(/(\d+)\s*month/i); if(mo) return Number(mo[1]);
+    return null;
+  };
+
+  // Slice a section between two heading regexes
+  const section = (startRe, stopRe) => {
+    let inside=false, out=[];
+    for(const l of lines){
+      if(!inside && startRe.test(l)){ inside=true; continue; }
+      if(inside && stopRe && stopRe.test(l)) break;
+      if(inside) out.push(l);
+    }
+    return out;
+  };
+
+  const result = {};
+
+  // ── Rental info ──────────────────────────────────────────────
+  const num = v => { const n=Number((v||'').replace(/[^\d.]/g,'')); return isNaN(n)?0:n; };
+  result._condo         = get(lines, /condo\s*[:：]\s*(.+)/i);
+  result._unit          = get(lines, /unit\s*(?:no\.?)?\s*[:：]\s*(.+)/i);
+  result.room_code      = (get(lines, /^room\s*[:：]\s*(.+)/i)||'').toUpperCase();
+  const cpRaw           =  get(lines, /carpark\s*(?:lot)?\s*[:：]\s*(.+)/i);
+  result.carpark        = cpRaw || '';
+  result.room_rental    = num(get(lines, /room\s*rental\s*[:：]\s*(?:RM\s*)?(.+)/i));
+  result.carpark_rental = num(get(lines, /carpark\s*rental\s*[:：]\s*(?:RM\s*)?(.+)/i));
+  result.room_deposit   = num(get(lines, /rental\s*deposit\s*[:：]\s*(?:RM\s*)?(.+)/i));
+  result.carpark_deposit= num(get(lines, /pa?rking\s*deposit\s*[:：]\s*(?:RM\s*)?(.+)/i));
+
+  // ── Contract period + dates ───────────────────────────────────
+  const periodStr  = get(lines, /contract\s*period\s*[:：]\s*(.+)/i);
+  result._tenure   = toMonths(periodStr);
+  const startRaw   = get(lines, /agreement\s*start\s*date\s*[:：]\s*(.+)/i);
+  result.agreement_start = toISO(startRaw);
+  if(result.agreement_start && result._tenure){
+    const sd = new Date(result.agreement_start);
+    sd.setMonth(sd.getMonth() + result._tenure);
+    sd.setDate(sd.getDate() - 1);
+    result.agreement_end = sd.toISOString().slice(0,10);
+  }
+
+  // ── Auto-match property ───────────────────────────────────────
+  if(result._condo && state.properties){
+    const cn = result._condo.toLowerCase();
+    const un = (result._unit||'').toLowerCase();
+    const hit = state.properties.find(p=>{
+      const pc = p.condo.toLowerCase(), pu = p.unit.toLowerCase();
+      const condoMatch = pc.includes(cn) || cn.includes(pc);
+      return un ? (condoMatch && pu===un) : condoMatch;
+    }) || state.properties.find(p=> p.condo.toLowerCase().includes(cn));
+    if(hit) result.property_id = hit.id;
+  }
+
+  // ── Tenant sections ───────────────────────────────────────────
+  const t1 = section(/tenant\s*1/i,  /tenant\s*2|emergency/i);
+  const t2 = section(/tenant\s*2/i,  /emergency/i);
+  const em = section(/emergency\s*contact/i, null);
+
+  const fg = (blk, re) => get(blk.length ? blk : lines, re);
+
+  // Primary (Tenant 1 block — fall back to top-level if no block found)
+  result.name        = fg(t1, /^name\s*[:：]\s*(.+)/i);
+  result.ic          = fg(t1, /nri?c\s*[\/\\]?\s*passport\s*[:：]\s*(.+)/i) ||
+                       fg(t1, /passport\s*[:：]\s*(.+)/i);
+  result.gender      = (fg(t1, /gender\s*[:：]\s*(.+)/i)||'').toLowerCase().replace(/[^a-z]/g,'');
+  result.contact     = fg(t1, /contact\s*(?:number)?\s*[:：]\s*(.+)/i);
+  result.email       = fg(t1, /email\s*[:：]\s*(.+)/i);
+  result.nationality = (fg(t1, /nationality\s*[:：]\s*(.+)/i)||'malaysian').toLowerCase();
+  result.occupation  = fg(t1, /occupation\s*[:：]\s*(.+)/i);
+  result.company     = fg(t1, /company\s*[\/\\]?\s*(?:university)?\s*[:：]\s*(.+)/i);
+
+  // Move-in date fallback (use as agreement_start if not already found)
+  if(!result.agreement_start){
+    const mi = fg(t1, /move\s*in\s*date\s*[:：]\s*(.+)/i);
+    if(mi) result.agreement_start = toISO(mi);
+  }
+
+  // Secondary (Tenant 2)
+  const t2Name = fg(t2, /^name\s*[:：]\s*(.+)/i);
+  if(t2.length && t2Name){
+    result.no_of_staying         = 2;
+    result.secondary_name        = t2Name;
+    result.secondary_ic          = fg(t2, /nri?c\s*[\/\\]?\s*passport\s*[:：]\s*(.+)/i) ||
+                                   fg(t2, /passport\s*[:：]\s*(.+)/i);
+    result.secondary_gender      = (fg(t2, /gender\s*[:：]\s*(.+)/i)||'').toLowerCase().replace(/[^a-z]/g,'');
+    result.secondary_contact     = fg(t2, /contact\s*(?:number)?\s*[:：]\s*(.+)/i);
+    result.secondary_email       = fg(t2, /email\s*[:：]\s*(.+)/i);
+    result.secondary_nationality = (fg(t2, /nationality\s*[:：]\s*(.+)/i)||'malaysian').toLowerCase();
+    result.secondary_occupation  = fg(t2, /occupation\s*[:：]\s*(.+)/i);
+    result.secondary_company     = fg(t2, /company\s*[\/\\]?\s*(?:university)?\s*[:：]\s*(.+)/i);
+  } else {
+    result.no_of_staying = 1;
+  }
+
+  // Emergency contact
+  if(em.length){
+    result.emergency_name    = fg(em, /^name\s*[:：]\s*(.+)/i);
+    result.emergency_contact = fg(em, /contact\s*[:：]\s*(.+)/i);
+  }
+
+  return result;
+}
+
+// Fill tenant form fields from parsed booking data.
+// Called by the "⚡ Parse & Fill" button inside the Add Tenant modal.
+function fillTenantFormFromPaste(){
+  const box = document.getElementById('taPasteBox');
+  if(!box || !box.value.trim()) return toast('Paste your booking text first','warn');
+
+  const d = parseTenantBookingText(box.value);
+
+  const set = (id, val) => { const el=$('#'+id); if(el && val!=null && val!=='') el.value=val; };
+  const setNum = (id, val) => { const el=$('#'+id); if(el && val!=null) el.value=val; };
+
+  // Property auto-match
+  if(d.property_id) set('f_prop', d.property_id);
+
+  // Primary tenant
+  set('f_name',    d.name);
+  set('f_ic',      d.ic);
+  set('f_contact', d.contact);
+  set('f_email',   d.email);
+  set('f_nat',     d.nationality);
+  set('f_occ',     d.occupation);
+  set('f_comp',    d.company);
+  if(d.gender) set('f_gender', d.gender);
+
+  // Room + rental
+  set('f_room', d.room_code);
+  setNum('f_rr',  d.room_rental  || '');
+  setNum('f_rd',  d.room_deposit || '');
+  set('f_cp',     d.carpark);
+  setNum('f_cpr', d.carpark_rental  || 0);
+  setNum('f_cpd', d.carpark_deposit || '');
+
+  // Dates + tenure
+  set('f_start', d.agreement_start);
+  if(d._tenure) setNum('f_tenure', d._tenure);
+  if(d.agreement_end) set('f_end', d.agreement_end);
+  // Trigger auto-calc wiring (syncEnd)
+  ['f_start','f_tenure'].forEach(id=>{ const el=$('#'+id); if(el) el.dispatchEvent(new Event('input')); });
+
+  // No. of staying → show/hide secondary block
+  if(d.no_of_staying) {
+    setNum('f_nos', d.no_of_staying);
+    const fnos = $('#f_nos');
+    if(fnos){ fnos.dispatchEvent(new Event('input')); fnos.dispatchEvent(new Event('change')); }
+  }
+
+  // Emergency contact
+  set('f_en', d.emergency_name);
+  set('f_ec', d.emergency_contact);
+
+  // Secondary person
+  if(d.no_of_staying >= 2){
+    set('f2_name',    d.secondary_name);
+    set('f2_ic',      d.secondary_ic);
+    set('f2_contact', d.secondary_contact);
+    set('f2_email',   d.secondary_email);
+    set('f2_nat',     d.secondary_nationality);
+    set('f2_occ',     d.secondary_occupation);
+    set('f2_comp',    d.secondary_company);
+    if(d.secondary_gender) set('f2_gender', d.secondary_gender);
+  }
+
+  // Collapse paste panel + show summary
+  const panel = document.getElementById('taPastePanel');
+  if(panel){ panel.style.display='none'; }
+
+  // Show what was parsed so user can spot any misses
+  const props = d.property_id ? (state.properties.find(p=>p.id===d.property_id)||{}) : {};
+  const propLabel = props.condo ? `${props.condo} · ${props.unit}` : (d._condo||'? — check property');
+  const parts = [
+    d.name        ? `✓ ${d.name}`                         : '✗ name missing',
+    d.room_code   ? `Room ${d.room_code}`                  : '✗ room missing',
+    propLabel     ? `@ ${propLabel}`                       : '',
+    d.agreement_start ? `from ${d.agreement_start}`        : '',
+    d.no_of_staying===2 ? `+ ${d.secondary_name||'2nd tenant'}` : '',
+  ].filter(Boolean).join(' · ');
+  toast('Parsed → '+parts, d.name ? 'ok' : 'warn');
+}
+
 // -- Tenant modal --
 function openTenantModal(id, prefill){
   // `prefill` lets callers pre-select a property + room when adding a new
@@ -7175,6 +7392,19 @@ function openTenantModal(id, prefill){
   const t = id ? state.tenants.find(x=>x.id===id) : (prefill || {});
   const propOpts = state.properties.map(p=>`<option value="${p.id}" ${t.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('');
   openModal(id?'Edit Tenant':'Add Tenant', `
+    ${!id ? `<div id="taPastePanel" class="mb-4 rounded-xl border border-sky-200 bg-sky-50 overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-2 bg-sky-100 border-b border-sky-200">
+        <span class="text-sm font-bold text-sky-800">📋 Quick Paste — paste your WhatsApp booking message</span>
+        <button type="button" class="text-xs text-slate-400 hover:text-slate-600 px-2 py-1 rounded" onclick="document.getElementById('taPastePanel').style.display='none'">✕ Hide</button>
+      </div>
+      <div class="p-3">
+        <textarea id="taPasteBox" class="input w-full text-xs font-mono" rows="7" placeholder="Paste your booking confirmation text here and click ⚡ Parse &amp; Fill…"></textarea>
+        <div class="flex items-center justify-between mt-2">
+          <span class="text-xs text-slate-400">Supports the standard Polyhome booking format. Review fields after parsing.</span>
+          <button type="button" class="px-4 py-1.5 rounded-lg text-xs font-bold bg-sky-600 text-white hover:bg-sky-700 shadow-sm" onclick="fillTenantFormFromPaste()">⚡ Parse &amp; Fill Form</button>
+        </div>
+      </div>
+    </div>` : ''}
     <div class="grid md:grid-cols-2 gap-3">
       <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
       <div><label class="label">Name *</label><input id="f_name" class="input" value="${esc(t.name||'')}"></div>
