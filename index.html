@@ -3436,6 +3436,7 @@ async function bootApp(){
   // synchronous read path (`_getStoredTATemplate()`) always returns the
   // current value. Migrates from legacy localStorage key on first run.
   _hydrateTATemplate().catch(e=> console.warn('[polyTMS] TA template hydrate failed:', e));
+  _loadSATemplateCache().catch(e=> console.warn('[polyTMS] SA template hydrate failed:', e));
   // Accessibility: auto-mirror `title="..."` → `aria-label` on every button
   // that doesn't already have one. Covers icon-only buttons (Edit/Delete/View
   // etc.) so screen readers announce them. Cheap one-time MutationObserver
@@ -4146,6 +4147,7 @@ function renderProperties(){
       <td>${esc(p.carpark_lots||'')}</td>
       <td class="text-right whitespace-nowrap">
         <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openPropertyView('${p.id}')" title="View details">${iconBtn(ICON.view,'View')}</button>
+        <button class="px-2 py-1 rounded bg-[#E8F4FD] text-[#1E5BB8] text-xs font-semibold" onclick="openGenerateSAModal('${p.id}')" title="Generate Service Agreement">${iconBtn(ICON.doc,'SA')}</button>
         <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openPropertyModal('${p.id}')" title="Edit">${iconBtn(ICON.edit,'Edit')}</button>
         <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delProperty('${p.id}')" title="Delete">${ICON.trash}</button>
       </td>
@@ -5538,6 +5540,247 @@ async function taGenerateForTenant(tenantId){
 }
 
 // ============================================================
+//  SERVICE AGREEMENT (SA) — property-level, mirrors the TA system
+// ============================================================
+const SA_TEMPLATE_KEY = 'polyTMS_SA_template_b64';
+let _saTemplateCache = '';
+
+// Warm the SA template cache at boot (reuses same IDB as TA)
+async function _loadSATemplateCache(){
+  try {
+    const v = await _idbGet(SA_TEMPLATE_KEY);
+    if(v) { _saTemplateCache = v; return; }
+    const ls = localStorage.getItem(SA_TEMPLATE_KEY);
+    if(ls){ _saTemplateCache = ls; await _idbSet(SA_TEMPLATE_KEY, ls); localStorage.removeItem(SA_TEMPLATE_KEY); }
+  } catch(_){}
+}
+function _getStoredSATemplate(){ return _saTemplateCache || ''; }
+async function _setStoredSATemplate(b64){
+  _saTemplateCache = b64 || '';
+  try { await _idbSet(SA_TEMPLATE_KEY, _saTemplateCache); }
+  catch(_){
+    try { localStorage.setItem(SA_TEMPLATE_KEY, b64||''); }
+    catch(__){ toast('Storage full — template may not persist','warn'); }
+  }
+}
+async function _clearSATemplate(){
+  _saTemplateCache = '';
+  try { await _idbDel(SA_TEMPLATE_KEY); } catch(_){}
+  try { localStorage.removeItem(SA_TEMPLATE_KEY); } catch(_){}
+}
+
+// Build all merge fields from a property record.
+function buildSAFields(property){
+  const p = property || {};
+  const today = new Date();
+  const dateStr = today.getDate()+' '+MONTHS_FULL[today.getMonth()]+' '+today.getFullYear();
+  const fmtRM = v => v==null||v===''||isNaN(Number(v)) ? '' : Number(v).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  // Compute SA end date from commence_date + period_months
+  let endDate = '';
+  if(p.commence_date && p.period_months){
+    const sd = new Date(p.commence_date);
+    sd.setMonth(sd.getMonth() + Number(p.period_months));
+    sd.setDate(sd.getDate() - 1);
+    endDate = fmtDate(sd.toISOString().slice(0,10));
+  }
+
+  const fullAddr = [p.condo_address, p.condo, p.unit, p.city].filter(Boolean).join(', ');
+
+  return {
+    date:            p.agreement_date ? fmtDate(p.agreement_date) : dateStr,
+    ownerName:       p.owner_name    || '',
+    ownerIc:         p.owner_ic      || '',
+    ownerEmail:      p.owner_email   || '',
+    ownerContact:    p.owner_contact || '',
+    ownerAddress:    p.owner_address || '',
+    condoName:       p.condo         || '',
+    unit:            p.unit          || '',
+    condoAddress:    p.condo_address || '',
+    fullAddress:     fullAddr,
+    city:            p.city          || '',
+    roomCodes:       p.room_codes    || '',
+    carparkLots:     p.carpark_lots  || '',
+    commenceDate:    p.commence_date ? fmtDate(p.commence_date) : '',
+    endDate,
+    period:          p.period_months ? p.period_months+' months' : '',
+    serviceFee:      p.service_percent != null ? p.service_percent+'%' : '',
+    serviceFeeAmt:   '',   // left blank — owner fills in after net calc
+    bankName:        p.bank_name     || '',
+    bankAccount:     p.bank_account  || '',
+    propertyType:    String(p.property_type||'H2M').toUpperCase()==='R2R' ? 'Own Unit' : 'Help Manage',
+  };
+}
+
+const SA_FIELD_LABELS = {
+  date:         'Date of Agreement',
+  ownerName:    'Owner Name',
+  ownerIc:      'Owner IC / Passport',
+  ownerEmail:   'Owner Email',
+  ownerContact: 'Owner Contact',
+  ownerAddress: 'Owner Address',
+  condoName:    'Condo Name',
+  unit:         'Unit',
+  condoAddress: 'Condo Address',
+  fullAddress:  'Full Address',
+  city:         'City',
+  roomCodes:    'Room Codes',
+  carparkLots:  'Carpark Lots',
+  commenceDate: 'Service Commence Date',
+  endDate:      'Service End Date',
+  period:       'Service Period',
+  serviceFee:   'Service Fee %',
+  bankName:     'Bank Name',
+  bankAccount:  'Bank Account',
+  propertyType: 'Property Type',
+};
+
+function openGenerateSAModal(propertyId){
+  const p = state.properties.find(x=>x.id===propertyId);
+  if(!p) return toast('Property not found','bad');
+  const fields = buildSAFields(p);
+  const hasTpl = !!_getStoredSATemplate();
+  const skipKey = k => k==='endDate';   // end date is optional (computed)
+
+  const visibleKeys = Object.keys(SA_FIELD_LABELS);
+  const missing = visibleKeys.filter(k => !fields[k] && !skipKey(k));
+  const rows = visibleKeys.map(k=>{
+    const isMissing = !fields[k] && !skipKey(k);
+    const valHtml = fields[k]
+      ? `<span class="font-semibold text-slate-800">${esc(String(fields[k]))}</span>`
+      : `<span class="text-rose-500 italic text-xs">missing</span>`;
+    return `<tr class="${isMissing?'bg-rose-50':''}">
+      <td class="py-1.5 px-2 text-xs uppercase tracking-wide text-slate-500 align-top">${esc(SA_FIELD_LABELS[k])}</td>
+      <td class="py-1.5 px-2 text-sm">${valHtml}</td>
+    </tr>`;
+  }).join('');
+
+  const headerBar = `<div class="flex items-center justify-between mb-1">
+    <div class="text-xs text-slate-500">${hasTpl
+      ? '✓ Using your saved SA master template — no upload needed.'
+      : '⚠ No SA master template saved on this device yet.'}</div>
+    <button type="button" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]" onclick="openSAEditTemplateModal('${p.id}')">📝 Edit SA Template</button>
+  </div>`;
+
+  const setupHint = hasTpl ? '' : `
+    <div class="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs leading-relaxed">
+      <b>One-time setup:</b> click <b>📝 Edit SA Template</b> above to upload your <b>SA_template.docx</b>. It saves to this browser and will be used for every future "Generate SA".
+    </div>`;
+
+  const missingNote = missing.length
+    ? `<div class="mt-2 text-xs text-rose-600">⚠ ${missing.length} field(s) are blank — they'll appear empty in the document. Edit the property first to fill them in.</div>`
+    : '';
+
+  const tagHint = `<div class="mt-2 text-xs text-slate-400">Use <span class="font-mono bg-slate-100 px-1 rounded">{{fieldName}}</span> merge tags in your SA_template.docx. Click <b>📝 Edit SA Template</b> to see all available tags.</div>`;
+
+  $('#modalTitle').textContent = 'Generate Service Agreement — '+p.condo+' · '+p.unit;
+  $('#modalBody').innerHTML = `
+    <div class="space-y-3">
+      ${headerBar}
+      ${setupHint}
+      <div>
+        <div class="text-sm font-bold text-slate-700 mb-1">Merge field values</div>
+        <div class="border border-slate-200 rounded-lg overflow-hidden">
+          <table class="w-full text-xs"><tbody>${rows}</tbody></table>
+        </div>
+        ${missingNote}
+        ${tagHint}
+      </div>
+    </div>`;
+
+  const genDisabled = hasTpl ? '' : 'opacity-50 cursor-not-allowed';
+  const genTitle    = hasTpl ? '' : 'title="Save a master SA template first via 📝 Edit SA Template"';
+  $('#modalFoot').innerHTML = `
+    <button class="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100" onclick="closeModal()">Cancel</button>
+    <button id="saGenBtn" ${genTitle} class="btn-brand px-4 py-2 rounded-xl text-sm font-bold ml-2 ${genDisabled}" onclick="${hasTpl?`saGenerateForProperty('${p.id}')`:'toast(\'Save a SA template first\', \'warn\')'}">${iconBtn(ICON.doc,'Generate .docx')}</button>`;
+  $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex');
+}
+
+// Upload / replace the SA master template (mirrors openTAEditTemplateModal)
+function openSAEditTemplateModal(returnToPropertyId){
+  const hasTpl = !!_getStoredSATemplate();
+  const sizeKB = hasTpl ? Math.round((_getStoredSATemplate().length * 3 / 4) / 1024) : 0;
+  const tagRows = Object.keys(SA_FIELD_LABELS).map(k=>
+    `<tr><td class="px-2 py-1 text-xs text-slate-500">${esc(SA_FIELD_LABELS[k])}</td><td class="px-2 py-1 font-mono text-xs text-[color:var(--brand)]">{{${esc(k)}}}</td></tr>`
+  ).join('');
+  $('#modalTitle').textContent = 'SA Master Template';
+  $('#modalBody').innerHTML = `
+    <div class="space-y-4">
+      ${hasTpl
+        ? `<div class="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">✓ Template saved (~${sizeKB} KB). Upload a new file below to replace it.</div>`
+        : `<div class="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">No SA template saved yet. Upload your <b>SA_template.docx</b> below.</div>`}
+      <div>
+        <label class="label">Upload / replace SA_template.docx</label>
+        <input type="file" id="saTemplateFile" accept=".docx" class="input text-sm">
+      </div>
+      <div>
+        <div class="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Available merge tags</div>
+        <div class="border border-slate-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+          <table class="w-full"><thead><tr class="bg-slate-50"><th class="px-2 py-1 text-xs text-left text-slate-500">Field</th><th class="px-2 py-1 text-xs text-left text-slate-500">Tag</th></tr></thead>
+          <tbody>${tagRows}</tbody></table>
+        </div>
+      </div>
+      ${hasTpl ? `<button class="text-xs text-rose-500 underline" onclick="(async()=>{await _clearSATemplate();toast('SA template cleared');${returnToPropertyId?`openSAEditTemplateModal('${returnToPropertyId}');`:'closeModal();'}})()">🗑 Clear saved template</button>` : ''}
+    </div>`;
+  $('#modalFoot').innerHTML = `
+    <button class="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100" onclick="${returnToPropertyId?`openGenerateSAModal('${returnToPropertyId}')`:'closeModal()'}">${returnToPropertyId?'← Back to Generate':'Close'}</button>
+    <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold ml-2" onclick="(async()=>{
+      const f=$('#saTemplateFile').files[0];
+      if(!f) return toast('Pick a .docx file first','warn');
+      const r=new FileReader(); r.onload=async e=>{
+        const b64=e.target.result.split(',')[1];
+        await _setStoredSATemplate(b64);
+        toast('SA template saved');
+        ${returnToPropertyId?`openGenerateSAModal('${returnToPropertyId}');`:'closeModal();'}
+      }; r.readAsDataURL(f);
+    })()">💾 Save Template</button>`;
+  $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex');
+}
+
+async function saGenerateForProperty(propertyId){
+  const p = state.properties.find(x=>x.id===propertyId);
+  if(!p) return toast('Property not found','bad');
+  const b64 = _getStoredSATemplate();
+  if(!b64) return toast('Upload SA_template.docx first','warn');
+  const btn = $('#saGenBtn');
+  if(btn){ btn.disabled=true; btn.style.opacity='.6'; btn.textContent='Generating…'; }
+  try{
+    await loadDocxLibs();
+    const bin = _base64ToBinaryString(b64);
+    const zip = new _pizZip(bin);
+    const doc = new _docxtemplater(zip, {
+      paragraphLoop: true, linebreaks: true,
+      delimiters: { start: '{{', end: '}}' },
+      nullGetter: ()=> '',
+    });
+    doc.render(buildSAFields(p));
+    const out = doc.getZip().generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    const safeName = (p.condo||'property').replace(/[^A-Za-z0-9._-]+/g,'_');
+    const safeUnit = (p.unit||'').replace(/[^A-Za-z0-9._-]+/g,'_');
+    const fname = 'SA_'+safeName+(safeUnit?'_'+safeUnit:'')+'.docx';
+    if(_fileSaver){ _fileSaver(out, fname); }
+    else {
+      const url = URL.createObjectURL(out);
+      const a = document.createElement('a'); a.href=url; a.download=fname; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 1500);
+    }
+    toast('Service Agreement generated');
+    closeModal();
+  } catch(err){
+    console.error(err);
+    let msg = err && err.message ? err.message : String(err);
+    if(err && err.properties && Array.isArray(err.properties.errors)){
+      msg = err.properties.errors.map(e=>e.properties && e.properties.explanation || e.message).join('; ');
+    }
+    toast('Generation failed: '+msg, 'bad');
+    if(btn){ btn.disabled=false; btn.style.opacity=''; btn.innerHTML=iconBtn(ICON.doc,'Generate .docx'); }
+  }
+}
+
+// ============================================================
 //  WHATSAPP BROADCAST
 // ============================================================
 // State held in-module (not persisted). waGroupBy: 'property' | 'unit' | 'room'.
@@ -6165,9 +6408,9 @@ function renderRentStatus(pid){
       proChips += `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FFE4E6;color:#9F1239">🚪 Last-month pro-rate RM ${lp.total} (${lp.daysOccupied}/${lp.daysInMonth}d)</span></div>`;
     }
     return `<tr>
-      <td class="font-semibold">${esc(t.name||'')}${proChips}</td>
+      <td class="font-semibold"><button class="text-left hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.name||'')}</button>${proChips}</td>
       <td>${esc(r.prop? r.prop.condo+' · '+r.prop.unit : '')}</td>
-      <td class="text-center font-bold">${esc(t.room_code||'')}</td>
+      <td class="text-center font-bold"><button class="font-bold hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.room_code||'')}</button></td>
       <td class="num">${fmt(r.expectedRoom)}</td>
       <td>${esc(t.carpark||'—')}</td>
       <td class="num">${fmt(r.expectedCp)}</td>
@@ -6824,6 +7067,7 @@ function openPropertyView(id){
     </div>`;
   $('#modalFoot').innerHTML = `
     <button class="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100" onclick="closeModal()">Close</button>
+    <button class="bg-[#E8F4FD] text-[#1E5BB8] px-4 py-2 rounded-xl text-sm font-bold ml-2" onclick="closeModal();openGenerateSAModal('${p.id}')">${iconBtn(ICON.doc,'Generate SA')}</button>
     <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold ml-2" onclick="closeModal();openPropertyModal('${p.id}')">${iconBtn(ICON.edit,'Edit')}</button>`;
   $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex');
 }
@@ -7666,12 +7910,20 @@ function renderReportHTML(ctx, opts){
   // tenure period mirrors the tenant's agreement (carpark contract = tenancy
   // contract in our model).
   const tenancyEntries = [];
+  const assignedRooms = new Set();
   roomTenancies.forEach(t=>{
     const mo = tenureMonths(t.agreement_start, t.agreement_end);
+    assignedRooms.add(String(t.room_code||'').trim().toUpperCase());
     tenancyEntries.push({
       label: 'Room '+(t.room_code||'?'),
       start: t.agreement_start, end: t.agreement_end, mo
     });
+  });
+  // Vacant rooms — configured on the property but no active tenant this month
+  parseRoomCodes(P && P.room_codes).forEach(code=>{
+    if(!assignedRooms.has(code)){
+      tenancyEntries.push({ label:'Room '+code, start:null, end:null, mo:null, vacant:true });
+    }
   });
   // Carparks belonging to THIS property (cross-property aware) — assigned tenants
   const assignedCpLots = new Set();
