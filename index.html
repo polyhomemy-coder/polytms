@@ -5636,6 +5636,35 @@ function openWaBroadcast(){
 }
 function closeWaBroadcast(){ $('#waOverlay').classList.remove('flex'); $('#waOverlay').classList.add('hidden'); }
 
+// Open WA broadcast pre-loaded with a specific list of tenant IDs (used by
+// the Rent Collection "WhatsApp Unpaid" button). Pre-selects those tenants
+// at room-level grouping and defaults to the overdue reminder template.
+function openWaUnpaidBlast(tenantIds){
+  if(!tenantIds || !tenantIds.length) return toast('No unpaid tenants to message','warn');
+  _waState.groupBy = 'room';
+  _waState.template = 'overdue';
+  // Build selected groups from the provided tenant IDs
+  const groups = new Set();
+  tenantIds.forEach(tid=>{
+    const t = state.tenants.find(x=>x.id===tid);
+    if(!t) return;
+    const p = state.properties.find(x=>x.id===t.property_id);
+    groups.add(waGroupKey(t, p, 'room'));
+  });
+  _waState.selectedGroups = groups;
+  const ov = $('#waOverlay');
+  // Set grouping tab to Room
+  ov.querySelectorAll('#waGroupBy .subtab-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.wagroup==='room');
+  });
+  // Pre-fill overdue template
+  $('#waTemplate').value = 'overdue';
+  $('#waMessage').value  = WA_TEMPLATES['overdue'] || '';
+  renderWaGroups();
+  renderWaPreview();
+  ov.classList.remove('hidden'); ov.classList.add('flex');
+}
+
 // Build grouped checkbox list based on current groupBy
 function renderWaGroups(){
   const by = _waState.groupBy;
@@ -6087,11 +6116,20 @@ function renderRentStatus(pid){
   };
   const counts = allRows.reduce((a,r)=>{a[r.status]=(a[r.status]||0)+1;return a;},{});
   const sumEl = $('#rentStatusSummary');
+  // Build WhatsApp blast button for unpaid/unmatch filter
+  const waRows = (filter==='unpaid'||filter==='unmatch') ? rows : allRows.filter(r=>r.status==='unpaid'||r.status==='unmatch');
+  const waIds  = JSON.stringify(waRows.map(r=>r.tenant.id));
+  const waBtn  = waRows.length
+    ? `<button class="ml-3 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#DCFCE7] text-[#065F46] border border-[#86EFAC] hover:bg-[#BBF7D0]" onclick="openWaUnpaidBlast(${waIds.replace(/"/g,'&quot;')})">📱 WhatsApp ${waRows.length} Unpaid</button>`
+    : '';
   if(sumEl) sumEl.innerHTML = allRows.length
-    ? `<span class="chip badge-ok mr-1">✓ ${counts.paid||0} paid</span>
-       <span class="chip badge-warn mr-1">⚠ ${counts.unmatch||0} unmatch</span>
-       <span class="chip badge-bad">✕ ${counts.unpaid||0} unpaid</span>
-       ${filter!=='all' ? `<span class="ml-3 chip" style="background:#FFF0E6;color:#F4811F">Filter: ${filter}</span>` : ''}`
+    ? `<div class="flex items-center gap-2 flex-wrap justify-end">
+         <span class="chip badge-ok">✓ ${counts.paid||0} paid</span>
+         <span class="chip badge-warn">⚠ ${counts.unmatch||0} unmatch</span>
+         <span class="chip badge-bad">✕ ${counts.unpaid||0} unpaid</span>
+         ${filter!=='all' ? `<span class="chip" style="background:#FFF0E6;color:#F4811F">Filter: ${filter}</span>` : ''}
+         ${waBtn}
+       </div>`
     : 'No active tenants for this month.';
 
   // totals
@@ -7416,9 +7454,18 @@ function buildReportLineMap(P, ctx, roomTenancies){
     if(!lineMap.has(k)) lineMap.set(k, {type, code, rental:0, aircond:0, tenant:null});
     return lineMap.get(k);
   };
-  // Seed: property's configured rooms + carparks + tenancies
+  // Seed: property's configured rooms + tenancies.
+  // Carpark lots are NOT pre-seeded from property config — a carpark row
+  // only appears in the report once a tenant is assigned to that lot (or a
+  // payment is recorded). This prevents empty carpark rows on new properties.
   parseRoomCodes(P && P.room_codes).forEach(code=> ensureLine('room', code));
-  parseCarparkLots(P && P.carpark_lots).forEach(lot=> ensureLine('carpark', lot));
+  // Seed carpark lines only for lots that have an assigned tenant
+  (allTenants||tenants||[]).forEach(t=>{
+    const cpProp = t.carpark_property_id || t.property_id;
+    if(t.carpark && Number(t.carpark_rental||0) > 0 && cpProp === (P && P.id)){
+      ensureLine('carpark', normCarpark(t.carpark));
+    }
+  });
   roomTenancies.forEach(t=>{
     const line = ensureLine('room', t.room_code);
     if(!line.tenant) line.tenant = t;
@@ -7939,8 +7986,7 @@ function renderReportDesktopHTML(ctx, opts){
     }
     const tenancyTxt = l.type==='room'
       ? shortTenancy(l.tenant)
-      : (cpTenant ? shortTenancy(cpTenant)
-                  : (P.commence_date? `${fmtDate(P.commence_date)} +` : '—'));
+      : (cpTenant ? shortTenancy(cpTenant) : '—');
     const tenureTxt  = l.type==='room'
       ? tenureStr(l.tenant)
       : (cpTenant ? tenureStr(cpTenant) : '—');
