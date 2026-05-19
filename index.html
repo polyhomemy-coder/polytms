@@ -1400,6 +1400,7 @@
           <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openAirModal()">+ Add Top-up</button>
         </div>
       </div>
+      <div id="pendingIsewaBanner"></div>
       <div class="card p-0 overflow-hidden">
         <div class="overflow-x-auto"><table class="data" id="airTable"></table></div>
       </div>
@@ -1673,7 +1674,7 @@ try {
 } catch(_){}
 let sb = null;
 let state = {
-  properties:[], tenants:[], payments:[], aircon:[], expenses:[], extras:[],
+  properties:[], tenants:[], payments:[], aircon:[], expenses:[], extras:[], pendingIsewa:[],
   reportStatus:[],            // sign-off records: {id,property_id,year,month,admin_checked_at,admin_checked_by,manager_verified_at,manager_verified_by,launched_at}
   year: new Date().getFullYear(),
   month: new Date().getMonth()+1,
@@ -2337,7 +2338,7 @@ $('#monthPick').onchange = e=>{
 
 async function refreshMonthData(){
   if(!sb) return;
-  await Promise.all([loadPayments(), loadAircon(), loadExpenses(), loadExtras()]);
+  await Promise.all([loadPayments(), loadAircon(), loadExpenses(), loadExtras(), loadPendingIsewa()]);
   // Materialize cleaning rows for this month so they appear in both the
   // Expenses tab AND the Income Report consistently, regardless of which
   // tab the user visits first.
@@ -2378,6 +2379,11 @@ async function loadAircon(){
   const {data,error}=await sb.from('aircon_topups').select('*').eq('year',state.year).eq('month',state.month);
   if(error){toast(error.message,'bad');return;}
   state.aircon=data||[];
+}
+async function loadPendingIsewa(){
+  const {data,error}=await sb.from('pending_isewa_payments').select('*').eq('status','pending').order('received_at',{ascending:false});
+  if(error){ console.warn('pending_isewa load failed',error); return; }
+  state.pendingIsewa=data||[];
 }
 async function loadExpenses(){
   const {data,error}=await sb.from('expenses').select('*').eq('year',state.year).eq('month',state.month);
@@ -6558,7 +6564,103 @@ function renderRentStatus(pid){
 }
 
 // ----- AIRCON -----
+// ── Pending iSewa Payments banner ────────────────────────────────────────────
+function renderPendingIsewaBanner(){
+  const host = $('#pendingIsewaBanner');
+  if(!host) return;
+  const list = state.pendingIsewa || [];
+  if(!list.length){ host.innerHTML=''; return; }
+
+  const rows = list.map(p=>{
+    const d    = p.time_stamp_raw ? fmtDate(p.time_stamp_raw.slice(0,10)) : fmtDate((p.received_at||'').slice(0,10));
+    const amt  = fmt(p.tran_amount||0);
+    const from = [p.tenant_name_raw, p.property_name_raw, p.room_name_raw].filter(Boolean).join(' · ') || '—';
+    const tid  = p.tran_id ? `<span class="text-slate-400 text-[10px] font-mono">${esc(p.tran_id)}</span>` : '';
+    return `<tr>
+      <td>${d}</td>
+      <td class="num font-bold">${amt}</td>
+      <td>${esc(from)}${tid?'<br>':''} ${tid}</td>
+      <td class="text-right whitespace-nowrap">
+        <button class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm transition"
+          onclick="openAssignIsewa('${p.id}')">Assign →</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  host.innerHTML = `
+    <div class="mb-3 rounded-xl border border-amber-300 bg-amber-50 overflow-hidden shadow-sm">
+      <div class="flex items-center gap-2 px-4 py-2.5 bg-amber-100 border-b border-amber-200">
+        <span class="text-amber-600 text-lg">⚠️</span>
+        <span class="font-bold text-amber-800 text-sm">${list.length} Unmatched iSewa Payment${list.length>1?'s':''}</span>
+        <span class="text-amber-600 text-xs ml-1">— iSewa couldn't identify the tenant. Assign each one manually.</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="data text-sm w-full">
+          <thead><tr>
+            <th>Date</th><th class="num">Amount</th><th>From iSewa</th><th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function openAssignIsewa(pendingId){
+  const p = (state.pendingIsewa||[]).find(x=>x.id===pendingId);
+  if(!p) return;
+  const propOpts = state.properties.map(pp=>`<option value="${pp.id}">${esc(pp.condo)} · ${esc(pp.unit)}</option>`).join('');
+  const rawDate  = (p.time_stamp_raw||p.received_at||'').slice(0,10);
+  const defYear  = rawDate ? Number(rawDate.slice(0,4)) : state.year;
+  const defMonth = rawDate ? Number(rawDate.slice(5,7)) : state.month;
+
+  openModal('Assign iSewa Payment', `
+    <div class="mb-3 p-3 rounded-xl bg-sky-50 border border-sky-200 text-sm text-sky-800 space-y-0.5">
+      <div><span class="font-semibold">Amount:</span> RM ${fmt(p.tran_amount||0)}</div>
+      ${p.tran_id   ? `<div><span class="font-semibold">Tran ID:</span> <span class="font-mono text-xs">${esc(p.tran_id)}</span></div>` : ''}
+      ${p.tenant_name_raw   ? `<div><span class="font-semibold">iSewa tenant:</span> ${esc(p.tenant_name_raw)}</div>` : ''}
+      ${p.room_name_raw     ? `<div><span class="font-semibold">iSewa room:</span> ${esc(p.room_name_raw)}</div>` : ''}
+      ${p.property_name_raw ? `<div><span class="font-semibold">iSewa property:</span> ${esc(p.property_name_raw)}</div>` : ''}
+    </div>
+    <div class="grid md:grid-cols-2 gap-3">
+      <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
+      <div><label class="label">Room Code *</label><input id="f_room" class="input uppercase" placeholder="e.g. A, M, 101" value="${esc(p.room_name_raw||'')}"></div>
+      <div><label class="label">Amount (RM)</label><input type="number" step="0.01" id="f_amt" class="input" value="${p.tran_amount||''}"></div>
+      <div><label class="label">Topped Up On</label><input type="date" id="f_date" class="input" value="${rawDate}"></div>
+      <div><label class="label">Remark</label><input id="f_rem" class="input" value="iSewa auto-import${p.reload_amount_kwh?` · Reload: ${p.reload_amount_kwh} kWh`:''}${p.tran_id?` · TranID: ${p.tran_id}`:''}"></div>
+      <div><label class="label">Year</label><input type="number" id="f_year" class="input" value="${defYear}"></div>
+      <div><label class="label">Month</label><input type="number" min="1" max="12" id="f_month" class="input" value="${defMonth}"></div>
+    </div>`, async()=>{
+      const propId = $('#f_prop').value;
+      const room   = ($('#f_room').value||'').trim().toUpperCase();
+      const amt    = Number($('#f_amt').value||0);
+      const date   = $('#f_date').value||null;
+      const rem    = $('#f_rem').value.trim();
+      const yr     = Number($('#f_year').value)||state.year;
+      const mo     = Number($('#f_month').value)||state.month;
+      if(!propId) throw new Error('Select a property');
+      if(!room)   throw new Error('Enter a room code');
+      if(!(amt>0)) throw new Error('Enter an amount');
+
+      // Insert into aircon_topups with the isewa_tran_id for dedup
+      const {error:insErr} = await sb.from('aircon_topups').upsert({
+        property_id: propId, year: yr, month: mo,
+        room_code: room, amount: amt, topped_up_on: date,
+        remark: rem, isewa_tran_id: p.isewa_tran_id,
+      }, { onConflict: 'isewa_tran_id', ignoreDuplicates: false });
+      if(insErr) throw insErr;
+
+      // Mark as assigned in pending table
+      await sb.from('pending_isewa_payments').update({ status:'assigned' }).eq('id', pendingId);
+
+      // Refresh local state
+      await Promise.all([loadAircon(), loadPendingIsewa()]);
+      renderAircon();
+      toast('Assigned ✓');
+  });
+}
+
 function renderAircon(){
+  renderPendingIsewaBanner();
   const pid = $('#airSelProp').value;
   let list = pid ? state.aircon.filter(p=>p.property_id===pid) : state.aircon;
   list = [...list].sort((a,b)=>{
