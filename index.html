@@ -6641,12 +6641,12 @@ function openAssignIsewa(pendingId){
       if(!room)   throw new Error('Enter a room code');
       if(!(amt>0)) throw new Error('Enter an amount');
 
-      // Insert into aircon_topups with the isewa_tran_id for dedup
-      const {error:insErr} = await sb.from('aircon_topups').upsert({
+      // Plain insert — partial unique indexes can't be used with PostgREST upsert.
+      const {error:insErr} = await sb.from('aircon_topups').insert({
         property_id: propId, year: yr, month: mo,
         room_code: room, amount: amt, topped_up_on: date,
         remark: rem, isewa_tran_id: p.isewa_tran_id,
-      }, { onConflict: 'isewa_tran_id', ignoreDuplicates: false });
+      });
       if(insErr) throw insErr;
 
       // Mark as assigned in pending table
