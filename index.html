@@ -54,7 +54,7 @@
      - On mobile (<880px) the sidebar collapses into a horizontal scroll
        strip across the top, same as before. */
   #app{display:flex;gap:18px;align-items:stretch;max-width:1800px;margin:0 auto;padding:16px 20px;min-height:100vh}
-  #sidebar{flex-shrink:0;width:240px;position:sticky;top:16px;align-self:flex-start;background:#fff;border-radius:20px;padding:18px 14px;box-shadow:0 2px 12px rgba(0,123,138,.06);height:calc(100vh - 32px);overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+  #sidebar{flex-shrink:0;width:200px;position:sticky;top:16px;align-self:flex-start;background:#fff;border-radius:20px;padding:14px 10px;box-shadow:0 2px 12px rgba(0,123,138,.06);height:calc(100vh - 32px);overflow-y:auto;display:flex;flex-direction:column;gap:8px}
   /* Sidebar bottom block — month picker, demo badge and settings cog
      pinned to the bottom of the left sidebar so the entire top of the
      main area is free for the income report and dashboards. */
@@ -66,7 +66,7 @@
   #sidebar #sbBottom #demoBadge.hidden{display:none}
   #sidebar .brand-row{display:flex;align-items:center;gap:10px;padding:4px 6px 10px;border-bottom:1px solid var(--line);margin-bottom:6px}
   #sidebar nav#tabs{display:flex;flex-direction:column;gap:6px;background:transparent;padding:0;border-radius:0;overflow:visible}
-  #sidebar nav#tabs .tab-btn{display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:13px 15px;border-radius:13px;font-size:14px;font-weight:600;letter-spacing:.1px}
+  #sidebar nav#tabs .tab-btn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:10px 11px;border-radius:13px;font-size:13px;font-weight:600;letter-spacing:.1px}
   #sidebar nav#tabs .tab-btn:hover:not(.active){background:#F0F9FB;color:var(--brand)}
   #sidebar nav#tabs .tab-btn.active{background:linear-gradient(135deg,#E8F8FA,#F0F9FB);color:var(--brand);box-shadow:inset 3px 0 0 var(--brand),0 1px 4px rgba(0,123,138,.05)}
   #mainArea{flex:1;min-width:0}
@@ -137,6 +137,8 @@
   .row-bad td{background:#FEF2F2 !important}
   .row-bad:hover td{background:#FEE2E2 !important}
   /* Alternating property-group banding — tenant, income, expenses tables */
+  #propTable td,#propTable th{padding:8px 8px}
+  #propTable td:last-child{padding-right:6px}
   table.data tr.prop-grp-alt td{background:#F1F9FD}
   table.data tr.prop-grp-alt:hover td{background:#FFF4E0}
   /* iSewa auto-import row tint (overrides group band) */
@@ -4201,10 +4203,10 @@ function renderProperties(){
       <td>${ptypeBadge}</td>
       <td>${esc(p.carpark_lots||'')}</td>
       <td class="text-right whitespace-nowrap">
-        <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openPropertyView('${p.id}')" title="View details">${iconBtn(ICON.view,'View')}</button>
-        <button class="px-2 py-1 rounded bg-[#E8F4FD] text-[#1E5BB8] text-xs font-semibold" onclick="openGenerateSAModal('${p.id}')" title="Generate Service Agreement">${iconBtn(ICON.doc,'SA')}</button>
-        <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openPropertyModal('${p.id}')" title="Edit">${iconBtn(ICON.edit,'Edit')}</button>
-        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delProperty('${p.id}')" title="Delete">${ICON.trash}</button>
+        <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)]" onclick="openPropertyView('${p.id}')" title="View details">${ICON.view}</button>
+        <button class="p-1.5 rounded bg-[#E8F4FD] text-[#1E5BB8]" onclick="openGenerateSAModal('${p.id}')" title="Generate Service Agreement">${ICON.doc}</button>
+        <button class="p-1.5 rounded bg-slate-100" onclick="openPropertyModal('${p.id}')" title="Edit">${ICON.edit}</button>
+        <button class="p-1.5 rounded bg-rose-50 text-rose-600" onclick="delProperty('${p.id}')" title="Delete">${ICON.trash}</button>
       </td>
     </tr>`;
   }).join('');
@@ -4213,8 +4215,10 @@ function renderProperties(){
     : (filtered.length === 0
         ? 'No properties match the current filter — click a chip again or “Clear” to reset.'
         : '');
-  $('#propTable').innerHTML=`<thead><tr>
-    <th class="text-center" style="width:48px">No</th><th>Condo</th><th>Unit</th><th>City</th><th>Owner</th><th>Contact</th><th>Bank</th><th>Account</th><th>Fee %</th><th>Type</th><th>Carpark</th><th></th>
+  $('#propTable').innerHTML=`<colgroup>
+    <col style="width:36px"><col style="width:13%"><col style="width:9%"><col style="width:44px"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:12%"><col style="width:56px"><col style="width:90px"><col style="width:9%"><col style="width:108px">
+  </colgroup><thead><tr>
+    <th class="text-center !text-[10px]">No</th><th>Condo</th><th>Unit</th><th>City</th><th>Owner</th><th>Contact</th><th>Bank</th><th>Account</th><th class="!text-[10px]">Fee%</th><th>Type</th><th>Carpark</th><th></th>
   </tr></thead><tbody>${rows || `<tr><td colspan="12" class="text-center text-slate-400 py-10">${esc(emptyMsg)}</td></tr>`}</tbody>`;
   renderVacancies();
 }
@@ -4381,37 +4385,37 @@ function renderTenants(){
       const moDate = t.move_out_date ? fmtDate(t.move_out_date) : (t.agreement_end ? fmtDate(t.agreement_end) : '—');
       return `<tr class="${grpCls}">
         <td class="font-semibold">${esc(t.name)}</td>
-        <td>${esc(p ? (p.condo+' · '+p.unit) : '—')}</td>
+        <td>${p ? `${esc(p.condo)}<br><span class="text-slate-500 text-xs">${esc(p.unit)}</span>` : '—'}</td>
         <td class="text-center font-bold">${esc(t.room_code||'')}</td>
         <td class="num">${fmt(t.room_rental)}</td>
         <td>${esc(t.carpark||'')}</td>
-        <td>${fmtDate(t.agreement_start)} → ${fmtDate(t.agreement_end)}</td>
+        <td>${fmtDate(t.agreement_start)} →<br>${fmtDate(t.agreement_end)}</td>
         <td class="text-center font-bold text-[#991B1B]">${moDate}</td>
         <td>${esc(t.contact||'')}</td>
         <td class="text-right whitespace-nowrap">
-          <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantView('${t.id}')" title="View">${ICON.view}</button>
-          <button class="px-2 py-1 rounded bg-[#DCFCE7] text-[#065F46] text-xs font-semibold" onclick="reactivateTenant('${t.id}')" title="Mark as active again">${iconBtn(ICON.undo,'Reactivate')}</button>
-          <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delTenant('${t.id}')" title="Delete permanently">${ICON.trash}</button>
+          <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantView('${t.id}')" title="View">${ICON.view}</button>
+          <button class="p-1.5 rounded bg-[#DCFCE7] text-[#065F46] text-xs font-semibold" onclick="reactivateTenant('${t.id}')" title="Reactivate">${ICON.undo}</button>
+          <button class="p-1.5 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delTenant('${t.id}')" title="Delete permanently">${ICON.trash}</button>
         </td>
       </tr>`;
     }
     return `<tr class="${[cls, grpCls].filter(Boolean).join(' ')}">
       <td class="font-semibold">${esc(t.name)}${endingChip}</td>
-      <td>${esc(p ? (p.condo+' · '+p.unit) : '—')}</td>
+      <td>${p ? `${esc(p.condo)}<br><span class="text-slate-500 text-xs">${esc(p.unit)}</span>` : '—'}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
       <td class="num">${fmt(t.room_rental)}</td>
       <td>${esc(t.carpark||'')}</td>
       <td class="num">${fmt(t.carpark_rental)}</td>
-      <td>${fmtDate(t.agreement_start)} → ${fmtDate(t.agreement_end)}</td>
+      <td>${fmtDate(t.agreement_start)} →<br>${fmtDate(t.agreement_end)}</td>
       <td class="text-center font-semibold">${mo!=null ? (mo+' mo') : '<span class="text-slate-400">—</span>'}</td>
       <td>${esc(t.contact||'')}</td>
       <td class="text-right whitespace-nowrap">
-        <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantView('${t.id}')" title="View details">${ICON.view}</button>
-        <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openTenantModal('${t.id}')" title="Edit">${ICON.edit}</button>
-        <button class="px-2 py-1 rounded bg-[#E8F4FD] text-[#1E5BB8] text-xs font-semibold" onclick="openGenerateTAModal('${t.id}')" title="Generate Tenancy Agreement">${iconBtn(ICON.doc,'TA')}</button>
-        <button class="px-2 py-1 rounded bg-[#DCFCE7] text-[#065F46] text-xs font-semibold" onclick="recontractTenant('${t.id}')" title="Recontract — extend contract + auto-post retention fee">${iconBtn(ICON.undo,'RC')}</button>
-        <button class="px-2 py-1 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-semibold" onclick="moveOutTenant('${t.id}')" title="Move Out — mark as moved out">${iconBtn(ICON.box,'MO')}</button>
-        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delTenant('${t.id}')" title="Delete">${ICON.trash}</button>
+        <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantView('${t.id}')" title="View details">${ICON.view}</button>
+        <button class="p-1.5 rounded bg-slate-100 text-xs font-semibold" onclick="openTenantModal('${t.id}')" title="Edit">${ICON.edit}</button>
+        <button class="p-1.5 rounded bg-[#E8F4FD] text-[#1E5BB8] text-xs font-semibold" onclick="openGenerateTAModal('${t.id}')" title="Tenancy Agreement">${ICON.doc}</button>
+        <button class="p-1.5 rounded bg-[#DCFCE7] text-[#065F46] text-xs font-semibold" onclick="recontractTenant('${t.id}')" title="Recontract">${ICON.undo}</button>
+        <button class="p-1.5 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-semibold" onclick="moveOutTenant('${t.id}')" title="Move Out">${ICON.box}</button>
+        <button class="p-1.5 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delTenant('${t.id}')" title="Delete">${ICON.trash}</button>
       </td>
     </tr>`;
   }).join('');
