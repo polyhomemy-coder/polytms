@@ -1099,18 +1099,6 @@
       <select id="monthPick" class="input"></select>
       <span id="demoBadge" class="chip hidden" style="background:#FFF0E6;color:#F4811F">🎮 DEMO MODE</span>
       <button id="btnSettings" title="Settings" class="bg-white border border-[color:var(--line)] hover:bg-slate-50">⚙️ Settings</button>
-      <!-- Force Refresh — loads latest version from GitHub, bypassing cache -->
-      <button id="btnForceRefresh" title="Force Refresh — loads the latest version, clears browser cache"
-        class="bg-white border border-[color:var(--line)] hover:bg-slate-50"
-        style="width:100%;padding:9px 8px;border-radius:12px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;color:#486870;cursor:pointer">
-        🔄 Force Refresh
-      </button>
-      <!-- Auto-Refresh toggle — reloads data every 30 seconds -->
-      <button id="btnAutoRefresh" title="Toggle auto-refresh every 30 seconds"
-        class="bg-white border border-[color:var(--line)] hover:bg-slate-50"
-        style="width:100%;padding:9px 8px;border-radius:12px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;color:#486870;cursor:pointer">
-        ⏱ Auto-Refresh: OFF
-      </button>
       <!-- Signed-in user pill + sign-out (shown only when auth session is active) -->
       <div id="userBox" class="hidden" style="font-size:11px;color:#64748B;text-align:center;line-height:1.3">
         <div id="userEmail" style="font-weight:700;color:#0F172A;word-break:break-all"></div>
@@ -1645,7 +1633,7 @@
 </div>
 
 <!-- ========== TOAST ========== -->
-<div id="toast" class="fixed bottom-5 right-5 z-50 hidden px-4 py-3 rounded-xl text-sm font-semibold shadow-lg"></div>
+<div id="toast" class="fixed bottom-5 right-5 z-50 hidden px-4 py-3 rounded-xl text-sm font-semibold shadow-lg cursor-pointer select-none" style="max-width:90vw"></div>
 
 <script>
 // ============================================================
@@ -1864,13 +1852,25 @@ function endFromTenure(startStr, months){
 
 // --- helpers -------------------------------------------------
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
-const toast=(msg,type='ok',duration=2600)=>{
-  const t=$('#toast'); t.textContent=msg; t.className='fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-semibold shadow-lg';
+const _hideToast = ()=>{
+  const t=$('#toast');
+  if(!t) return;
+  clearTimeout(t._hideTimer);
+  t.classList.add('hidden');
+};
+const toast=(msg,type='ok',duration=10000)=>{
+  const t=$('#toast');
+  // Build message with a small × so user knows it's dismissable
+  t.innerHTML = esc(msg) + '<span style="margin-left:10px;opacity:.7;font-size:15px;vertical-align:middle">×</span>';
+  t.className='fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-semibold shadow-lg cursor-pointer select-none';
+  t.style.maxWidth='90vw';
   t.classList.add(type==='ok'?'bg-emerald-600':type==='warn'?'bg-amber-500':'bg-rose-600','text-white');
   t.classList.remove('hidden');
   clearTimeout(t._hideTimer);
-  t._hideTimer=setTimeout(()=>t.classList.add('hidden'), duration);
+  t._hideTimer = setTimeout(_hideToast, duration);
 };
+// Dismiss toast on any click anywhere on the page
+document.addEventListener('click', ()=>{ if(!$('#toast')?.classList.contains('hidden')) _hideToast(); }, {capture:true});
 const fmt = n=> (Number(n||0)).toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2});
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MONTHS_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -3568,6 +3568,9 @@ async function bootApp(){
   await refreshMonthData();
   fillPropertySelectors();
   renderTab('dashboard');
+  // Start live sync — Supabase Realtime + visibility API.
+  // Runs after initial load so the first render is never delayed.
+  _initLiveSync();
 }
 
 // ARIA auto-mirror: any button (or other interactive element) with a title
@@ -7229,7 +7232,16 @@ function openModal(title, bodyHtml, onSave, saveLabel){
   }
   $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex');
 }
-function closeModal(){ $('#modal').classList.add('hidden'); $('#modal').classList.remove('flex'); }
+function closeModal(){
+  $('#modal').classList.add('hidden');
+  $('#modal').classList.remove('flex');
+  // If a background sync arrived while this modal was open,
+  // fire the deferred re-render now that the form is gone.
+  if(window._liveSyncDeferred){
+    window._liveSyncDeferred();
+    window._liveSyncDeferred = null;
+  }
+}
 
 // -- Vacancies modal --
 // (Vacancies are now rendered as a sub-tab inside Properties; see renderVacancies().)
@@ -9985,61 +9997,86 @@ async function signOutAndReturnToLogin(){
 //  Cache-busting reload — appends ?_v=timestamp so the browser
 //  treats it as a new URL and fetches fresh from GitHub Pages.
 // ============================================================
-document.getElementById('btnForceRefresh')?.addEventListener('click', () => {
-  const url = location.pathname + '?_v=' + Date.now();
-  toast('🔄 Fetching latest version…', 'ok', 1500);
-  setTimeout(() => { location.href = url; }, 400);
-});
-
 // ============================================================
-//  AUTO-REFRESH (30-second countdown, toggleable)
-//  Reloads the page every 30 s so the dashboard always shows
-//  live Supabase data. State survives via localStorage so the
-//  toggle stays ON after the reload. Click again to turn OFF.
+//  LIVE SYNC — Supabase Realtime + Page Visibility API
+//  Like Facebook/Google: data updates silently in the background.
+//  No page reload, no buttons — it just stays current.
+//
+//  • Realtime WebSocket: Supabase pushes a notification whenever
+//    any row in our tables changes (insert / update / delete).
+//    We debounce 600 ms so a burst of changes triggers one refresh.
+//  • Visibility API: when the user switches back to this tab after
+//    being away, we do a silent data reload so they always see fresh
+//    numbers the moment they return.
 // ============================================================
-(function initAutoRefresh(){
-  let timer = null;
-  let countdown = 30;
-  const btn = document.getElementById('btnAutoRefresh');
-  if(!btn) return;
+function _initLiveSync(){
+  if(!sb || typeof sb.channel !== 'function') return;
 
-  function tick(){
-    countdown--;
-    btn.textContent = '⏱ Auto: ' + countdown + 's';
-    if(countdown <= 0){
-      clearInterval(timer);
-      location.href = location.pathname + '?_v=' + Date.now();
+  // Debounced refresh — collects which "scopes" need reloading,
+  // waits 600 ms, then fetches only what changed and re-renders.
+  //
+  // FORM SAFETY: if the user has a modal open (creating/editing a
+  // property, tenant, etc.) we load fresh data into state silently
+  // but skip the DOM re-render so their half-filled form is never
+  // wiped. A flag (_renderDeferred) is set so the re-render fires
+  // the moment they close the modal instead.
+  const _pending = new Set();
+  let _timer = null;
+  let _renderDeferred = false;
+
+  function _isModalOpen(){
+    return !($('#modal')?.classList.contains('hidden') ?? true);
+  }
+
+  function _doRender(){
+    _renderDeferred = false;
+    const active = document.querySelector('.tab-btn.active')?.dataset.tab || 'dashboard';
+    renderTab(active);
+  }
+
+  function _schedule(scope){
+    _pending.add(scope);
+    clearTimeout(_timer);
+    _timer = setTimeout(async ()=>{
+      const s = [..._pending]; _pending.clear();
+      if(s.includes('properties')){ await loadProperties(); fillPropertySelectors(); }
+      if(s.includes('tenants'))    await loadTenants();
+      if(s.some(x=>['payments','expenses','aircon','extras','pending'].includes(x)))
+        await refreshMonthData();
+      // Only re-render if no modal is open — otherwise defer
+      if(_isModalOpen()){
+        _renderDeferred = true;
+        window._liveSyncDeferred = _doRender; // closeModal() picks this up
+      } else {
+        _doRender();
+      }
+    }, 600);
+  }
+
+  // Subscribe to every table we care about
+  sb.channel('tms-live')
+    .on('postgres_changes',{event:'*',schema:'public',table:'properties'},             ()=>_schedule('properties'))
+    .on('postgres_changes',{event:'*',schema:'public',table:'tenants'},                ()=>_schedule('tenants'))
+    .on('postgres_changes',{event:'*',schema:'public',table:'rental_payments'},        ()=>_schedule('payments'))
+    .on('postgres_changes',{event:'*',schema:'public',table:'expenses'},               ()=>_schedule('expenses'))
+    .on('postgres_changes',{event:'*',schema:'public',table:'aircon_topups'},          ()=>_schedule('aircon'))
+    .on('postgres_changes',{event:'*',schema:'public',table:'extra_incomes'},          ()=>_schedule('extras'))
+    .on('postgres_changes',{event:'*',schema:'public',table:'pending_isewa_payments'}, ()=>_schedule('pending'))
+    .subscribe();
+
+  // Refresh silently when the user returns to this tab
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible'){
+      _schedule('properties');
+      _schedule('tenants');
+      _schedule('payments');
+      _schedule('expenses');
+      _schedule('aircon');
+      _schedule('extras');
+      _schedule('pending');
     }
-  }
-
-  function startAR(){
-    countdown = 30;
-    btn.textContent = '⏱ Auto: 30s';
-    btn.style.background = '#E8F8FA';
-    btn.style.color = 'var(--brand)';
-    btn.style.borderColor = 'var(--brand2)';
-    timer = setInterval(tick, 1000);
-    localStorage.setItem('polytms_autorefresh', '1');
-  }
-
-  function stopAR(){
-    clearInterval(timer);
-    timer = null;
-    btn.textContent = '⏱ Auto-Refresh: OFF';
-    btn.style.background = '';
-    btn.style.color = '';
-    btn.style.borderColor = '';
-    localStorage.removeItem('polytms_autorefresh');
-    toast('Auto-refresh paused', 'ok');
-  }
-
-  btn.addEventListener('click', () => {
-    if(timer) stopAR(); else { startAR(); toast('Auto-refresh ON — every 30 s', 'ok'); }
   });
-
-  // Resume if it was active before the last reload
-  if(localStorage.getItem('polytms_autorefresh')) startAR();
-})();
+}
 
 // ============================================================
 //  IDLE AUTO-LOGOUT (1 hour)
