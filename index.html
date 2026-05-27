@@ -8,6 +8,8 @@
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
 <title>Polyhome TMS — Tenant Management System</title>
+<!-- Favicon: house icon on teal background -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d9488'/%3E%3Cpath d='M6 18L16 8l10 10' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Crect x='10' y='17' width='12' height='10' rx='1.5' fill='white'/%3E%3Crect x='13.5' y='21' width='5' height='6' rx='1' fill='%230d9488'/%3E%3Crect x='19' y='18' width='4' height='4' rx='0.5' fill='%2399f6e4'/%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Barlow+Condensed:wght@700;800;900&display=swap" rel="stylesheet">
 
 <!-- ===== EXTERNAL DEPS (all version-pinned for production stability) ===== -->
@@ -1635,6 +1637,20 @@
 <!-- ========== TOAST ========== -->
 <div id="toast" class="fixed bottom-5 right-5 z-50 hidden px-4 py-3 rounded-xl text-sm font-semibold shadow-lg cursor-pointer select-none" style="max-width:90vw"></div>
 
+<!-- Custom confirm dialog — replaces native browser confirm() -->
+<div id="confirmDlg" class="fixed inset-0 z-[70] flex items-center justify-center hidden" style="background:rgba(15,23,42,0.5);backdrop-filter:blur(2px)">
+  <div class="bg-white rounded-2xl shadow-2xl w-full mx-4" style="max-width:380px">
+    <div id="confirmDlgHeader" class="flex items-center gap-3 px-5 pt-5 pb-3">
+      <span id="confirmDlgIcon" class="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-lg"></span>
+      <p id="confirmDlgMsg" class="text-sm text-slate-700 leading-relaxed flex-1"></p>
+    </div>
+    <div class="flex gap-2 px-5 pb-5 justify-end">
+      <button id="confirmDlgCancel" class="px-4 py-2 rounded-lg text-sm font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">Cancel</button>
+      <button id="confirmDlgOK" class="px-4 py-2 rounded-lg text-sm font-semibold transition-colors">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ============================================================
 //  POLYHOME TMS APP — vanilla JS SPA
@@ -1871,6 +1887,53 @@ const toast=(msg,type='ok',duration=10000)=>{
 };
 // Dismiss toast on any click anywhere on the page
 document.addEventListener('click', ()=>{ if(!$('#toast')?.classList.contains('hidden')) _hideToast(); }, {capture:true});
+
+// ── Custom confirm dialog (replaces native browser confirm()) ────────────────
+// Usage: if(!await confirmModal('Are you sure?')) return;
+// Options: confirmText, cancelText, danger (bool, default true)
+function confirmModal(msg, {confirmText='Confirm', cancelText='Cancel', danger=true}={}){
+  return new Promise(resolve=>{
+    const dlg       = document.getElementById('confirmDlg');
+    const msgEl     = document.getElementById('confirmDlgMsg');
+    const iconEl    = document.getElementById('confirmDlgIcon');
+    const okBtn     = document.getElementById('confirmDlgOK');
+    const cancelBtn = document.getElementById('confirmDlgCancel');
+
+    // Render message (support \n line breaks)
+    msgEl.innerHTML = esc(msg).replace(/\n/g,'<br>');
+
+    // Icon + button colour
+    if(danger){
+      iconEl.style.background = '#fef2f2';
+      iconEl.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>';
+      okBtn.className = 'px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-rose-600 hover:bg-rose-700 text-white';
+    } else {
+      iconEl.style.background = '#f0fdfa';
+      iconEl.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>';
+      okBtn.className = 'px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-teal-600 hover:bg-teal-700 text-white';
+    }
+    okBtn.textContent     = confirmText;
+    cancelBtn.textContent = cancelText;
+
+    dlg.classList.remove('hidden');
+    // Focus the cancel button by default (safer)
+    setTimeout(()=>cancelBtn.focus(), 50);
+
+    const close = (val)=>{
+      dlg.classList.add('hidden');
+      okBtn.onclick     = null;
+      cancelBtn.onclick = null;
+      dlg.onclick       = null;
+      resolve(val);
+    };
+    okBtn.onclick     = ()=>close(true);
+    cancelBtn.onclick = ()=>close(false);
+    // Click outside the card to cancel
+    dlg.onclick = e=>{ if(e.target===dlg) close(false); };
+  });
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 const fmt = n=> (Number(n||0)).toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2});
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MONTHS_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -2183,7 +2246,7 @@ function enterDemoMode(freshSeed){
 }
 function exitDemoMode(){ localStorage.removeItem(LS_DEMO); $('#demoBadge').classList.add('hidden'); }
 $('#btnDemo').onclick = ()=> enterDemoMode(true);
-$('#btnDemoReset').onclick = ()=>{ if(confirm('Reset demo data back to the sample Meta A-38-11 preset?')){ seedDemo(); toast('Demo data reset'); if($('#demoBadge').classList.contains('hidden')) enterDemoMode(false); else bootApp(); }};
+$('#btnDemoReset').onclick = async ()=>{ if(await confirmModal('Reset demo data back to the sample Meta A-38-11 preset?',{confirmText:'Reset',danger:false})){ seedDemo(); toast('Demo data reset'); if($('#demoBadge').classList.contains('hidden')) enterDemoMode(false); else bootApp(); }};
 
 $('#btnConnect').onclick = async ()=>{
   const url=$('#inpUrl').value.trim(); const key=$('#inpKey').value.trim();
@@ -2259,7 +2322,7 @@ $('#btnSettings').onclick = ()=>{ $('#inpUrl').value=localStorage.getItem(LS_URL
     }
   };
   if(signOut) signOut.onclick = async ()=>{
-    if(!confirm('Sign out of polyTMS?')) return;
+    if(!await confirmModal('Sign out of polyTMS?',{confirmText:'Sign Out',danger:false})) return;
     await signOutAndReturnToLogin();
   };
 })();
@@ -5128,7 +5191,7 @@ async function openMoveOutDetails(id){
 
 async function reactivateTenant(id){
   const t = state.tenants.find(x=>x.id===id); if(!t) return;
-  if(!confirm(`Mark "${t.name}" as active again?\n\nThis only changes the active flag — any "Deposit Forfeited" entry that was recorded in Extra Income remains in the books.`)) return;
+  if(!await confirmModal(`Mark "${t.name}" as active again?\n\nThis only changes the active flag — any "Deposit Forfeited" entry that was recorded in Extra Income remains in the books.`,{confirmText:'Reactivate',danger:false})) return;
   const {error} = await sb.from('tenants').update({
     active: true,
     move_out_date: null,
@@ -5662,7 +5725,7 @@ async function taOnMasterTemplateUpload(ev, returnToTenantId){
 }
 
 async function taClearMasterTemplate(returnToTenantId){
-  if(!confirm('Remove the master TA template?\n\nYou will need to upload it again before generating any new tenancy agreement.')) return;
+  if(!await confirmModal('Remove the master TA template?\n\nYou will need to upload it again before generating any new tenancy agreement.',{confirmText:'Remove',danger:true})) return;
   await _clearStoredTATemplate();
   toast('Master template removed');
   openTAEditTemplateModal(returnToTenantId);
@@ -6186,12 +6249,12 @@ function waCopyLinks(){
   );
 }
 
-function waSendAll(){
+async function waSendAll(){
   const tpl = $('#waMessage').value;
   if(!tpl.trim()) return toast('Compose a message first','warn');
   const recips = waSelectedTenants().filter(t=>waNormalizePhone(t.contact));
   if(!recips.length) return toast('No recipients with a phone number','warn');
-  if(recips.length>5 && !confirm(`Open ${recips.length} WhatsApp tabs? Your browser may ask permission.`)) return;
+  if(recips.length>5 && !await confirmModal(`Open ${recips.length} WhatsApp tabs?\n\nYour browser may ask permission to allow multiple pop-ups.`,{confirmText:'Open Tabs',danger:false})) return;
   // Stagger opens slightly so popup-blockers are friendlier
   recips.forEach((t,i)=>{
     const url = `https://wa.me/${waNormalizePhone(t.contact)}?text=${encodeURIComponent(waPersonalize(tpl,t))}`;
@@ -6395,10 +6458,11 @@ async function commitInlinePayment(tr){
           (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
           (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
         if(isSecondMonth && Math.abs(amt - pr.total) < 0.5){
-          if(confirm(
+          if(await confirmModal(
             `RM ${fmt(amt)} matches ${tenant.name}'s last-month pro-rate (RM ${pr.total}).\n\n`+
             `Treat as ADVANCE-COVERED — income report will show full RM ${(tenant.room_rental||0)+(tenant.carpark_rental||0)} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
-            `OK to record as advance-covered? Cancel = save as plain RM ${fmt(amt)} payment.`
+            `OK to record as advance-covered? Cancel = save as plain RM ${fmt(amt)} payment.`,
+            {confirmText:'Advance-Covered',cancelText:'Plain Payment',danger:false}
           )){
             kind = 'advance_covered_full';
             const note = `🔄 Advance-covered: cash RM ${fmt(amt)} = last-month pro-rate. Full RM ${(tenant.room_rental||0)+(tenant.carpark_rental||0)} income recognized.`;
@@ -6422,9 +6486,10 @@ async function commitInlinePayment(tr){
             const scenarioLabel = isProRate
               ? `Scenario A — receipt RM ${fmt(amt)} matches the move-out pro-rate (RM ${lp.total}).`
               : `Scenario B — receipt RM ${fmt(amt)} is the full month (RM ${fullMonth}); only the pro-rate (RM ${lp.total}) is the actual income, the excess RM ${fullMonth-lp.total} should be refunded to ${tenant.name}.`;
-            if(confirm(
-              `🚪 ${tenant.name} is moving out this month.\n\n${scenarioLabel}\n\n`+
-              `Record income as pro-rate RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days?`
+            if(await confirmModal(
+              `${tenant.name} is moving out this month.\n\n${scenarioLabel}\n\n`+
+              `Record income as pro-rate RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days?`,
+              {confirmText:'Record Pro-Rate',cancelText:'Cancel',danger:false}
             )){
               kind = 'last_month_prorate';
               amtToRecord = lp.total;
@@ -7341,7 +7406,7 @@ function openPropertyModal(id){
       renderTab('properties');
   });
 }
-async function delProperty(id){ if(!confirm('Delete this property and all its tenants/records?'))return; const {error}=await sb.from('properties').delete().eq('id',id); if(error)return toast(error.message,'bad'); await loadProperties(); renderTab('properties'); fillPropertySelectors(); toast('Deleted'); }
+async function delProperty(id){ if(!await confirmModal('Delete this property and all its tenants/records?\n\nThis cannot be undone.',{confirmText:'Delete',danger:true}))return; const {error}=await sb.from('properties').delete().eq('id',id); if(error)return toast(error.message,'bad'); await loadProperties(); renderTab('properties'); fillPropertySelectors(); toast('Deleted'); }
 
 // -- Property VIEW modal (read-only) --
 function openPropertyView(id){
@@ -8130,7 +8195,7 @@ function openTenantModal(id, prefill){
     }
   }, 0);
 }
-async function delTenant(id){ if(!confirm('Delete this tenant?'))return; const {error}=await sb.from('tenants').delete().eq('id',id); if(error)return toast(error.message,'bad'); await loadTenants(); renderTab('tenants'); toast('Deleted'); }
+async function delTenant(id){ if(!await confirmModal('Delete this tenant?\n\nThis cannot be undone.',{confirmText:'Delete',danger:true}))return; const {error}=await sb.from('tenants').delete().eq('id',id); if(error)return toast(error.message,'bad'); await loadTenants(); renderTab('tenants'); toast('Deleted'); }
 
 // -- Payment modal --
 function openPaymentModal(id){
@@ -8166,7 +8231,7 @@ function openPaymentModal(id){
   });
 }
 async function delPayment(id){
-  if(!confirm('Delete this payment?'))return;
+  if(!await confirmModal('Delete this payment?',{confirmText:'Delete',danger:true}))return;
   const r = state.payments.find(x=>x.id===id);
   if(r){ try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); } }
   const {error}=await sb.from('rental_payments').delete().eq('id',id); if(error)return toast(error.message,'bad');
@@ -8230,7 +8295,7 @@ function openAirModal(id){
   });
 }
 async function delAircon(id){
-  if(!confirm('Delete?'))return;
+  if(!await confirmModal('Delete this aircon top-up?',{confirmText:'Delete',danger:true}))return;
   const r = state.aircon.find(x=>x.id===id);
   if(r){ try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); } }
   const {error}=await sb.from('aircon_topups').delete().eq('id',id); if(error)return toast(error.message,'bad'); await loadAircon(); renderTab('aircon'); toast('Deleted');
@@ -8268,7 +8333,7 @@ function openExpenseModal(id){
   });
 }
 async function delExpense(id){
-  if(!confirm('Delete?'))return;
+  if(!await confirmModal('Delete this expense?',{confirmText:'Delete',danger:true}))return;
   const r = state.expenses.find(x=>x.id===id);
   if(r){ try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); } }
   const {error}=await sb.from('expenses').delete().eq('id',id); if(error)return toast(error.message,'bad');
@@ -8301,7 +8366,7 @@ function openExtraModal(id){
   });
 }
 async function delExtra(id){
-  if(!confirm('Delete?'))return;
+  if(!await confirmModal('Delete this extra income?',{confirmText:'Delete',danger:true}))return;
   const r = state.extras.find(x=>x.id===id);
   if(r){ try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); } }
   const {error}=await sb.from('extra_incomes').delete().eq('id',id); if(error)return toast(error.message,'bad');
