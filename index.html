@@ -2968,9 +2968,13 @@ async function ensureCleaningExpensesFor(propId, y, m){
   catch(_){}
   const { data: exp } = await sb.from('expenses').select('id,category')
     .eq('property_id',propId).eq('year',y).eq('month',m);
-  if((exp||[]).some(e=>e.category==='cleaning')) return false;
+  // Count-based check: only insert the rows that are still missing.
+  // Prevents double-inserts when two devices run this concurrently —
+  // the second device sees the rows the first already created and skips.
+  const existingClean = (exp||[]).filter(e=>e.category==='cleaning').length;
+  if(existingClean >= times) return false;
   const rows = [];
-  for(let i=1;i<=times;i++){
+  for(let i=existingClean+1;i<=times;i++){
     rows.push({property_id:propId, year:y, month:m, category:'cleaning',
                description:'Cleaning', amount:charge, expense_date:null});
   }
@@ -7303,6 +7307,17 @@ function openPropertyModal(id){
         cleaning_charge_per_time: $('#f_clean_charge').value===''? null : Number($('#f_clean_charge').value)
       };
       if(!payload.condo||!payload.unit) throw new Error('Condo and Unit are required');
+      // ── Multi-user safety ──────────────────────────────────────────────
+      // Stamp updated_at so we can detect concurrent edits.
+      payload.updated_at = new Date().toISOString();
+      if(id){
+        const {data:fresh} = await sb.from('properties').select('updated_at').eq('id',id).maybeSingle();
+        if(fresh?.updated_at && p.updated_at && fresh.updated_at !== p.updated_at){
+          throw new Error(
+            'This property was saved by another user while this form was open. Close and reopen to get the latest data before saving.'
+          );
+        }
+      }
       const q = id ? sb.from('properties').update(payload).eq('id',id) : sb.from('properties').insert(payload);
       const {error}=await q; if(error) throw error;
       await loadProperties(); fillPropertySelectors();
@@ -7982,6 +7997,29 @@ function openTenantModal(id, prefill){
             `Carpark ${payload.carpark} at ${cpPropLabel.condo||''} ${cpPropLabel.unit||''} is already assigned to ${cpConflict.name}. `+
             `One carpark can only have one active renter. `+
             `Free up the carpark by editing ${cpConflict.name} (clear their carpark or pick a different lot) before assigning it here.`
+          );
+        }
+      }
+      // ── Multi-user safety ──────────────────────────────────────────────
+      // For NEW tenants: re-check the DB (not just local state) for a room
+      // conflict — another device may have just assigned this room.
+      if(!id){
+        const {data:roomCheck} = await sb.from('tenants').select('id,name')
+          .eq('property_id', payload.property_id)
+          .eq('room_code', payload.room_code.trim().toUpperCase())
+          .neq('active', false)
+          .maybeSingle();
+        if(roomCheck) throw new Error(
+          `Room ${payload.room_code} was just assigned to ${roomCheck.name} by another user. Please pick a different room.`
+        );
+      }
+      // For EDITS: check that no one else saved this record while this form
+      // was open (compare server updated_at vs what we loaded into state).
+      if(id){
+        const {data:fresh} = await sb.from('tenants').select('updated_at').eq('id',id).maybeSingle();
+        if(fresh?.updated_at && t.updated_at && fresh.updated_at !== t.updated_at){
+          throw new Error(
+            'This tenant was saved by another user while this form was open. Close and reopen the form to get the latest data before saving.'
           );
         }
       }
