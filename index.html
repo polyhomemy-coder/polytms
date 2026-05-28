@@ -9174,15 +9174,15 @@ function renderReportDesktopHTML(ctx, opts){
   const extraDeskRows = (extRows.length?extRows:[{desc:'',amount:0}]).map((e,i)=>`
     <tr>
       <td class="n">${i+1}</td>
-      <td class="num">${e.amount?fmtNum(e.amount):'—'}</td>
       <td>${e.desc?esc(e.desc):'<span class="muted">—</span>'}</td>
+      <td class="num">${e.amount?fmtNum(e.amount):'—'}</td>
     </tr>`).join('');
 
   const expenseDeskRows = expRows.length ? expRows.map((e,i)=>`
     <tr>
       <td class="n">${i+1}</td>
-      <td class="num">${fmtNum(e.amount)}</td>
       <td>${esc(e.desc||'')}</td>
+      <td class="num">${fmtNum(e.amount)}</td>
     </tr>`).join('') : `<tr><td colspan="3" class="muted center">No expenses</td></tr>`;
 
   return `<!DOCTYPE html>
@@ -9215,12 +9215,12 @@ function renderReportDesktopHTML(ctx, opts){
   .nett-box{background:linear-gradient(135deg,#F4811F 0%,#FF9A45 100%);color:#fff;border-radius:14px;padding:20px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
   .nett-box::before{content:'';position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,0.13);top:-35px;right:-35px;pointer-events:none}
   .nett-box::after{content:'';position:absolute;width:90px;height:90px;border-radius:50%;background:rgba(255,255,255,0.08);bottom:-25px;right:25px;pointer-events:none}
-  .nett-box .lbl{font-size:10px;font-weight:700;letter-spacing:2px;opacity:.85;text-transform:uppercase;margin-bottom:6px;position:relative}
-  .nett-box .amt{font-size:30px;font-weight:800;line-height:1;position:relative}
-  .nett-box .amt span{font-size:16px;font-weight:600;opacity:.8;margin-right:4px}
-  .nett-box .sub{font-size:11px;margin-top:6px;opacity:.85;position:relative}
-  .nett-box .formula{font-size:10px;margin-top:5px;opacity:.72;font-style:italic;letter-spacing:.2px;position:relative}
-  .nett-box .bf-notice-d{margin-top:10px;background:rgba(0,0,0,.18);border-left:2px solid #fff;border-radius:6px;padding:7px 10px;font-size:10.5px;font-weight:500;line-height:1.4;position:relative}
+  .nett-box .lbl{font-size:11.5px;font-weight:700;letter-spacing:2px;opacity:.85;text-transform:uppercase;margin-bottom:6px;position:relative}
+  .nett-box .amt{font-size:34px;font-weight:800;line-height:1;position:relative}
+  .nett-box .amt span{font-size:18px;font-weight:600;opacity:.8;margin-right:4px}
+  .nett-box .sub{font-size:13px;margin-top:6px;opacity:.85;position:relative}
+  .nett-box .formula{font-size:11.5px;margin-top:5px;opacity:.72;font-style:italic;letter-spacing:.2px;position:relative}
+  .nett-box .bf-notice-d{margin-top:10px;background:rgba(0,0,0,.18);border-left:2px solid #fff;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:500;line-height:1.4;position:relative}
   .nett-box .bf-notice-d b{font-weight:800}
   .sec{margin-bottom:20px}
   .sec-head{display:flex;align-items:center;gap:10px;background:linear-gradient(90deg,#007B8A,#00A8BB);color:#fff;padding:10px 16px;border-radius:12px 12px 0 0;font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}
@@ -9309,7 +9309,7 @@ function renderReportDesktopHTML(ctx, opts){
     <div class="sec-head"><div class="ic">➕</div>Extra Income</div>
     <table class="r">
       <thead><tr>
-        <th>No</th><th class="num">Amount (RM)</th><th>Description</th>
+        <th>No</th><th>Description</th><th class="num">Amount (RM)</th>
       </tr></thead>
       <tbody>
         ${extraDeskRows}
@@ -9324,7 +9324,7 @@ function renderReportDesktopHTML(ctx, opts){
     <div class="sec-head"><div class="ic">📋</div>Expenses</div>
     <table class="r">
       <thead><tr>
-        <th>No</th><th class="num">Amount (RM)</th><th>Description</th>
+        <th>No</th><th>Description</th><th class="num">Amount (RM)</th>
       </tr></thead>
       <tbody>
         ${expenseDeskRows}
