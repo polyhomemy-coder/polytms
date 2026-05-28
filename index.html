@@ -9171,19 +9171,17 @@ function renderReportDesktopHTML(ctx, opts){
     </tr>`;
   }).join('') || `<tr><td colspan="7" class="muted center">No income recorded this month</td></tr>`;
 
-  const extraDeskRows = (extRows.length?extRows:[{desc:'',amount:0}]).map((e,i)=>`
+  const extraDeskRows = (extRows.length?extRows:[{desc:'',amount:0}]).map(e=>`
     <tr>
-      <td class="n">${i+1}</td>
       <td class="num">${e.amount?fmtNum(e.amount):'—'}</td>
       <td>${e.desc?esc(e.desc):'<span class="muted">—</span>'}</td>
     </tr>`).join('');
 
-  const expenseDeskRows = expRows.length ? expRows.map((e,i)=>`
+  const expenseDeskRows = expRows.length ? expRows.map(e=>`
     <tr>
-      <td class="n">${i+1}</td>
       <td class="num">${fmtNum(e.amount)}</td>
       <td>${esc(e.desc||'')}</td>
-    </tr>`).join('') : `<tr><td colspan="3" class="muted center">No expenses</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="2" class="muted center">No expenses</td></tr>`;
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -9240,6 +9238,10 @@ function renderReportDesktopHTML(ctx, opts){
   tr.totals td{background:transparent!important;color:#fff!important;font-weight:800;padding:11px 10px;border-left:1px solid rgba(255,255,255,0.2)}
   tr.totals td:first-child{border-left:none}
   tr.totals td.num{color:#fff!important;font-variant-numeric:tabular-nums}
+  /* Sub-tables (Extra Income + Expenses): fixed layout so both Amount cols align */
+  table.r-sub{table-layout:fixed}
+  table.r-sub col.c-amt{width:130px}
+  table.r-sub col.c-desc{width:auto}
   .foot{margin-top:28px;border-top:2px solid #E8F8FA;padding-top:16px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#7BA8B0}
   .foot b{color:#007B8A;font-weight:800}
   .tag{display:inline-block;background:#FFF0E6;color:#F4811F;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
@@ -9307,14 +9309,15 @@ function renderReportDesktopHTML(ctx, opts){
 
   <div class="sec">
     <div class="sec-head"><div class="ic">➕</div>Extra Income</div>
-    <table class="r">
+    <table class="r r-sub">
+      <colgroup><col class="c-amt"><col class="c-desc"></colgroup>
       <thead><tr>
-        <th>No</th><th class="num">Amount (RM)</th><th>Description</th>
+        <th class="num">Amount (RM)</th><th>Description</th>
       </tr></thead>
       <tbody>
         ${extraDeskRows}
         <tr class="totals">
-          <td colspan="2">TOTAL EXTRA INCOME</td><td class="num">${fmtNum(totExt)}</td>
+          <td class="num">${fmtNum(totExt)}</td><td>TOTAL EXTRA INCOME</td>
         </tr>
       </tbody>
     </table>
@@ -9322,14 +9325,15 @@ function renderReportDesktopHTML(ctx, opts){
 
   <div class="sec">
     <div class="sec-head"><div class="ic">📋</div>Expenses</div>
-    <table class="r">
+    <table class="r r-sub">
+      <colgroup><col class="c-amt"><col class="c-desc"></colgroup>
       <thead><tr>
-        <th>No</th><th class="num">Amount (RM)</th><th>Description</th>
+        <th class="num">Amount (RM)</th><th>Description</th>
       </tr></thead>
       <tbody>
         ${expenseDeskRows}
         <tr class="totals">
-          <td colspan="2">TOTAL EXPENSES</td><td class="num">${fmtNum(totExp)}</td>
+          <td class="num">${fmtNum(totExp)}</td><td>TOTAL EXPENSES</td>
         </tr>
       </tbody>
     </table>
