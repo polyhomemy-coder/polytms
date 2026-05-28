@@ -9174,15 +9174,15 @@ function renderReportDesktopHTML(ctx, opts){
   const extraDeskRows = (extRows.length?extRows:[{desc:'',amount:0}]).map((e,i)=>`
     <tr>
       <td class="n">${i+1}</td>
-      <td>${e.desc?esc(e.desc):'<span class="muted">—</span>'}</td>
       <td class="num">${e.amount?fmtNum(e.amount):'—'}</td>
+      <td>${e.desc?esc(e.desc):'<span class="muted">—</span>'}</td>
     </tr>`).join('');
 
   const expenseDeskRows = expRows.length ? expRows.map((e,i)=>`
     <tr>
       <td class="n">${i+1}</td>
-      <td>${esc(e.desc||'')}</td>
       <td class="num">${fmtNum(e.amount)}</td>
+      <td>${esc(e.desc||'')}</td>
     </tr>`).join('') : `<tr><td colspan="3" class="muted center">No expenses</td></tr>`;
 
   return `<!DOCTYPE html>
@@ -9215,7 +9215,8 @@ function renderReportDesktopHTML(ctx, opts){
   .nett-box{background:linear-gradient(135deg,#F4811F 0%,#FF9A45 100%);color:#fff;border-radius:14px;padding:20px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
   .nett-box::before{content:'';position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,0.13);top:-35px;right:-35px;pointer-events:none}
   .nett-box::after{content:'';position:absolute;width:90px;height:90px;border-radius:50%;background:rgba(255,255,255,0.08);bottom:-25px;right:25px;pointer-events:none}
-  .nett-box .lbl{font-size:11.5px;font-weight:700;letter-spacing:2px;opacity:.85;text-transform:uppercase;margin-bottom:6px;position:relative}
+  .nett-box .lbl{font-size:11.5px;font-weight:700;letter-spacing:2px;opacity:.85;text-transform:uppercase;margin-bottom:6px;position:relative;display:flex;align-items:center;gap:8px}
+  .nett-box .lbl .divider{opacity:.45;font-weight:300;letter-spacing:0;font-size:13px}
   .nett-box .amt{font-size:34px;font-weight:800;line-height:1;position:relative}
   .nett-box .amt span{font-size:18px;font-weight:600;opacity:.8;margin-right:4px}
   .nett-box .sub{font-size:13px;margin-top:6px;opacity:.85;position:relative}
@@ -9278,9 +9279,8 @@ function renderReportDesktopHTML(ctx, opts){
       </div>
     </div>
     <div class="nett-box">
-      <div class="lbl">Nett Rental Income</div>
+      <div class="lbl"><span>Nett Rental Income</span><span class="divider">|</span><span>${MONTHS[month-1]} ${year}</span></div>
       <div class="amt"><span>RM</span>${fmtNum(nett)}</div>
-      <div class="sub">${MONTHS[month-1]} ${year} · after deductions</div>
       <div class="formula">= Rental + Air-Cond + Extra Income − Expenses</div>
       ${nett < -0.005 ? `<div class="bf-notice-d">↪ Loss of <b>RM ${fmtNum(-nett)}</b> will be carried forward to next month&#39;s expenses until cleared.</div>` : ''}
     </div>
@@ -9309,7 +9309,7 @@ function renderReportDesktopHTML(ctx, opts){
     <div class="sec-head"><div class="ic">➕</div>Extra Income</div>
     <table class="r">
       <thead><tr>
-        <th>No</th><th>Description</th><th class="num">Amount (RM)</th>
+        <th>No</th><th class="num">Amount (RM)</th><th>Description</th>
       </tr></thead>
       <tbody>
         ${extraDeskRows}
@@ -9324,7 +9324,7 @@ function renderReportDesktopHTML(ctx, opts){
     <div class="sec-head"><div class="ic">📋</div>Expenses</div>
     <table class="r">
       <thead><tr>
-        <th>No</th><th>Description</th><th class="num">Amount (RM)</th>
+        <th>No</th><th class="num">Amount (RM)</th><th>Description</th>
       </tr></thead>
       <tbody>
         ${expenseDeskRows}
