@@ -108,6 +108,59 @@
   /* Dashboard sub-tab bar */
   html[data-theme="dark"] [class~="bg-[#E8F8FA]"]{background:var(--subtab-bg)!important}
   /* Hero cards stay their gradient colours — no override needed */
+
+  /* ── DARK MODE: Logo ────────────────────────────────────────────────────── */
+  html[data-theme="dark"] .brand-row img{filter:brightness(0) invert(1);opacity:.92}
+
+  /* ── DARK MODE: Primary action buttons (btn-brand, btn-accent) ─────────── */
+  html[data-theme="dark"] .btn-brand{background:rgba(0,123,138,.22)!important;color:var(--brand2)!important;border:1px solid rgba(0,180,204,.30)!important;box-shadow:none!important}
+  html[data-theme="dark"] .btn-brand:hover{background:rgba(0,123,138,.34)!important;filter:none!important}
+  html[data-theme="dark"] .btn-accent{background:rgba(244,129,31,.20)!important;color:#FF9A45!important;border:1px solid rgba(244,129,31,.30)!important;box-shadow:none!important}
+  html[data-theme="dark"] .btn-accent:hover{background:rgba(244,129,31,.32)!important}
+
+  /* ── DARK MODE: Del / danger buttons (bg-rose-50 text-rose-600) ─────────── */
+  html[data-theme="dark"] .bg-rose-50{background:rgba(239,68,68,.10)!important}
+  html[data-theme="dark"] .text-rose-600{color:#f87171!important}
+  html[data-theme="dark"] .text-rose-700{color:#fca5a5!important}
+  html[data-theme="dark"] .border-rose-200{border-color:rgba(239,68,68,.22)!important}
+  html[data-theme="dark"] .hover\:bg-rose-100:hover{background:rgba(239,68,68,.16)!important}
+  html[data-theme="dark"] .hover\:bg-rose-600:hover{background:rgba(239,68,68,.22)!important;color:#f87171!important}
+  html[data-theme="dark"] #btnSignOut{background:rgba(239,68,68,.10)!important;color:#f87171!important;border-color:rgba(239,68,68,.22)!important}
+
+  /* ── DARK MODE: Green + Add row buttons (bg-emerald-500 text-white) ──────── */
+  html[data-theme="dark"] .bg-emerald-500{background:rgba(16,185,129,.16)!important;color:#6ee7b7!important}
+  html[data-theme="dark"] .hover\:bg-emerald-600:hover{background:rgba(16,185,129,.26)!important}
+
+  /* ── DARK MODE: Info / status panels ────────────────────────────────────── */
+  html[data-theme="dark"] .bg-emerald-50{background:rgba(16,185,129,.07)!important}
+  html[data-theme="dark"] .bg-emerald-100{background:rgba(16,185,129,.13)!important}
+  html[data-theme="dark"] .text-emerald-800{color:#6ee7b7!important}
+  html[data-theme="dark"] .text-emerald-700{color:#6ee7b7!important}
+  html[data-theme="dark"] .border-emerald-200{border-color:rgba(16,185,129,.28)!important}
+  html[data-theme="dark"] .border-emerald-300{border-color:rgba(16,185,129,.35)!important}
+  html[data-theme="dark"] .bg-amber-50{background:rgba(245,158,11,.07)!important}
+  html[data-theme="dark"] .bg-amber-100{background:rgba(245,158,11,.13)!important}
+  html[data-theme="dark"] .text-amber-800{color:#fcd34d!important}
+  html[data-theme="dark"] .border-amber-200{border-color:rgba(245,158,11,.28)!important}
+  html[data-theme="dark"] .border-amber-300{border-color:rgba(245,158,11,.35)!important}
+  html[data-theme="dark"] .bg-blue-50{background:rgba(59,130,246,.07)!important}
+  html[data-theme="dark"] .text-blue-800{color:#93c5fd!important}
+  html[data-theme="dark"] .border-blue-200{border-color:rgba(59,130,246,.28)!important}
+  html[data-theme="dark"] .bg-sky-50{background:rgba(14,165,233,.07)!important}
+  html[data-theme="dark"] .border-sky-300{border-color:rgba(14,165,233,.28)!important}
+  html[data-theme="dark"] .border-slate-200{border-color:var(--line)!important}
+  html[data-theme="dark"] .bg-slate-50{background:var(--th-bg)!important}
+  html[data-theme="dark"] .hover\:bg-slate-50:hover{background:var(--th-bg)!important}
+
+  /* ── DARK MODE: Table row tints ─────────────────────────────────────────── */
+  html[data-theme="dark"] .bg-rose-50 td{background:rgba(239,68,68,.07)!important}
+  html[data-theme="dark"] tr[class*="bg-amber"] td,html[data-theme="dark"] tr[class*="bg-amber"]{background:rgba(245,158,11,.05)!important}
+
+  /* ── DARK MODE: Misc text ────────────────────────────────────────────────── */
+  html[data-theme="dark"] .text-slate-800{color:#C4E0E6!important}
+  html[data-theme="dark"] .text-slate-900{color:#D0ECF0!important}
+  html[data-theme="dark"] .text-emerald-600{color:#6ee7b7!important}
+  html[data-theme="dark"] .text-amber-600{color:#fcd34d!important}
   /* ────────────────────────────────────────────────────────────────────────── */
 
   /* Theme toggle pill in sidebar bottom */
@@ -9242,10 +9295,10 @@ function renderReportDesktopHTML(ctx, opts){
   tr.totals td.num{color:#fff!important;font-variant-numeric:tabular-nums}
   /* Sub-tables (Extra Income + Expenses): fixed layout so both Amount cols align */
   table.r-sub{table-layout:fixed}
-  table.r-sub col.c-spacer{width:30%}
+  table.r-sub col.c-spacer{width:25%}
   table.r-sub col.c-amt{width:130px}
   table.r-sub col.c-desc{width:auto}
-  table.r-sub td.spacer,table.r-sub th.spacer{background:transparent}
+  table.r-sub td.spacer,table.r-sub th.spacer{background:#E8F8FA!important}
   tr.totals td.totals-lbl{text-align:left;font-weight:800;font-size:12px;letter-spacing:.8px;text-transform:uppercase}
   .foot{margin-top:28px;border-top:2px solid #E8F8FA;padding-top:16px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#7BA8B0}
   .foot b{color:#007B8A;font-weight:800}
