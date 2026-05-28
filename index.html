@@ -124,6 +124,16 @@
   .prop-fchip:hover{background:#F0F9FB;color:var(--brand);border-color:#C8EDF2}
   .prop-fchip.active{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 2px 8px rgba(0,123,138,.18)}
   .prop-fchip.active:hover{background:#005963;color:#fff}
+  /* Sidebar global filter panel */
+  #sbFilters{display:flex;flex-direction:column;gap:6px;padding:10px 4px 8px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  #sbFilters .sb-filter-label{font-size:9.5px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#64748B;margin-bottom:1px}
+  #sbFilters .sb-fchip{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;border:1px solid var(--line);background:#F7FDFE;color:#486870;cursor:pointer;white-space:nowrap;user-select:none;transition:background .12s,color .12s,border-color .12s}
+  #sbFilters .sb-fchip:hover{background:#E2F4F7;color:var(--brand);border-color:#C8EDF2}
+  #sbFilters .sb-fchip.active{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 2px 6px rgba(0,123,138,.20)}
+  #sbFilters .sb-fchip.active:hover{background:#005963}
+  #sbFilters .sb-clear{font-size:10px;font-weight:700;color:#DC2626;cursor:pointer;padding:0 2px;background:none;border:none;text-decoration:none}
+  #sbFilters .sb-clear:hover{text-decoration:underline}
+  @media(max-width:880px){#sbFilters{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;border-top:none;border-bottom:none;padding:4px 0}}
   .sf-pill{padding:6px 12px;border-radius:8px;font-weight:700;font-size:11.5px;color:#486870;cursor:pointer;white-space:nowrap;user-select:none}
   .sf-pill.active{background:#fff;color:var(--brand);box-shadow:0 2px 8px rgba(0,123,138,.12)}
   .sf-pill[data-sf="paid"].active{color:#0F7A3E}
@@ -1095,6 +1105,20 @@
       <span class="tab-btn" data-tab="expenses">📋 Expenses</span>
       <span class="tab-btn" data-tab="report">📄 Income Report</span>
     </nav>
+
+    <!-- Global filter panel — City + Type chips that filter ALL tabs -->
+    <div id="sbFilters">
+      <div>
+        <div class="sb-filter-label">City</div>
+        <div id="sbCityChips" class="flex flex-wrap gap-1 mt-1"></div>
+      </div>
+      <div>
+        <div class="sb-filter-label">Type</div>
+        <div id="sbTypeChips" class="flex flex-wrap gap-1 mt-1"></div>
+      </div>
+      <div id="sbFilterClearRow" class="hidden"><button id="sbFilterClear" class="sb-clear">✕ Clear filters</button></div>
+    </div>
+
     <!-- Bottom block — month picker, demo badge, settings cog -->
     <div id="sbBottom">
       <div class="sb-label">Month</div>
@@ -1279,9 +1303,6 @@
 
     <!-- SUB-PANE: ALL PROPERTIES -------------------------------- -->
     <div class="subtab-pane" data-subpane="all">
-      <!-- Multi-filter chip bar — click chips to toggle. Multiple chips per
-           group act as OR; combining City + Type acts as AND across groups. -->
-      <div id="propFilterBar" class="card !p-3 mb-3 flex items-center flex-wrap gap-x-4 gap-y-2"></div>
       <div class="card p-0 overflow-hidden">
         <div class="overflow-x-auto"><table class="data" id="propTable"></table></div>
       </div>
@@ -1297,8 +1318,6 @@
           </div>
           <div id="vacSummary" class="help"></div>
         </div>
-        <!-- Vacancy filter bar — City + Type chips, shared state with All Properties -->
-        <div id="vacFilterBar" class="flex items-center flex-wrap gap-x-4 gap-y-2 pt-2 pb-3 mb-1 border-b border-[color:var(--line)]"></div>
         <div id="vacList" class="mt-3"></div>
       </div>
     </div>
@@ -1326,8 +1345,6 @@
         <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openTenantModal()">+ Add Tenant</button>
       </div>
     </div>
-    <!-- City filter chip bar -->
-    <div id="tenantCityBar" class="flex items-center flex-wrap gap-2 mb-2"></div>
     <div class="card p-0 overflow-hidden">
       <div class="overflow-x-auto"><table class="data" id="tenantTable"></table></div>
     </div>
@@ -1934,6 +1951,49 @@ function confirmModal(msg, {confirmText='Confirm', cancelText='Cancel', danger=t
 }
 // ────────────────────────────────────────────────────────────────────────────
 
+// ── Global city/type filter helpers ─────────────────────────────────────────
+// Single source of truth: state.propCityFilter (array) + state.propTypeFilter (array)
+// Used by Properties, Tenants, Income, Expenses, Vacancies.
+
+function _propPassesGlobalFilter(p){
+  if(!p) return true;
+  const cityFil = state.propCityFilter || [];
+  const typeFil = state.propTypeFilter || [];
+  if(cityFil.length && !cityFil.includes(p.city || '__none__')) return false;
+  if(typeFil.length && !typeFil.includes(p.property_type || 'H2M')) return false;
+  return true;
+}
+
+function renderSidebarFilters(){
+  const cityChipsEl = document.getElementById('sbCityChips');
+  const typeChipsEl = document.getElementById('sbTypeChips');
+  const clearRow    = document.getElementById('sbFilterClearRow');
+  if(!cityChipsEl || !typeChipsEl) return;
+
+  const cityFil = state.propCityFilter || [];
+  const typeFil = state.propTypeFilter || [];
+
+  // Distinct cities from loaded properties
+  const seen = new Set();
+  (state.properties||[]).forEach(p=>{ if(p.city) seen.add(p.city); });
+  const cities = [...seen].sort((a,b)=>a.localeCompare(b));
+
+  const mkChip = (label, active, group, value) =>
+    `<button type="button" class="sb-fchip${active?' active':''}" data-sbgroup="${group}" data-sbval="${label === '(no city)' ? '__none__' : value}">${label}</button>`;
+
+  cityChipsEl.innerHTML = cities.length
+    ? cities.map(c=>mkChip(c, cityFil.includes(c), 'city', c)).join('')
+    : '<span style="font-size:11px;color:#94a3b8">—</span>';
+
+  typeChipsEl.innerHTML =
+    mkChip('Help Manage', typeFil.includes('H2M'), 'type', 'H2M') +
+    mkChip('Own Unit',    typeFil.includes('R2R'), 'type', 'R2R');
+
+  const totalActive = cityFil.length + typeFil.length;
+  if(clearRow) clearRow.classList.toggle('hidden', totalActive === 0);
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 const fmt = n=> (Number(n||0)).toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2});
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MONTHS_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -2404,30 +2464,35 @@ document.addEventListener('click', e=>{
   renderProperties();
 });
 
-// --- Properties multi-filter chips (City + Type) ---
-// Chips are rendered fresh on every renderProperties() call, so we use a
-// delegated listener on the bar. Toggling = add to / remove from the array;
-// re-render to update active styling and the row list.
+// --- Sidebar global filter chips (City + Type) ---
+// These chips live in the sidebar and affect ALL tabs.
 document.addEventListener('click', e=>{
-  // Chips work in both #propFilterBar (All Properties) and #vacFilterBar (Vacancies) —
-  // they share the same state so filtering one also filters the other.
-  const chip = e.target.closest('#propFilterBar .prop-fchip, #vacFilterBar .prop-fchip');
+  // Sidebar chip toggle
+  const chip = e.target.closest('#sbCityChips .sb-fchip, #sbTypeChips .sb-fchip');
   if(chip){
-    const group = chip.dataset.group;
-    const value = chip.dataset.value;
+    const group = chip.dataset.sbgroup;
+    const value = chip.dataset.sbval;
     const key = group==='city' ? 'propCityFilter' : 'propTypeFilter';
     const arr = state[key] = (state[key]||[]).slice();
     const idx = arr.indexOf(value);
     if(idx>=0) arr.splice(idx,1); else arr.push(value);
-    renderProperties();
+    _applyGlobalFilterAndRender();
     return;
   }
-  if(e.target.closest('#propFilterClear, #vacFilterClear')){
+  // Clear all filters
+  if(e.target.closest('#sbFilterClear')){
     state.propCityFilter = [];
     state.propTypeFilter = [];
-    renderProperties();
+    _applyGlobalFilterAndRender();
   }
 });
+
+function _applyGlobalFilterAndRender(){
+  renderSidebarFilters();
+  fillPropertySelectors();
+  const active = document.querySelector('.tab-btn.active')?.dataset.tab || 'dashboard';
+  renderTab(active);
+}
 
 // --- Tenants sub-tabs (Active / Moved Out) ---
 document.addEventListener('click', e=>{
@@ -2437,20 +2502,7 @@ document.addEventListener('click', e=>{
     renderTenants();
     return;
   }
-  // Tenant city filter chips
-  const chip = e.target.closest('#tenantCityBar .prop-fchip');
-  if(chip){
-    const val = chip.dataset.value;
-    const arr = state.tenantCityFilter = (state.tenantCityFilter||[]).slice();
-    const idx = arr.indexOf(val);
-    if(idx>=0) arr.splice(idx,1); else arr.push(val);
-    renderTenants();
-    return;
-  }
-  if(e.target.closest('#tenantCityClear')){
-    state.tenantCityFilter = [];
-    renderTenants();
-  }
+  // (tenant city bar removed — filtering now handled by sidebar global filter)
 });
 
 // --- month change -------------------------------------------
@@ -3630,6 +3682,7 @@ async function bootApp(){
   await loadReportStatus();
   await refreshMonthData();
   fillPropertySelectors();
+  renderSidebarFilters();
   renderTab('dashboard');
   // Start live sync — Supabase Realtime + visibility API.
   // Runs after initial load so the first render is never delayed.
@@ -3658,7 +3711,9 @@ function _installAriaAutoMirror(){
   obs.observe(document.body, {childList:true, subtree:true});
 }
 function fillPropertySelectors(){
-  const opts = state.properties.map(p=>`<option value="${p.id}">${esc(p.condo)} · ${esc(p.unit)}</option>`).join('');
+  // Apply global sidebar filter so dropdowns only show matching properties
+  const filteredProps = (state.properties||[]).filter(p=>_propPassesGlobalFilter(p));
+  const opts = filteredProps.map(p=>`<option value="${p.id}">${esc(p.condo)} · ${esc(p.unit)}</option>`).join('');
   // Selectors that default to "All properties"
   const allPropSelectors = new Set(['tenantFilter','colSelProp','paySelProp','expSelProp','extSelProp','airSelProp']);
   ['colSelProp','paySelProp','airSelProp','expSelProp','extSelProp','rptProp','tenantFilter'].forEach(id=>{
@@ -3695,6 +3750,7 @@ function fillPropertySelectors(){
 //  TAB RENDERERS
 // ============================================================
 function renderTab(t){
+  renderSidebarFilters();
   if(t==='dashboard'){
     // Reflect state.dashType on the sub-tab buttons every time we render
     document.querySelectorAll('#dashTypeTabs .subtab-btn').forEach(x=>
@@ -4455,22 +4511,15 @@ function renderTenants(){
   document.querySelectorAll('#tenantSubtabs .subtab-btn').forEach(x=>x.classList.toggle('active', x.dataset.tsub===sub));
   const filt = $('#tenantFilter')?.value || '';
   const q = (state.tenantQuery||'').toLowerCase();
-  const cityFil = state.tenantCityFilter || [];
-
-  // Render city filter bar
-  renderTenantCityBar();
 
   // Filter by Active vs Moved Out first
   let tenants = state.tenants.filter(t=> sub==='movedout' ? t.active===false : t.active!==false);
   if(filt) tenants = tenants.filter(t=>t.property_id===filt);
-  // City filter — match via the tenant's property city
-  if(cityFil.length){
-    tenants = tenants.filter(t=>{
-      const p = state.properties.find(x=>x.id===t.property_id);
-      const city = p?.city || '__none__';
-      return cityFil.includes(city);
-    });
-  }
+  // Global city + type filter (from sidebar)
+  tenants = tenants.filter(t=>{
+    const p = state.properties.find(x=>x.id===t.property_id);
+    return _propPassesGlobalFilter(p);
+  });
   if(q){
     tenants = tenants.filter(t=>{
       const p = state.properties.find(x=>x.id===t.property_id);
@@ -6306,7 +6355,8 @@ function renderPayments(){
   // a "Standalone Carpark" virtual room — but for tenants with both a
   // room and a carpark, only one row should exist.
   // ----------------------------------------------------------------------
-  let list = pid ? state.payments.filter(p=>p.property_id===pid) : state.payments;
+  let list = pid ? state.payments.filter(p=>p.property_id===pid)
+    : state.payments.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
   list = list.filter(p=>p.item_type !== 'carpark');
   // Sort: property, then rooms (canonical M > I > J > C > A > N > other)
   list = [...list].sort((a,b)=>{
@@ -6532,6 +6582,11 @@ function computeRentStatus(pid){
   const first=new Date(y, m-1, 1), last=new Date(y, m, 0);
   let tenants = state.tenants.filter(t=>t.active!==false);
   if(pid) tenants = tenants.filter(t=>t.property_id===pid);
+  // Apply global sidebar filter when showing all properties
+  if(!pid) tenants = tenants.filter(t=>{
+    const p = state.properties.find(x=>x.id===t.property_id);
+    return _propPassesGlobalFilter(p);
+  });
   // only tenants whose agreement overlaps this month
   tenants = tenants.filter(t=>{
     const s = t.agreement_start ? new Date(t.agreement_start) : null;
@@ -6800,7 +6855,8 @@ function openAssignIsewa(pendingId){
 function renderAircon(){
   renderPendingIsewaBanner();
   const pid = $('#airSelProp').value;
-  let list = pid ? state.aircon.filter(p=>p.property_id===pid) : state.aircon;
+  let list = pid ? state.aircon.filter(p=>p.property_id===pid)
+    : state.aircon.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
   list = [...list].sort((a,b)=>{
     const pa = state.properties.find(x=>x.id===a.property_id);
     const pb = state.properties.find(x=>x.id===b.property_id);
@@ -7053,7 +7109,8 @@ async function commitInlineExpense(tr){
 function renderExpenses(){
   const pid = $('#expSelProp').value;
   const cat = state.expenseCat || 'all';
-  let list = pid ? state.expenses.filter(p=>p.property_id===pid) : state.expenses;
+  let list = pid ? state.expenses.filter(p=>p.property_id===pid)
+    : state.expenses.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
 
   // Update sub-tab badges with per-category counts against the property-filtered list
   const badges = $('#expCatTabs');
@@ -7166,7 +7223,8 @@ function renderExpenses(){
 // ----- EXTRAS -----
 function renderExtras(){
   const pid = $('#extSelProp').value;
-  const list = pid ? state.extras.filter(p=>p.property_id===pid) : state.extras;
+  const list = pid ? state.extras.filter(p=>p.property_id===pid)
+    : state.extras.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
   let _extLastPid = null, _extGrp = -1;
   const rows = list.map(r=>{
     const p = state.properties.find(x=>x.id===r.property_id);
