@@ -8828,12 +8828,15 @@ function renderReportHTML(ctx, opts){
   .grid-expense{grid-template-columns:28px 3fr 1fr;gap:4px}
   .no-badge{width:22px;height:22px;background:#E8F8FA;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#007B8A}
   .no-badge.alt{background:#FFF0E6;color:#F4811F}
-  .total-row{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg,#F4811F,#FF9A45);padding:16px 20px}
-  .total-label{font-size:14px;font-weight:700;color:#fff}
-  .total-amount{font-size:18px;font-weight:800;color:#fff}
-  .total-row-split{display:grid;grid-template-columns:28px 2fr 1fr 1fr;gap:4px;align-items:center;background:linear-gradient(90deg,#F4811F,#FF9A45);padding:14px 20px}
-  .total-row-split .total-label{font-size:13px;font-weight:700;color:#fff;text-align:right;grid-column:1/3}
-  .total-row-split .total-amt{font-size:15px;font-weight:800;color:#fff;text-align:right}
+  /* Combined totals block — one big gradient, white dividers between rows and columns */
+  .totals-block{background:linear-gradient(135deg,#C85900 0%,#F4811F 45%,#FF9A45 100%);border-radius:16px;margin-bottom:14px;overflow:hidden}
+  .totals-block-row{display:flex;align-items:stretch}
+  .totals-block-row+.totals-block-row{border-top:1px solid rgba(255,255,255,0.28)}
+  .totals-block-label{flex:2;padding:16px 20px;font-size:13px;font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center}
+  .totals-block-divider{width:1px;background:rgba(255,255,255,0.35);flex-shrink:0;margin:8px 0}
+  .totals-block-val{flex:1;padding:14px 20px;display:flex;flex-direction:column;align-items:flex-end;justify-content:center}
+  .totals-block-amount{font-size:17px;font-weight:800;color:#fff}
+  .totals-block-sublabel{font-size:10px;font-weight:700;color:rgba(255,255,255,.72);letter-spacing:.3px;margin-top:2px;text-transform:uppercase}
   .owner-card{background:#fff;border-radius:20px;margin-bottom:14px;overflow:hidden;box-shadow:0 2px 12px rgba(0,123,138,.07)}
   .owner-row{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #F0F9FB}
   .owner-row:last-child{border-bottom:none}
@@ -8877,25 +8880,49 @@ function renderReportHTML(ctx, opts){
   <div class="section-head"><div class="section-icon">💰</div><span class="section-title">Income</span></div>
   <div class="tbl-header grid-income"><span></span><span>Room / Item</span><span style="text-align:right">Rental</span><span style="text-align:right">Air-Cond</span></div>
   ${incomeRows}
-  <div class="total-row-split">
-    <span class="total-label" style="grid-column:1/3">TOTAL</span>
-    <span class="total-amt">${fmtNum(totRental)}</span>
-    <span class="total-amt">${fmtNum(totAircond)}</span>
-  </div>
 </div>
 
 <div class="section-card">
   <div class="section-head"><div class="section-icon">➕</div><span class="section-title">Extra Income</span></div>
   <div class="tbl-header grid-expense"><span></span><span>Description</span><span style="text-align:right">Amount</span></div>
   ${extraRows}
-  <div class="total-row"><span class="total-label">TOTAL EXTRA INCOME</span><span class="total-amount">${fmtNum(totExt)}</span></div>
 </div>
 
 <div class="section-card">
   <div class="section-head"><div class="section-icon">📋</div><span class="section-title">Expenses</span></div>
   <div class="tbl-header grid-expense"><span></span><span>Description</span><span style="text-align:right">Amount</span></div>
   ${expenseRows}
-  <div class="total-row"><span class="total-label">TOTAL EXPENSES</span><span class="total-amount">${fmtNum(totExp)}</span></div>
+</div>
+
+<!-- Combined totals — one big gradient with white dividers -->
+<div class="totals-block">
+  <div class="totals-block-row">
+    <span class="totals-block-label">Total Income</span>
+    <span class="totals-block-divider"></span>
+    <div class="totals-block-val">
+      <div class="totals-block-amount">RM ${fmtNum(totRental)}</div>
+      <div class="totals-block-sublabel">Rental</div>
+    </div>
+    <span class="totals-block-divider"></span>
+    <div class="totals-block-val">
+      <div class="totals-block-amount">RM ${fmtNum(totAircond)}</div>
+      <div class="totals-block-sublabel">Air-Cond</div>
+    </div>
+  </div>
+  <div class="totals-block-row">
+    <span class="totals-block-label">Total Extra Income</span>
+    <span class="totals-block-divider"></span>
+    <div class="totals-block-val" style="flex:2">
+      <div class="totals-block-amount">RM ${fmtNum(totExt)}</div>
+    </div>
+  </div>
+  <div class="totals-block-row">
+    <span class="totals-block-label">Total Expenses</span>
+    <span class="totals-block-divider"></span>
+    <div class="totals-block-val" style="flex:2">
+      <div class="totals-block-amount">RM ${fmtNum(totExp)}</div>
+    </div>
+  </div>
 </div>
 
 <div class="section-card">
@@ -9124,8 +9151,14 @@ function renderReportDesktopHTML(ctx, opts){
   table.r td.muted{color:#7BA8B0;font-weight:500}
   table.r td.center{text-align:center}
   table.r td.small{font-size:11px}
-  tr.totals td{background:linear-gradient(90deg,#F4811F,#FF9A45)!important;color:#fff!important;font-weight:800;padding:11px 10px}
-  tr.totals td.num{color:#fff!important}
+  /* Combined totals block (print version) */
+  .totals-tbl{width:100%;border-collapse:collapse;border-radius:12px;overflow:hidden;margin-bottom:20px;background:linear-gradient(135deg,#C85900 0%,#F4811F 45%,#FF9A45 100%)}
+  .totals-tbl td{padding:12px 12px;color:#fff;font-weight:800;vertical-align:middle;border-top:1px solid rgba(255,255,255,0.28)}
+  .totals-tbl tr:first-child td{border-top:none}
+  .totals-tbl td.sep{width:1px;background:rgba(255,255,255,0.35);padding:0}
+  .totals-tbl td.ttl-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;width:40%}
+  .totals-tbl td.ttl-num{text-align:right;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums}
+  .totals-tbl td.ttl-sub{font-size:10px;font-weight:700;color:rgba(255,255,255,.75);text-align:right;text-transform:uppercase;letter-spacing:.3px}
   .foot{margin-top:28px;border-top:2px solid #E8F8FA;padding-top:16px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#7BA8B0}
   .foot b{color:#007B8A;font-weight:800}
   .tag{display:inline-block;background:#FFF0E6;color:#F4811F;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
@@ -9181,13 +9214,6 @@ function renderReportDesktopHTML(ctx, opts){
       </tr></thead>
       <tbody>
         ${incomeRows}
-        <tr class="totals">
-          <td></td><td colspan="2">TOTAL</td>
-          <td class="num">${fmtNum(totRental)}</td>
-          <td class="num">${fmtNum(totAircond)}</td>
-          <td></td>
-          <td></td>
-        </tr>
       </tbody>
     </table>
   </div>
@@ -9200,9 +9226,6 @@ function renderReportDesktopHTML(ctx, opts){
       </tr></thead>
       <tbody>
         ${extraDeskRows}
-        <tr class="totals">
-          <td></td><td class="num">${fmtNum(totExt)}</td><td>TOTAL EXTRA INCOME</td>
-        </tr>
       </tbody>
     </table>
   </div>
@@ -9215,12 +9238,34 @@ function renderReportDesktopHTML(ctx, opts){
       </tr></thead>
       <tbody>
         ${expenseDeskRows}
-        <tr class="totals">
-          <td></td><td class="num">${fmtNum(totExp)}</td><td>TOTAL EXPENSES</td>
-        </tr>
       </tbody>
     </table>
   </div>
+
+  <!-- Combined totals — one gradient block with white dividers -->
+  <table class="totals-tbl">
+    <tr>
+      <td class="ttl-label">Total Income</td>
+      <td class="sep"></td>
+      <td class="ttl-num">RM ${fmtNum(totRental)}</td>
+      <td class="ttl-sub">Rental</td>
+      <td class="sep"></td>
+      <td class="ttl-num">RM ${fmtNum(totAircond)}</td>
+      <td class="ttl-sub">Air-Cond</td>
+    </tr>
+    <tr>
+      <td class="ttl-label">Total Extra Income</td>
+      <td class="sep"></td>
+      <td class="ttl-num" colspan="4">RM ${fmtNum(totExt)}</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td class="ttl-label">Total Expenses</td>
+      <td class="sep"></td>
+      <td class="ttl-num" colspan="4">RM ${fmtNum(totExp)}</td>
+      <td></td>
+    </tr>
+  </table>
 
   <div class="foot">
     <div>Thank you for trusting us to manage your property.</div>
