@@ -1226,7 +1226,8 @@
       <div style="font-size:9px;font-weight:800;letter-spacing:3px;color:var(--muted);text-transform:uppercase">TENANT MANAGEMENT SYSTEM</div>
     </div>
     <nav id="tabs">
-      <span class="tab-btn active" data-tab="dashboard">📊 Dashboard</span>
+      <span class="tab-btn active" data-tab="dashboard">📊 Manager</span>
+      <span class="tab-btn" data-tab="admin">🗂️ Admin</span>
       <span class="tab-btn" data-tab="properties">🏢 Properties</span>
       <span class="tab-btn" data-tab="tenants">👥 Tenants</span>
       <span class="tab-btn" data-tab="income">💰 Income</span>
@@ -1419,6 +1420,11 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <!-- ADMIN DASHBOARD ========================================= -->
+  <section class="tab-pane hidden-force" data-pane="admin">
+    <div id="adminDashView"></div>
   </section>
 
   <!-- PROPERTIES ============================================= -->
@@ -3907,6 +3913,7 @@ function renderTab(t){
       x.classList.toggle('active', x.dataset.dashtype===(state.dashType||'H2M')));
     renderDashboard();
   }
+  if(t==='admin') renderAdminDashboard();
   if(t==='properties') renderProperties();
   if(t==='tenants') renderTenants();
   // Combined Income tab — render all four sub-pane tables (collection,
@@ -4023,6 +4030,219 @@ function renderDashboard(){
   if(r2rView) r2rView.classList.toggle('hidden-force', dt!=='R2R');
   if(dt === 'R2R') return renderOwnUnitDashboard();
   return renderHelpManageDashboard();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+function renderAdminDashboard(){
+  const el = document.getElementById('adminDashView');
+  if(!el) return;
+  const y=state.year, m=state.month;
+  const mStr=`${y}-${String(m).padStart(2,'0')}`;
+
+  // Filtered props / tenants
+  const props   = (state.properties||[]).filter(_propPassesGlobalFilter);
+  const propIds = new Set(props.map(p=>p.id));
+  const allActive = (state.tenants||[]).filter(t=>t.active!==false && propIds.has(t.property_id));
+
+  // Rent status (unpaid / unmatch) for current month
+  const rentRows    = computeRentStatus('');
+  const unpaidRows  = rentRows.filter(r=>r.status==='unpaid'||r.status==='unmatch').sort((a,b)=>{
+    const pa=a.prop?a.prop.condo+a.prop.unit:'zzz', pb=b.prop?b.prop.condo+b.prop.unit:'zzz';
+    return pa.localeCompare(pb) || compareRoom(a.tenant?.room_code,b.tenant?.room_code);
+  });
+
+  // Lease expirations (≤90 days)
+  const leaseAlerts = allActive
+    .map(t=>({t,d:daysToEnd(t)}))
+    .filter(x=>x.d!=null&&x.d>=0&&x.d<=90)
+    .sort((a,b)=>a.d-b.d);
+
+  // Vacant rooms
+  const vacants=[];
+  props.forEach(p=>{
+    const rooms=parseRoomCodes(p.room_codes);
+    const here=allActive.filter(t=>t.property_id===p.id);
+    rooms.forEach(r=>{
+      if(!here.some(t=>(t.room_code||'').toUpperCase()===r)) vacants.push({prop:p,room:r});
+    });
+  });
+
+  // Carpark assignments
+  const carparkList=allActive
+    .filter(t=>t.carpark&&t.carpark.trim())
+    .map(t=>({t,prop:props.find(p=>p.id===t.property_id)}))
+    .sort((a,b)=>{
+      const ka=a.prop?a.prop.condo+a.prop.unit:'zzz', kb=b.prop?b.prop.condo+b.prop.unit:'zzz';
+      return ka.localeCompare(kb);
+    });
+
+  // Move-ins and move-outs this month
+  const moveIns  = allActive.filter(t=>t.agreement_start&&t.agreement_start.startsWith(mStr));
+  const moveOuts = (state.tenants||[]).filter(t=>t.active===false&&propIds.has(t.property_id)&&t.agreement_end&&t.agreement_end.startsWith(mStr));
+
+  // Pending iSewa
+  const iSewaCount=(state.pendingIsewa||[]).length;
+
+  // Report sign-off pending
+  const reportPending=props.filter(p=>{
+    const rs=(state.reportStatus||[]).find(r=>r.property_id===p.id&&r.year===y&&r.month===m);
+    return !rs||!rs.launched_at;
+  });
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  const secHead=(icon,title,count,badgeStyle)=>`
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-base">${icon}</span>
+      <span style="font-size:13px;font-weight:800;color:var(--ink)">${title}</span>
+      ${count!=null?`<span style="font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;${badgeStyle||'background:var(--th-bg);color:var(--brand)'}">${count}</span>`:''}
+    </div>`;
+
+  const emptyMsg=msg=>`<p style="font-size:12px;color:var(--muted);padding:8px 0">${msg}</p>`;
+
+  const miniTh=(...cols)=>`<thead><tr>${cols.map(c=>`<th style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:0 8px 6px ${c.right?'0':'0'};text-align:${c.right?'right':'left'};white-space:nowrap">${c.label}</th>`).join('')}</tr></thead>`;
+
+  // ── Stat tile ─────────────────────────────────────────────────────────────
+  const tile=(icon,label,val,color)=>`
+    <div style="background:var(--card-bg);border-radius:16px;padding:14px 16px;border-left:4px solid ${color};box-shadow:0 2px 10px rgba(0,0,0,.06);display:flex;align-items:center;gap:12px">
+      <span style="font-size:22px;line-height:1">${icon}</span>
+      <div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:2px">${label}</div>
+        <div style="font-size:22px;font-weight:800;color:${color};line-height:1">${val}</div>
+      </div>
+    </div>`;
+
+  // ── Panel wrapper ─────────────────────────────────────────────────────────
+  const panel=content=>`<div class="card" style="overflow-x:auto">${content}</div>`;
+
+  // ── Mini table ────────────────────────────────────────────────────────────
+  const tbl=(head,body)=>`<table style="width:100%;border-collapse:collapse;font-size:12px">${head}<tbody>${body}</tbody></table>`;
+  const td=(val,opts={})=>`<td style="padding:6px 8px 6px 0;border-bottom:1px solid var(--line);${opts.bold?'font-weight:700;':''}${opts.muted?'color:var(--muted);':''}${opts.right?'text-align:right;':''}${opts.color?'color:'+opts.color+';':''}white-space:${opts.wrap?'normal':'nowrap'}">${val}</td>`;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  el.innerHTML = `
+  <!-- ── Stat tiles ── -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px">
+    ${tile('👥','Active Tenants',allActive.length,'var(--brand)')}
+    ${tile('🏠','Vacant Rooms',vacants.length,vacants.length?'#C85900':'var(--brand)')}
+    ${tile('💸','Unpaid / Unmatch',unpaidRows.length,unpaidRows.length?'#B3261E':'var(--brand)')}
+    ${tile('⏰','Expiring ≤90d',leaseAlerts.length,leaseAlerts.length?'#92400E':'var(--brand)')}
+    ${tile('🚗','Carparkids',carparkList.length,'var(--brand)')}
+    ${tile('📱','iSewa Pending',iSewaCount,iSewaCount?'#0E7490':'var(--brand)')}
+  </div>
+
+  <!-- ── 2-col grid ── -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+
+    <!-- ── LEFT ── -->
+    <div style="display:flex;flex-direction:column;gap:16px">
+
+      ${panel(`
+        ${secHead('⏰','Lease Alerts',leaseAlerts.length,'background:#FEF3C7;color:#92400E')}
+        ${leaseAlerts.length===0 ? emptyMsg('No leases expiring within 90 days ✓') : tbl(
+          miniTh({label:'Tenant'},{label:'Property · Room'},{label:'End Date',right:true},{label:'Days Left',right:true}),
+          leaseAlerts.slice(0,20).map(({t,d})=>{
+            const p=state.properties.find(x=>x.id===t.property_id);
+            const bg=d<=14?'rgba(254,226,226,.5)':d<=30?'rgba(254,243,199,.5)':'';
+            const col=d<=14?'#B91C1C':d<=30?'#92400E':'#047857';
+            return `<tr style="background:${bg}">
+              ${td(esc(t.name||'—'),{bold:true})}
+              ${td((p?esc(p.condo+' '+p.unit):'—')+' · <b>'+esc(t.room_code||'?')+'</b>',{muted:true,wrap:true})}
+              ${td(t.agreement_end?fmtDate(t.agreement_end):'—',{right:true})}
+              ${td(`<b>${d===0?'TODAY!':d+'d'}</b>`,{right:true,color:col})}
+            </tr>`;
+          }).join('')
+        )}
+      `)}
+
+      ${panel(`
+        ${secHead('🏠','Vacant Rooms',vacants.length,'background:#FEE2E2;color:#B91C1C')}
+        ${vacants.length===0 ? emptyMsg('All rooms occupied ✓') : tbl(
+          miniTh({label:'Property'},{label:'City'},{label:'Room',right:true}),
+          vacants.map(v=>`<tr>
+            ${td(esc(v.prop.condo+' '+v.prop.unit),{bold:true})}
+            ${td(esc(v.prop.city||'—'),{muted:true})}
+            ${td(`<span style="font-weight:800;color:var(--accent)">${esc(v.room)}</span>`,{right:true})}
+          </tr>`).join('')
+        )}
+      `)}
+
+      ${panel(`
+        ${secHead('📦','Movements This Month',moveIns.length+moveOuts.length)}
+        ${moveIns.length===0&&moveOuts.length===0 ? emptyMsg('No move-ins or move-outs recorded this month') : `
+          ${moveIns.length?`<div style="font-size:11px;font-weight:800;color:#065F46;margin-bottom:6px">🆕 MOVE-INS (${moveIns.length})</div>
+            ${tbl(miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Start',right:true}),
+              moveIns.map(t=>{const p=state.properties.find(x=>x.id===t.property_id);return`<tr>
+                ${td(esc(t.name||'—'),{bold:true})}
+                ${td(p?esc(p.condo+' '+p.unit+' · Rm '+t.room_code):'—',{muted:true})}
+                ${td(t.agreement_start?fmtDate(t.agreement_start):'—',{right:true,color:'#065F46'})}
+              </tr>`}).join(''))}` : ''}
+          ${moveOuts.length?`<div style="font-size:11px;font-weight:800;color:#B91C1C;margin-top:${moveIns.length?10:0}px;margin-bottom:6px">📦 MOVE-OUTS (${moveOuts.length})</div>
+            ${tbl(miniTh({label:'Tenant'},{label:'Property · Room'},{label:'End',right:true}),
+              moveOuts.map(t=>{const p=state.properties.find(x=>x.id===t.property_id);return`<tr>
+                ${td(esc(t.name||'—'),{bold:true})}
+                ${td(p?esc(p.condo+' '+p.unit+' · Rm '+t.room_code):'—',{muted:true})}
+                ${td(t.agreement_end?fmtDate(t.agreement_end):'—',{right:true,color:'#B91C1C'})}
+              </tr>`}).join(''))}` : ''}
+        `}
+      `)}
+
+    </div><!-- end left -->
+
+    <!-- ── RIGHT ── -->
+    <div style="display:flex;flex-direction:column;gap:16px">
+
+      ${panel(`
+        ${secHead('💸','Unpaid / Unmatch — '+MONTHS[m-1]+' '+y,unpaidRows.length,'background:#FEE2E2;color:#B91C1C')}
+        ${unpaidRows.length===0 ? emptyMsg('All tenants paid this month ✓') : tbl(
+          miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Expected',right:true},{label:'Status',right:true}),
+          unpaidRows.slice(0,25).map(r=>{
+            const badge=r.status==='unpaid'
+              ? `<span style="background:#FEE2E2;color:#B91C1C;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">✕ Unpaid</span>`
+              : `<span style="background:#FEF3C7;color:#92400E;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">⚠ Unmatch</span>`;
+            return `<tr>
+              ${td(esc(r.tenant.name||'—'),{bold:true})}
+              ${td((r.prop?esc(r.prop.condo+' '+r.prop.unit):'—')+' · <b>'+esc(r.tenant.room_code||'?')+'</b>',{muted:true})}
+              ${td('RM '+fmt(r.expected),{right:true})}
+              ${td(badge,{right:true})}
+            </tr>`;
+          }).join('')
+        )}
+      `)}
+
+      ${panel(`
+        ${secHead('🚗','Carpark Assignments',carparkList.length)}
+        ${carparkList.length===0 ? emptyMsg('No carpark assignments found') : tbl(
+          miniTh({label:'Tenant'},{label:'Property'},{label:'Lot'},{label:'Rental/mo',right:true}),
+          carparkList.map(({t,prop})=>`<tr>
+            ${td(esc(t.name||'—'),{bold:true})}
+            ${td(prop?esc(prop.condo+' '+prop.unit):'—',{muted:true})}
+            ${td(`<span style="font-weight:800;color:var(--brand)">${esc(t.carpark)}</span>`)}
+            ${td(t.carpark_rental?'RM '+fmt(t.carpark_rental):'—',{right:true})}
+          </tr>`).join('')
+        )}
+      `)}
+
+      ${panel(`
+        ${secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E')}
+        ${reportPending.length===0 ? emptyMsg('All reports launched this month ✓') :
+          reportPending.slice(0,15).map(p=>{
+            const rs=(state.reportStatus||[]).find(r=>r.property_id===p.id&&r.year===y&&r.month===m);
+            const adminDone=rs&&rs.admin_checked_at, mgrDone=rs&&rs.manager_verified_at;
+            const pill=(label,done)=>`<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${done?'rgba(16,185,129,.15)':'var(--th-bg)'};color:${done?'#059669':'var(--muted)'};">${done?'✓':' ○'} ${label}</span>`;
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:10px;background:var(--th-bg);margin-bottom:5px">
+              <span style="font-size:12px;font-weight:700;color:var(--ink)">${esc(p.condo+' '+p.unit)}</span>
+              <div style="display:flex;gap:5px">${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
+            </div>`;
+          }).join('')
+        }
+      `)}
+
+    </div><!-- end right -->
+
+  </div>
+  `;
 }
 
 // ----- Contract-ending notice banner -----
