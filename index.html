@@ -38,8 +38,83 @@
   :root{
     --brand:#007B8A; --brand2:#00B4CC; --accent:#F4811F; --accent2:#FF9A45;
     --bg:#F0F9FB; --ink:#1C3A42; --muted:#7BA8B0; --line:#E3F1F4;
+    --sb-bg:#ffffff; --card-bg:#ffffff; --row-bg:#ffffff; --row-alt:#F7FDFE;
+    --th-bg:#E8F8FA; --input-bg:#ffffff; --hover-row:#FFF4E0;
+    --subtab-bg:#E8F8FA; --chip-bg:#EEF7F8;
+  }
+  html[data-theme="dark"]{
+    --bg:#0E1C22; --ink:#D0ECF0; --muted:#5E8A94; --line:#1B3340;
+    --sb-bg:#111F28; --card-bg:#111F28; --row-bg:#111F28; --row-alt:#0D1921;
+    --th-bg:#162D38; --input-bg:#0E1C22; --hover-row:#1A2E36;
+    --subtab-bg:#162D38; --chip-bg:#162D38;
   }
   html,body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--ink);}
+
+  /* ── Dark mode structural overrides ────────────────────────────────────── */
+  html[data-theme="dark"] #sidebar{background:var(--sb-bg);box-shadow:0 2px 16px rgba(0,0,0,.45)}
+  html[data-theme="dark"] #sidebar .brand-row{border-bottom-color:var(--line)}
+  html[data-theme="dark"] #sidebar #sbBottom{border-top-color:var(--line)}
+  html[data-theme="dark"] #sidebar #sbBottom .sb-label{color:#4A7A87}
+  html[data-theme="dark"] #sidebar nav#tabs .tab-btn{color:var(--muted)}
+  html[data-theme="dark"] #sidebar nav#tabs .tab-btn:hover:not(.active){background:var(--th-bg);color:var(--brand2)}
+  html[data-theme="dark"] #sidebar nav#tabs .tab-btn.active{background:var(--th-bg);color:var(--brand2);box-shadow:inset 3px 0 0 var(--brand2)}
+  html[data-theme="dark"] #sbFilters{border-color:var(--line)}
+  html[data-theme="dark"] #sbFilters .sb-filter-label{color:#4A7A87}
+  html[data-theme="dark"] #sbFilters .sb-fchip{background:var(--chip-bg);border-color:var(--line);color:var(--muted)}
+  html[data-theme="dark"] .card{background:var(--card-bg);box-shadow:0 2px 12px rgba(0,0,0,.35)}
+  html[data-theme="dark"] .input,html[data-theme="dark"] select,html[data-theme="dark"] textarea{background:var(--input-bg);border-color:var(--line);color:var(--ink)}
+  html[data-theme="dark"] .input:focus,html[data-theme="dark"] select:focus,html[data-theme="dark"] textarea:focus{border-color:var(--brand2);box-shadow:0 0 0 3px rgba(0,180,204,.15)}
+  html[data-theme="dark"] table.data th{background:var(--th-bg);color:var(--brand2);border-bottom-color:var(--line)}
+  html[data-theme="dark"] table.data td{background:var(--row-bg);border-bottom-color:var(--line);color:var(--ink)}
+  html[data-theme="dark"] table.data tr:hover td{background:var(--hover-row)}
+  html[data-theme="dark"] table.data tr.add-row td{background:#1A2E20;border-top-color:var(--accent)}
+  html[data-theme="dark"] table.data tr.add-row:hover td{background:#1E3525}
+  html[data-theme="dark"] .prop-grp-alt td{background:var(--row-alt)!important}
+  html[data-theme="dark"] .section-title{color:var(--ink)}
+  html[data-theme="dark"] .help{color:var(--muted)}
+  html[data-theme="dark"] .label{color:var(--muted)}
+  html[data-theme="dark"] .divider{background:var(--line)}
+  html[data-theme="dark"] .kbd{background:var(--th-bg);border-color:var(--line);color:var(--brand2)}
+  html[data-theme="dark"] .subtab-btn{color:var(--muted)}
+  html[data-theme="dark"] .subtab-btn.active{background:var(--th-bg);color:var(--brand2)}
+  html[data-theme="dark"] .prop-fchip{background:var(--chip-bg);border-color:var(--line);color:var(--muted)}
+  html[data-theme="dark"] .prop-fchip.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+  html[data-theme="dark"] .tab-btn{color:var(--muted)}
+  html[data-theme="dark"] .tab-btn.active{background:var(--th-bg);color:var(--brand2)}
+  /* Modal */
+  html[data-theme="dark"] #modal>div.card,html[data-theme="dark"] #modal .bg-white{background:var(--card-bg)!important}
+  html[data-theme="dark"] #confirmDlg>div{background:var(--card-bg)}
+  /* Badges */
+  html[data-theme="dark"] .badge-ok{background:#0A2E1A;color:#4ADE80}
+  html[data-theme="dark"] .badge-warn{background:#2E1A00;color:#FB923C}
+  html[data-theme="dark"] .badge-bad{background:#2E0808;color:#F87171}
+  /* Common Tailwind bg utilities used in the app */
+  html[data-theme="dark"] .bg-white{background:var(--card-bg)!important}
+  html[data-theme="dark"] .bg-slate-50,.html[data-theme="dark"] .hover\:bg-slate-50:hover{background:var(--th-bg)!important}
+  html[data-theme="dark"] [class~="bg-[#EEF7F8]"],[class~="bg-[#E8F8FA]"],[class~="bg-[#F7FDFE]"]{background:var(--chip-bg)!important}
+  html[data-theme="dark"] [class~="border-[color:var(--line)]"]{border-color:var(--line)!important}
+  html[data-theme="dark"] [style*="background:#fff"],[style*="background: #fff"]{background:var(--card-bg)!important}
+  html[data-theme="dark"] [style*="background:#F0F9FB"]{background:var(--th-bg)!important}
+  html[data-theme="dark"] [style*="background:#EEF7F8"],[style*="background:#E8F8FA"],[style*="background:#F7FDFE"]{background:var(--chip-bg)!important}
+  /* Tailwind text utilities */
+  html[data-theme="dark"] .text-slate-700{color:#B0D0D8!important}
+  html[data-theme="dark"] .text-slate-600{color:#8ABBC5!important}
+  html[data-theme="dark"] .text-slate-500{color:var(--muted)!important}
+  html[data-theme="dark"] .text-slate-400{color:#4A7A87!important}
+  html[data-theme="dark"] [style*="color:#1C3A42"],[style*="color: #1C3A42"]{color:var(--ink)!important}
+  html[data-theme="dark"] [style*="color:#486870"]{color:var(--muted)!important}
+  html[data-theme="dark"] [style*="color:#0F172A"]{color:var(--ink)!important}
+  html[data-theme="dark"] [style*="color:#64748B"]{color:#4A7A87!important}
+  /* Dashboard sub-tab bar */
+  html[data-theme="dark"] [class~="bg-[#E8F8FA]"]{background:var(--subtab-bg)!important}
+  /* Hero cards stay their gradient colours — no override needed */
+  /* ────────────────────────────────────────────────────────────────────────── */
+
+  /* Theme toggle pill in sidebar bottom */
+  #themeToggle{display:flex;background:var(--bg);border-radius:10px;padding:3px;gap:2px;border:1px solid var(--line)}
+  .theme-btn{flex:1;padding:5px 6px;border-radius:7px;font-size:11px;font-weight:700;border:none;cursor:pointer;background:transparent;color:var(--muted);transition:background .15s,color .15s;display:flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap}
+  .theme-btn.active{background:var(--sb-bg);color:var(--brand);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+  html[data-theme="dark"] .theme-btn.active{background:var(--th-bg);color:var(--brand2);box-shadow:0 1px 6px rgba(0,0,0,.4)}
   .btn-brand{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;}
   .btn-brand:hover{filter:brightness(1.08);}
   .btn-accent{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;}
@@ -1124,6 +1199,11 @@
       <div class="sb-label">Month</div>
       <select id="monthPick" class="input"></select>
       <span id="demoBadge" class="chip hidden" style="background:#FFF0E6;color:#F4811F">🎮 DEMO MODE</span>
+      <!-- Light / Dark mode toggle -->
+      <div id="themeToggle">
+        <button class="theme-btn active" id="btnThemeLight" onclick="setTheme('light')">☀️ Light</button>
+        <button class="theme-btn" id="btnThemeDark" onclick="setTheme('dark')">🌙 Dark</button>
+      </div>
       <button id="btnSettings" title="Settings" class="bg-white border border-[color:var(--line)] hover:bg-slate-50">⚙️ Settings</button>
       <!-- Signed-in user pill + sign-out (shown only when auth session is active) -->
       <div id="userBox" class="hidden" style="font-size:11px;color:#64748B;text-align:center;line-height:1.3">
@@ -1904,6 +1984,23 @@ const toast=(msg,type='ok',duration=10000)=>{
 };
 // Dismiss toast on any click anywhere on the page
 document.addEventListener('click', ()=>{ if(!$('#toast')?.classList.contains('hidden')) _hideToast(); }, {capture:true});
+
+// ── Light / Dark theme ───────────────────────────────────────────────────────
+function setTheme(t){
+  document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light';
+  localStorage.setItem('tms_theme', t);
+  const isDark = t === 'dark';
+  document.getElementById('btnThemeLight')?.classList.toggle('active', !isDark);
+  document.getElementById('btnThemeDark')?.classList.toggle('active',  isDark);
+}
+// Apply saved theme immediately (before first render, before login screen)
+(function(){
+  const saved = localStorage.getItem('tms_theme') || 'light';
+  document.documentElement.dataset.theme = saved;
+  // Button active state is set here; will be re-set when DOM is fully ready
+  document.addEventListener('DOMContentLoaded', ()=> setTheme(saved));
+})();
+// ────────────────────────────────────────────────────────────────────────────
 
 // ── Custom confirm dialog (replaces native browser confirm()) ────────────────
 // Usage: if(!await confirmModal('Are you sure?')) return;
@@ -9115,12 +9212,15 @@ function renderReportDesktopHTML(ctx, opts){
   .meta-grid{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .meta-grid .lbl{font-size:10px;font-weight:700;letter-spacing:.6px;opacity:.7;text-transform:uppercase}
   .meta-grid .val{font-size:13px;font-weight:700}
-  .nett-box{background:linear-gradient(135deg,#F4811F 0%,#FF9A45 100%);color:#fff;border-radius:14px;padding:20px;display:flex;flex-direction:column;justify-content:center}
-  .nett-box .lbl{font-size:10px;font-weight:700;letter-spacing:2px;opacity:.85;text-transform:uppercase;margin-bottom:6px}
-  .nett-box .amt{font-size:30px;font-weight:800;line-height:1}
+  .nett-box{background:linear-gradient(135deg,#F4811F 0%,#FF9A45 100%);color:#fff;border-radius:14px;padding:20px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
+  .nett-box::before{content:'';position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,0.13);top:-35px;right:-35px;pointer-events:none}
+  .nett-box::after{content:'';position:absolute;width:90px;height:90px;border-radius:50%;background:rgba(255,255,255,0.08);bottom:-25px;right:25px;pointer-events:none}
+  .nett-box .lbl{font-size:10px;font-weight:700;letter-spacing:2px;opacity:.85;text-transform:uppercase;margin-bottom:6px;position:relative}
+  .nett-box .amt{font-size:30px;font-weight:800;line-height:1;position:relative}
   .nett-box .amt span{font-size:16px;font-weight:600;opacity:.8;margin-right:4px}
-  .nett-box .sub{font-size:11px;margin-top:6px;opacity:.85}
-  .nett-box .bf-notice-d{margin-top:10px;background:rgba(0,0,0,.18);border-left:2px solid #fff;border-radius:6px;padding:7px 10px;font-size:10.5px;font-weight:500;line-height:1.4}
+  .nett-box .sub{font-size:11px;margin-top:6px;opacity:.85;position:relative}
+  .nett-box .formula{font-size:10px;margin-top:5px;opacity:.72;font-style:italic;letter-spacing:.2px;position:relative}
+  .nett-box .bf-notice-d{margin-top:10px;background:rgba(0,0,0,.18);border-left:2px solid #fff;border-radius:6px;padding:7px 10px;font-size:10.5px;font-weight:500;line-height:1.4;position:relative}
   .nett-box .bf-notice-d b{font-weight:800}
   .sec{margin-bottom:20px}
   .sec-head{display:flex;align-items:center;gap:10px;background:linear-gradient(90deg,#007B8A,#00A8BB);color:#fff;padding:10px 16px;border-radius:12px 12px 0 0;font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}
@@ -9135,7 +9235,8 @@ function renderReportDesktopHTML(ctx, opts){
   table.r td.muted{color:#7BA8B0;font-weight:500}
   table.r td.center{text-align:center}
   table.r td.small{font-size:11px}
-  tr.totals td{background:linear-gradient(90deg,#C85900 0%,#F4811F 40%,#FF9A45 100%)!important;color:#fff!important;font-weight:800;padding:11px 10px;border-left:1px solid rgba(255,255,255,0.3)}
+  tr.totals{background:linear-gradient(90deg,#C85900 0%,#F4811F 40%,#FF9A45 100%)}
+  tr.totals td{background:transparent!important;color:#fff!important;font-weight:800;padding:11px 10px;border-left:1px solid rgba(255,255,255,0.2)}
   tr.totals td:first-child{border-left:none}
   tr.totals td.num{color:#fff!important;font-variant-numeric:tabular-nums}
   .foot{margin-top:28px;border-top:2px solid #E8F8FA;padding-top:16px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#7BA8B0}
@@ -9180,6 +9281,7 @@ function renderReportDesktopHTML(ctx, opts){
       <div class="lbl">Nett Rental Income</div>
       <div class="amt"><span>RM</span>${fmtNum(nett)}</div>
       <div class="sub">${MONTHS[month-1]} ${year} · after deductions</div>
+      <div class="formula">= Rental + Air-Cond + Extra Income − Expenses</div>
       ${nett < -0.005 ? `<div class="bf-notice-d">↪ Loss of <b>RM ${fmtNum(-nett)}</b> will be carried forward to next month&#39;s expenses until cleared.</div>` : ''}
     </div>
   </div>
@@ -9194,10 +9296,10 @@ function renderReportDesktopHTML(ctx, opts){
       <tbody>
         ${incomeRows}
         <tr class="totals">
-          <td></td><td colspan="2">TOTAL</td>
+          <td colspan="3">TOTAL</td>
           <td class="num">${fmtNum(totRental)}</td>
           <td class="num">${fmtNum(totAircond)}</td>
-          <td></td><td></td>
+          <td colspan="2"></td>
         </tr>
       </tbody>
     </table>
@@ -9212,7 +9314,7 @@ function renderReportDesktopHTML(ctx, opts){
       <tbody>
         ${extraDeskRows}
         <tr class="totals">
-          <td></td><td class="num">${fmtNum(totExt)}</td><td>TOTAL EXTRA INCOME</td>
+          <td colspan="2">TOTAL EXTRA INCOME</td><td class="num">${fmtNum(totExt)}</td>
         </tr>
       </tbody>
     </table>
@@ -9227,7 +9329,7 @@ function renderReportDesktopHTML(ctx, opts){
       <tbody>
         ${expenseDeskRows}
         <tr class="totals">
-          <td></td><td class="num">${fmtNum(totExp)}</td><td>TOTAL EXPENSES</td>
+          <td colspan="2">TOTAL EXPENSES</td><td class="num">${fmtNum(totExp)}</td>
         </tr>
       </tbody>
     </table>
