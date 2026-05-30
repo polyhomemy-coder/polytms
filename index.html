@@ -161,6 +161,38 @@
   html[data-theme="dark"] .text-slate-900{color:#D0ECF0!important}
   html[data-theme="dark"] .text-emerald-600{color:#6ee7b7!important}
   html[data-theme="dark"] .text-amber-600{color:#fcd34d!important}
+
+  /* ── DARK MODE: All action/icon buttons — arbitrary hex bg colours ────────
+     Targets every button variant used in tables (view, edit, doc, move-out,
+     recontract, reactivate, delete, etc.) using substring class matching.
+     Each colour family gets a shallow-backdrop background + brighter text,
+     matching the "Help Manage" pill style visible in the Properties tab.    */
+
+  /* Teal — view / info buttons (#EEF7F8 bg, brand text) */
+  html[data-theme="dark"] [class*="bg-[#EEF7F8]"]{background:rgba(0,123,138,.18)!important;color:var(--brand2)!important}
+  /* Blue — doc / agreement buttons (#E8F4FD bg, #1E5BB8 text) */
+  html[data-theme="dark"] [class*="bg-[#E8F4FD]"]{background:rgba(30,91,184,.16)!important}
+  html[data-theme="dark"] [class*="text-[#1E5BB8]"]{color:#93c5fd!important}
+  /* Green — reactivate / add buttons (#DCFCE7 bg, #065F46 text) */
+  html[data-theme="dark"] [class*="bg-[#DCFCE7]"]{background:rgba(16,185,129,.14)!important}
+  html[data-theme="dark"] [class*="text-[#065F46]"]{color:#6ee7b7!important}
+  /* Orange — move-out / accent buttons (#FFF4E5 bg, #F4811F text) */
+  html[data-theme="dark"] [class*="bg-[#FFF4E5]"]{background:rgba(244,129,31,.14)!important}
+  html[data-theme="dark"] [class*="text-[#F4811F]"]{color:#FF9A45!important}
+  /* Amber — warning / unmatch (#FEF3C7 bg, #92400E text) */
+  html[data-theme="dark"] [class*="bg-[#FEF3C7]"]{background:rgba(245,158,11,.13)!important}
+  html[data-theme="dark"] [class*="text-[#92400E]"]{color:#fcd34d!important}
+  /* Rose/Pink — prorate chip (#FFE4E6 bg, #9F1239 text) */
+  html[data-theme="dark"] [class*="bg-[#FFE4E6]"]{background:rgba(239,68,68,.13)!important}
+  html[data-theme="dark"] [class*="text-[#9F1239]"]{color:#fca5a5!important}
+  html[data-theme="dark"] [class*="text-[#991B1B]"]{color:#fca5a5!important}
+  /* Grey — edit buttons (bg-slate-100) */
+  html[data-theme="dark"] .bg-slate-100{background:rgba(255,255,255,.08)!important;color:#94a3b8!important}
+  html[data-theme="dark"] .hover\:bg-slate-100:hover{background:rgba(255,255,255,.13)!important}
+  /* Dark text on buttons (#1C3A42 used in some labels) */
+  html[data-theme="dark"] [class*="text-[#1C3A42]"]{color:#C4E0E6!important}
+  /* Ensure brand-coloured icon buttons keep right text */
+  html[data-theme="dark"] [class*="text-[color:var(--brand)]"]{color:var(--brand2)!important}
   /* ────────────────────────────────────────────────────────────────────────── */
 
   /* Theme toggle pill in sidebar bottom */
@@ -271,8 +303,13 @@
   .city-chip:hover{background:#E2F1F4}
   .city-chip.active{background:var(--brand);color:#fff;border-color:var(--brand)}
   /* Big yes/no decision buttons in the move-out modal */
-  .mo-opt-active{background:#0F2A36;color:#fff;border-color:#0F2A36;box-shadow:0 4px 12px rgba(15,42,54,.18)}
-  .mo-opt-active:hover{background:#0F2A36;color:#fff;border-color:#0F2A36}
+  /* Unselected: dim so the chosen one pops */
+  .mo-opt{opacity:.55;transition:opacity .15s,background .15s,border-color .15s,box-shadow .15s}
+  .mo-opt:hover{opacity:.8}
+  /* Green — No / Refund */
+  .mo-opt[data-mode="no"].mo-opt-active{opacity:1;background:#DCFCE7;color:#065F46;border-color:#22C55E;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
+  /* Red — Yes / Forfeit */
+  .mo-opt[data-mode="yes"].mo-opt-active{opacity:1;background:#FEE2E2;color:#991B1B;border-color:#EF4444;box-shadow:0 0 0 3px rgba(239,68,68,.25)}
   .row-warn td{background:#FFFBEB !important}
   .row-warn:hover td{background:#FFF6D6 !important}
   .row-bad td{background:#FEF2F2 !important}
@@ -2051,6 +2088,18 @@ function setTheme(t){
   const isDark = t === 'dark';
   document.getElementById('btnThemeLight')?.classList.toggle('active', !isDark);
   document.getElementById('btnThemeDark')?.classList.toggle('active',  isDark);
+  // Re-render the income report preview so it switches to/from dark mode live
+  const frame = document.getElementById('reportFrame');
+  if(frame && frame.contentDocument && frame.contentDocument.body){
+    const existing = frame.contentDocument.getElementById('rpt-dark-override');
+    if(isDark && !existing){
+      const tmp = document.createElement('div');
+      tmp.innerHTML = _reportDarkCSS();
+      frame.contentDocument.head.appendChild(tmp.firstElementChild);
+    } else if(!isDark && existing){
+      existing.remove();
+    }
+  }
 }
 // Apply saved theme immediately (before first render, before login screen)
 (function(){
@@ -5452,11 +5501,11 @@ async function moveOutTenant(id){
       <div>
         <label class="label">Forfeit the deposit? *</label>
         <div class="grid grid-cols-2 gap-2" id="mo_decision">
-          <button type="button" data-mode="no"  class="mo-opt px-3 py-3 rounded-lg border-2 border-slate-200 bg-white font-semibold text-slate-700 hover:border-emerald-400">
-            ✅ No — refund (fill details later)
+          <button type="button" data-mode="no"  class="mo-opt px-4 py-4 rounded-xl border-2 border-slate-200 bg-white font-bold text-slate-700 text-sm text-center leading-snug">
+            ✅<br>No — Refund<br><span class="text-xs font-normal opacity-70">(fill details later)</span>
           </button>
-          <button type="button" data-mode="yes" class="mo-opt px-3 py-3 rounded-lg border-2 border-slate-200 bg-white font-semibold text-slate-700 hover:border-rose-400">
-            🚫 Yes — forfeit RM ${fmt(totalDep)}
+          <button type="button" data-mode="yes" class="mo-opt px-4 py-4 rounded-xl border-2 border-slate-200 bg-white font-bold text-slate-700 text-sm text-center leading-snug">
+            🚫<br>Yes — Forfeit<br><span class="text-xs font-normal opacity-70">RM ${fmt(totalDep)}</span>
           </button>
         </div>
         <p class="help mt-2">If <b>Yes</b>, the full deposit (RM ${fmt(totalDep)}) is added as <b>Extra Income</b> under the move-out month, labelled <i>"Deposit Forfeited — Move Out (Room ${esc(t.room_code||'?')})"</i>.<br>
@@ -9734,6 +9783,50 @@ function renderReportDesktopHTML(ctx, opts){
 }
 
 let _lastReportHTML = null;
+// Returns a <style> block to inject into the report iframe for dark-mode
+// preview only. NOT included when the HTML is exported — export is always
+// light-mode so the PDF/print output stays clean.
+function _reportDarkCSS(){
+  return `<style id="rpt-dark-override">
+    html,body{background:#0D1B1E!important;color:#C4E0E6!important}
+    /* Header card keeps its teal gradient — already dark enough */
+    /* White section cards → dark surface */
+    .section-card,.owner-card{background:#112028!important;box-shadow:0 2px 12px rgba(0,0,0,.35)!important}
+    .section-head{background:linear-gradient(90deg,#005F6B,#007B8A)!important}
+    /* Table rows */
+    .tbl-row{border-bottom-color:rgba(255,255,255,.06)!important}
+    .tbl-row.alt{background:rgba(255,255,255,.04)!important}
+    .tbl-cell{color:#C4E0E6!important}
+    .tbl-cell.num{color:var(--brand2,#00B4CC)!important}
+    .tbl-cell.muted{color:#7BA8B0!important}
+    .tbl-header{background:rgba(0,123,138,.18)!important;border-bottom-color:rgba(0,123,138,.3)!important}
+    .tbl-header span{color:#5ECFDA!important}
+    /* Section total rows keep orange gradient — fine in dark */
+    /* Nett card keeps orange gradient — fine */
+    /* Owner rows */
+    .owner-row{border-bottom-color:rgba(255,255,255,.06)!important}
+    .owner-key{color:#7BA8B0!important}
+    .owner-val{color:#D0ECF0!important}
+    /* Desktop report table overrides */
+    table.r td,table.r th{border-color:rgba(255,255,255,.07)!important}
+    table.r tbody tr:nth-child(even) td{background:rgba(255,255,255,.03)!important}
+    table.r thead tr th{background:rgba(0,123,138,.22)!important;color:#5ECFDA!important}
+    table.r td{color:#C4E0E6!important}
+    table.r td.num,table.r td.n{color:#5ECFDA!important}
+    table.r td.muted,table.r td.small{color:#7BA8B0!important}
+    table.r-sub td.spacer,table.r-sub th.spacer{background:rgba(0,123,138,.10)!important}
+    /* No-badge circles */
+    .no-badge{background:rgba(0,123,138,.22)!important;color:#5ECFDA!important}
+    .no-badge.alt{background:rgba(244,129,31,.18)!important;color:#FF9A45!important}
+    /* Footer */
+    .footer{color:#486870!important}
+    /* Nett box dark adjustment — text is already white, just tone the bg slightly */
+    .nett-box,.nett-card{opacity:.95}
+    /* Desktop report header meta bg */
+    .rpt-meta-box{background:rgba(0,123,138,.18)!important;border-color:rgba(0,180,204,.18)!important}
+  </style>`;
+}
+
 async function buildReport(){
   const propId = $('#rptProp').value;
   const mv = $('#rptMonth').value;
@@ -9765,9 +9858,12 @@ async function buildReport(){
   const ctx = await gatherReportData(propId,y,m);
   const renderer = state.reportView==='desktop' ? renderReportDesktopHTML : renderReportHTML;
   const html = renderer(ctx, {year:y, month:m, issueDate:issue, autoFee, autoCom});
-  _lastReportHTML = html;
+  _lastReportHTML = html; // always light-mode — export uses this directly
+  // For the preview iframe only, inject dark CSS when the app is in dark mode
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  const previewHtml = isDark ? html.replace('</head>', _reportDarkCSS()+'</head>') : html;
   const doc = $('#reportFrame').contentDocument;
-  doc.open(); doc.write(html); doc.close();
+  doc.open(); doc.write(previewHtml); doc.close();
   // Preview-only zoom for the desktop view so the entire 1100px sheet fits
   // inside the iframe without forcing the user to scroll. Applied via JS
   // (not in the report's CSS) so the *exported* HTML stays at 100% zoom.
