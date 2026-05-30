@@ -5205,15 +5205,33 @@ function _lastMonthProRateRemark(pr){
 async function _autoCreateLastMonthProRate(t){
   const pr = computeLastMonthProRate(t);
   if(!pr || pr.total<=0) return;
+  if(isReportLocked(t.property_id, pr.moveOutYear, pr.moveOutMonth)) return; // sign-off lock
   const existing = (state.payments||[]).find(p=>
     p.property_id===t.property_id &&
     p.year===pr.moveOutYear && p.month===pr.moveOutMonth &&
     p.item_type==='room' &&
     (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase()
   );
-  if(existing) return;                                                       // user already recorded one
-  if(isReportLocked(t.property_id, pr.moveOutYear, pr.moveOutMonth)) return; // sign-off lock
   const monStr = MONTHS[pr.moveOutMonth-1];
+
+  if(existing){
+    // Already a pro-rate row — nothing to do
+    if(existing.payment_kind==='last_month_prorate') return;
+    // Tenant paid full-month rental but moves out early — adjust down to pro-rate
+    if(existing.amount > pr.total + 0.005){
+      const {error} = await sb.from('rental_payments').update({
+        amount: pr.total,
+        remark: _lastMonthProRateRemark(pr),
+        payment_kind: 'last_month_prorate',
+      }).eq('id', existing.id);
+      if(error){ toast('Move-out pro-rate adjustment failed: '+error.message,'bad'); return; }
+      toast(`🚪 Payment adjusted to pro-rate RM ${fmt(pr.total)} for ${monStr} (${pr.daysOccupied}/${pr.daysInMonth} days)`);
+    }
+    // If existing amount ≤ pro-rate amount (already correct or underpaid), leave as-is
+    return;
+  }
+
+  // No existing payment — insert a fresh pro-rate row
   const {error} = await sb.from('rental_payments').insert({
     property_id: t.property_id,
     year: pr.moveOutYear, month: pr.moveOutMonth,
@@ -5225,7 +5243,7 @@ async function _autoCreateLastMonthProRate(t){
     payment_kind: 'last_month_prorate',
   });
   if(error){ toast('Move-out pro-rate auto-payment failed: '+error.message,'bad'); return; }
-  toast(`🚪 Move-out pro-rate RM ${pr.total} auto-recorded for ${monStr} (${pr.daysOccupied}/${pr.daysInMonth} days)`);
+  toast(`🚪 Move-out pro-rate RM ${fmt(pr.total)} auto-recorded for ${monStr} (${pr.daysOccupied}/${pr.daysInMonth} days)`);
 }
 
 // Re-sync the first-month pro-rate row when the tenant is edited — keeps
@@ -5426,6 +5444,8 @@ async function moveOutTenant(id){
         <input type="date" id="mo_date" class="input" value="${today}">
       </div>
 
+      <div id="mo_prorate_info" class="rounded-xl bg-blue-50 border border-blue-200 text-blue-800 px-3 py-2 text-xs hidden"></div>
+
       <div>
         <label class="label">Forfeit the deposit? *</label>
         <div class="grid grid-cols-2 gap-2" id="mo_decision">
@@ -5517,10 +5537,13 @@ async function moveOutTenant(id){
     await loadTenants();
     renderTenants();
     renderProperties();
-    toast(t.name+' moved out' + (forfeit ? ' · RM '+fmt(totalDep)+' forfeited' : ''));
+    // Build a contextual toast summarising what happened
+    const pr = computeLastMonthProRate({...t, ...tPayload});
+    const proRatePart = pr && pr.total > 0 ? ` · Pro-rate RM ${fmt(pr.total)} (${pr.daysOccupied}/${pr.daysInMonth} days)` : '';
+    toast(t.name+' moved out'+proRatePart+(forfeit ? ' · Deposit RM '+fmt(totalDep)+' forfeited' : ''));
   });
 
-  // --- Wire up the decision buttons after the modal mounts ---
+  // --- Wire up the decision buttons and pro-rate preview after the modal mounts ---
   setTimeout(()=>{
     document.querySelectorAll('#mo_decision .mo-opt').forEach(b=>{
       b.addEventListener('click', ()=>{
@@ -5528,6 +5551,56 @@ async function moveOutTenant(id){
         b.classList.add('mo-opt-active');
       });
     });
+
+    // Live pro-rate preview — updates whenever the move-out date changes
+    function _updateMoProRatePreview(){
+      const dStr = document.querySelector('#mo_date')?.value;
+      const infoEl = document.querySelector('#mo_prorate_info');
+      if(!dStr || !infoEl) return;
+
+      const fakeTenant = {...t, move_out_date: dStr, active: false};
+      const pr = computeLastMonthProRate(fakeTenant);
+
+      // No pro-rate if last day of month or can't compute
+      if(!pr || pr.total<=0 || pr.daysOccupied===pr.daysInMonth){
+        infoEl.classList.add('hidden');
+        infoEl.innerHTML = '';
+        return;
+      }
+
+      // Check if there's an existing payment already recorded for that month
+      const existingPay = (state.payments||[]).find(p=>
+        p.property_id===t.property_id &&
+        p.year===pr.moveOutYear && p.month===pr.moveOutMonth &&
+        p.item_type==='room' &&
+        (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase()
+      );
+
+      let html = `<b>🚪 Pro-rate Preview</b> — ${MONTHS_FULL[pr.moveOutMonth-1]} ${pr.moveOutYear}<br>`;
+      html += `Days occupied: <b>${pr.daysOccupied} of ${pr.daysInMonth}</b>`;
+      html += ` &nbsp;→&nbsp; Room RM ${fmt(pr.roomShare)}`;
+      if(pr.carparkShare > 0) html += ` + Carpark RM ${fmt(pr.carparkShare)}`;
+      html += ` = <b>RM ${fmt(pr.total)}</b>`;
+
+      if(existingPay && existingPay.payment_kind !== 'last_month_prorate'){
+        const diff = +(existingPay.amount - pr.total).toFixed(2);
+        if(diff > 0.005){
+          html += `<br><span style="color:#92400E">⚠️ Existing payment RM ${fmt(existingPay.amount)} will be adjusted down by RM ${fmt(diff)} to the pro-rated RM ${fmt(pr.total)}</span>`;
+        }
+      } else if(!existingPay){
+        html += `<br><span style="color:#166534">✅ Pro-rate row will be auto-created in rental payments</span>`;
+      }
+
+      infoEl.innerHTML = html;
+      infoEl.classList.remove('hidden');
+    }
+
+    const moDateEl = document.querySelector('#mo_date');
+    if(moDateEl){
+      moDateEl.addEventListener('input',  _updateMoProRatePreview);
+      moDateEl.addEventListener('change', _updateMoProRatePreview);
+      _updateMoProRatePreview(); // show immediately on open
+    }
   }, 30);
 }
 
