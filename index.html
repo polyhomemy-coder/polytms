@@ -2607,9 +2607,9 @@ $('#btnSettings').onclick = ()=>{ $('#inpUrl').value=localStorage.getItem(LS_URL
       hideLogin();
       state.currentUserId = data.user?.id;
       state.role = await fetchUserRole(data.user?.id);
+      applyRoleUI(); // apply immediately — don't wait for bootApp data load
       showUserBox(data.user?.email);
       await bootApp();
-      applyRoleUI();
     } catch(e){
       stat.innerHTML='<span class="text-rose-600">'+esc(e.message||'Sign-in failed')+'</span>';
     } finally {
@@ -4339,11 +4339,11 @@ function renderAdminDashboard(){
 
   </div>
 
-  ${state.role === 'manager' ? `<div id="userMgmtPanel" style="margin-top:8px"></div>` : ''}
+  ${(state.role === 'manager' || state.role === 'admin') ? `<div id="userMgmtPanel" style="margin-top:8px"></div>` : ''}
   `;
 
-  // Render user management panel async (manager only)
-  if(state.role === 'manager'){
+  // Render user management panel for manager and admin
+  if(state.role === 'manager' || state.role === 'admin'){
     const panel = document.getElementById('userMgmtPanel');
     if(panel) renderUserManagementPanel(panel);
   }
@@ -10886,6 +10886,9 @@ async function inviteUser(email){
 
 // Render the User Management panel (injected into Admin dashboard, manager only).
 async function renderUserManagementPanel(container){
+  const isManager = state.role === 'manager';
+  const isAdmin   = state.role === 'admin';
+
   container.innerHTML = `<div class="text-sm text-slate-400 py-4">Loading users…</div>`;
   let profiles = [];
   try { profiles = await fetchAllProfiles(); } catch(e){
@@ -10893,7 +10896,6 @@ async function renderUserManagementPanel(container){
     return;
   }
   const props = state.properties || [];
-  const propOptions = props.map(p=>`<option value="${p.id}">${esc(p.condo)} ${esc(p.unit)}</option>`).join('');
 
   const roleChip = r => ({
     manager: `<span style="background:#E8F8FA;color:#007B8A;border:1px solid #B3E3EA;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">👑 Manager</span>`,
@@ -10904,29 +10906,37 @@ async function renderUserManagementPanel(container){
 
   const rows = profiles.map(p=>{
     const isMe = p.id === state.currentUserId;
-    const propName = p.property_id ? (props.find(x=>x.id===p.property_id)||{}) : null;
-    const propLabel = propName ? `${propName.condo||''} ${propName.unit||''}`.trim() : '—';
+    const propObj = p.property_id ? props.find(x=>x.id===p.property_id) : null;
+    const propLabel = propObj ? `${propObj.condo||''} ${propObj.unit||''}`.trim() : '—';
+    // Admin can only edit owner rows; manager can edit all (except themselves)
+    const canEdit = !isMe && (isManager || (isAdmin && p.role === 'owner'));
+    const actionCell = isMe
+      ? `<span style="font-size:11px;color:var(--muted);font-style:italic">You</span>`
+      : canEdit
+        ? `<button onclick="openEditUserModal('${p.id}','${esc(p.email||'')}','${p.role}','${p.property_id||''}')"
+            style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">Edit</button>`
+        : `<span style="font-size:11px;color:var(--muted)">—</span>`;
     return `<tr data-uid="${p.id}">
       <td style="padding:10px 12px;font-size:13px;color:var(--ink)">${esc(p.email||'')}</td>
       <td style="padding:10px 12px">${roleChip(p.role)}</td>
       <td style="padding:10px 12px;font-size:12px;color:var(--muted)">${esc(propLabel)}</td>
-      <td style="padding:10px 12px;text-align:right">
-        ${isMe ? `<span style="font-size:11px;color:var(--muted);font-style:italic">You</span>` :
-          `<button onclick="openEditUserModal('${p.id}','${esc(p.email||'')}','${p.role}','${p.property_id||''}')"
-            style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">Edit</button>`
-        }
-      </td>
+      <td style="padding:10px 12px;text-align:right">${actionCell}</td>
     </tr>`;
   }).join('');
+
+  // Subtitle differs by role
+  const subtitle = isAdmin
+    ? 'You can add and manage 🏠 Owner accounts'
+    : 'Manage who can access polyTMS and their role';
 
   container.innerHTML = `
     <div style="background:var(--card);border-radius:16px;border:1px solid var(--line);overflow:hidden;margin-bottom:24px">
       <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
         <div>
           <div style="font-size:15px;font-weight:700;color:var(--ink)">👥 User Management</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px">Manage who can access polyTMS and their role</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">${subtitle}</div>
         </div>
-        <button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Invite User</button>
+        <button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Add Owner</button>
       </div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse">
@@ -10978,6 +10988,16 @@ function openEditUserModal(uid, email, currentRole, currentPropId){
   const propOptions = props.map(p=>
     `<option value="${p.id}" ${p.id===currentPropId?'selected':''}>${esc(p.condo)} ${esc(p.unit)}</option>`
   ).join('');
+  // Admin can only assign owner role; manager can assign any role
+  const isAdminUser = state.role === 'admin';
+  const roleField = isAdminUser
+    ? `<div style="font-size:13px;font-weight:700;color:var(--ink);padding:10px 12px;background:var(--th-bg);border-radius:10px">${'🏠 Owner'}</div>
+       <input type="hidden" id="editUserRole" value="owner">`
+    : `<select id="editUserRole" class="input" style="width:100%">
+         <option value="manager" ${currentRole==='manager'?'selected':''}>👑 Manager — full access</option>
+         <option value="admin"   ${currentRole==='admin'  ?'selected':''}>🗂️ Admin — no Manager tab</option>
+         <option value="owner"   ${currentRole==='owner'  ?'selected':''}>🏠 Owner — income report + tenants only</option>
+       </select>`;
 
   openModal({
     title:`Edit User`,
@@ -10985,11 +11005,7 @@ function openEditUserModal(uid, email, currentRole, currentPropId){
       <div style="font-size:13px;color:var(--ink);font-weight:600">${esc(email)}</div>
       <div>
         <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">ROLE</label>
-        <select id="editUserRole" class="input" style="width:100%">
-          <option value="manager" ${currentRole==='manager'?'selected':''}>👑 Manager — full access</option>
-          <option value="admin"   ${currentRole==='admin'  ?'selected':''}>🗂️ Admin — no Manager tab</option>
-          <option value="owner"   ${currentRole==='owner'  ?'selected':''}>🏠 Owner — income report + tenants only</option>
-        </select>
+        ${roleField}
       </div>
       <div id="ownerPropRow" style="display:${currentRole==='owner'?'block':'none'}">
         <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">PROPERTY</label>
@@ -11083,9 +11099,9 @@ async function signOutAndReturnToLogin(){
     hideLogin();
     state.currentUserId = sess.user?.id;
     state.role = await fetchUserRole(sess.user?.id);
+    applyRoleUI(); // apply immediately — don't wait for bootApp data load
     showUserBox(sess.user?.email);
     await bootApp();
-    applyRoleUI();
     return;
   }
 
