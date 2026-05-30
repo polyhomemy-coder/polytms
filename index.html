@@ -156,6 +156,47 @@
   html[data-theme="dark"] .bg-rose-50 td{background:rgba(239,68,68,.07)!important}
   html[data-theme="dark"] tr[class*="bg-amber"] td,html[data-theme="dark"] tr[class*="bg-amber"]{background:rgba(245,158,11,.05)!important}
 
+  /* ── DARK MODE: Tenant tab — ending-soon row highlights ─────────────────── */
+  html[data-theme="dark"] tr.row-bad td{background:rgba(239,68,68,.10)!important}
+  html[data-theme="dark"] tr.row-bad:hover td{background:rgba(239,68,68,.16)!important}
+  html[data-theme="dark"] tr.row-warn td{background:rgba(245,158,11,.08)!important}
+  html[data-theme="dark"] tr.row-warn:hover td{background:rgba(245,158,11,.13)!important}
+
+  /* ── DARK MODE: Manager dashboard — hero-card text already white; fix
+     the secondary stat cards (.card) that show counts in dark ink ─────────── */
+  html[data-theme="dark"] .card .text-2xl{color:var(--brand2)!important}
+
+  /* ── DARK MODE: Donut SVG text — percentage & label hardcoded in SVG ────── */
+  /* Can't override SVG fill inline, so we use CSS filter on the SVG container */
+  html[data-theme="dark"] #dashPayDonut svg text,
+  html[data-theme="dark"] #dashRoomDonut svg text{fill:#C4E0E6!important}
+
+  /* ── DARK MODE: Income tab — pro-rate chips (inline style bg) ────────────
+     These chips use inline style="background:#FFF0E6..." so we target by the
+     chip class inside the table and tone them down to shallow backdrops.     */
+  html[data-theme="dark"] table .chip[style*="background:#FFF0E6"]{background:rgba(244,129,31,.14)!important;color:#FF9A45!important}
+  html[data-theme="dark"] table .chip[style*="background:#FFE4E6"]{background:rgba(239,68,68,.13)!important;color:#fca5a5!important}
+  html[data-theme="dark"] table .chip[style*="background:#E8F4FD"]{background:rgba(30,91,184,.14)!important;color:#93c5fd!important}
+  html[data-theme="dark"] table .chip[style*="background:#DCFCE7"]{background:rgba(16,185,129,.13)!important;color:#6ee7b7!important}
+  html[data-theme="dark"] table .chip[style*="background:#FEF3C7"]{background:rgba(245,158,11,.13)!important;color:#fcd34d!important}
+
+  /* ── DARK MODE: Expenses add-row — input text invisible on dark bg ──────── */
+  html[data-theme="dark"] table.data tr.add-row td{background:#0F2819!important;border-top-color:var(--accent)!important}
+  html[data-theme="dark"] table.data tr.add-row:hover td{background:#142E1C!important}
+  html[data-theme="dark"] table.data tr.add-row .input{background:#0B1F14!important;color:#C4E0E6!important;border-color:rgba(244,129,31,.35)!important}
+  html[data-theme="dark"] table.data tr.add-row .input::placeholder{color:#486870!important}
+  html[data-theme="dark"] table.data tr.add-row select.input{color:#C4E0E6!important}
+
+  /* ── DARK MODE: Income Report signoff buttons ────────────────────────────── */
+  html[data-theme="dark"] #btnAdminCheck{background:rgba(30,91,184,.16)!important;color:#93c5fd!important;border-color:rgba(30,91,184,.3)!important}
+  html[data-theme="dark"] #btnAdminCheck:hover{background:rgba(30,91,184,.26)!important}
+  html[data-theme="dark"] #btnManagerVerify{background:rgba(16,185,129,.14)!important;color:#6ee7b7!important;border-color:rgba(16,185,129,.28)!important}
+  html[data-theme="dark"] #btnManagerVerify:hover{background:rgba(16,185,129,.24)!important}
+  /* bg-[#E8F8E8] / text-[#1F7A1F] used in sign-off button */
+  html[data-theme="dark"] [class*="bg-[#E8F8E8]"]{background:rgba(16,185,129,.14)!important}
+  html[data-theme="dark"] [class*="text-[#1F7A1F]"]{color:#6ee7b7!important}
+  html[data-theme="dark"] [class*="border-[#B8E0B8]"]{border-color:rgba(16,185,129,.28)!important}
+
   /* ── DARK MODE: Misc text ────────────────────────────────────────────────── */
   html[data-theme="dark"] .text-slate-800{color:#C4E0E6!important}
   html[data-theme="dark"] .text-slate-900{color:#D0ECF0!important}
@@ -4393,10 +4434,12 @@ function renderRateDonut(o){
       <svg viewBox="0 0 220 220" width="100%" style="max-width:240px;height:auto" xmlns="http://www.w3.org/2000/svg">
         ${arcs}
         <text x="${cx}" y="${cy-2}" text-anchor="middle"
-              font-size="44" font-weight="800" fill="#0F2A36"
+              font-size="44" font-weight="800"
+              fill="${document.documentElement.dataset.theme==='dark'?'#C4E0E6':'#0F2A36'}"
               font-family="Inter, system-ui, sans-serif">${pct}%</text>
         <text x="${cx}" y="${cy+24}" text-anchor="middle"
-              font-size="12" font-weight="700" fill="#64748B"
+              font-size="12" font-weight="700"
+              fill="${document.documentElement.dataset.theme==='dark'?'#7BA8B0':'#64748B'}"
               letter-spacing="1.2"
               font-family="Inter, system-ui, sans-serif">${esc(String(o.primaryLabel||'').toUpperCase())}</text>
       </svg>
@@ -9788,42 +9831,48 @@ let _lastReportHTML = null;
 // light-mode so the PDF/print output stays clean.
 function _reportDarkCSS(){
   return `<style id="rpt-dark-override">
-    html,body{background:#0D1B1E!important;color:#C4E0E6!important}
-    /* Header card keeps its teal gradient — already dark enough */
-    /* White section cards → dark surface */
-    .section-card,.owner-card{background:#112028!important;box-shadow:0 2px 12px rgba(0,0,0,.35)!important}
-    .section-head{background:linear-gradient(90deg,#005F6B,#007B8A)!important}
-    /* Table rows */
-    .tbl-row{border-bottom-color:rgba(255,255,255,.06)!important}
-    .tbl-row.alt{background:rgba(255,255,255,.04)!important}
-    .tbl-cell{color:#C4E0E6!important}
-    .tbl-cell.num{color:var(--brand2,#00B4CC)!important}
-    .tbl-cell.muted{color:#7BA8B0!important}
-    .tbl-header{background:rgba(0,123,138,.18)!important;border-bottom-color:rgba(0,123,138,.3)!important}
+    /* ── Base ── */
+    html{background:#0A1A1E!important}
+    body{background:#0A1A1E!important;color:#C4E0E6!important}
+    /* ── Mobile report cards ── */
+    .section-card,.owner-card{background:#112028!important;box-shadow:0 2px 16px rgba(0,0,0,.45)!important}
+    .section-head{background:linear-gradient(90deg,#00505C,#006D7A)!important}
+    .tbl-header{background:rgba(0,100,115,.25)!important;border-bottom-color:rgba(0,123,138,.3)!important}
     .tbl-header span{color:#5ECFDA!important}
-    /* Section total rows keep orange gradient — fine in dark */
-    /* Nett card keeps orange gradient — fine */
-    /* Owner rows */
+    .tbl-row{border-bottom-color:rgba(255,255,255,.05)!important;background:transparent!important}
+    .tbl-row.alt{background:rgba(255,255,255,.03)!important}
+    .tbl-cell{color:#C4E0E6!important}
+    .tbl-cell.num{color:#5ECFDA!important}
+    .tbl-cell.muted{color:#7BA8B0!important}
     .owner-row{border-bottom-color:rgba(255,255,255,.06)!important}
     .owner-key{color:#7BA8B0!important}
     .owner-val{color:#D0ECF0!important}
-    /* Desktop report table overrides */
-    table.r td,table.r th{border-color:rgba(255,255,255,.07)!important}
-    table.r tbody tr:nth-child(even) td{background:rgba(255,255,255,.03)!important}
-    table.r thead tr th{background:rgba(0,123,138,.22)!important;color:#5ECFDA!important}
-    table.r td{color:#C4E0E6!important}
+    .footer{color:#3A5860!important}
+    /* ── Nett card / nett box — keep orange gradient, already dark-friendly ── */
+    .nett-card,.nett-box{box-shadow:0 4px 20px rgba(0,0,0,.45)!important}
+    /* ── Desktop report ── */
+    /* Wrapper / page */
+    .rpt-page,.rpt-wrap{background:#0A1A1E!important}
+    /* Desktop header meta panels */
+    .rpt-meta-box,[class*="rpt-meta"]{background:rgba(0,100,115,.20)!important;border-color:rgba(0,180,204,.18)!important;color:#C4E0E6!important}
+    /* All white bg cells/panels in desktop report */
+    .r-wrap{background:#0A1A1E!important}
+    /* Desktop tables */
+    table.r{border-collapse:collapse}
+    table.r td,table.r th{border-color:rgba(255,255,255,.07)!important;color:#C4E0E6!important;background:transparent!important}
+    table.r thead tr th{background:rgba(0,100,115,.28)!important;color:#5ECFDA!important}
+    table.r tbody tr:nth-child(even) td{background:rgba(255,255,255,.025)!important}
     table.r td.num,table.r td.n{color:#5ECFDA!important}
     table.r td.muted,table.r td.small{color:#7BA8B0!important}
-    table.r-sub td.spacer,table.r-sub th.spacer{background:rgba(0,123,138,.10)!important}
+    table.r-sub td.spacer,table.r-sub th.spacer{background:rgba(0,100,115,.18)!important}
     /* No-badge circles */
     .no-badge{background:rgba(0,123,138,.22)!important;color:#5ECFDA!important}
     .no-badge.alt{background:rgba(244,129,31,.18)!important;color:#FF9A45!important}
-    /* Footer */
-    .footer{color:#486870!important}
-    /* Nett box dark adjustment — text is already white, just tone the bg slightly */
-    .nett-box,.nett-card{opacity:.95}
-    /* Desktop report header meta bg */
-    .rpt-meta-box{background:rgba(0,123,138,.18)!important;border-color:rgba(0,180,204,.18)!important}
+    /* Pro-rate inline formula text */
+    span[style*="color:rgba(0,123,138"]{color:#5ECFDA!important}
+    /* Totals gradient rows stay orange — already visible */
+    /* BF / loss notice */
+    .bf-notice-d{background:rgba(0,0,0,.30)!important}
   </style>`;
 }
 
