@@ -4933,7 +4933,7 @@ function renderTenants(){
       const moDate = t.move_out_date ? fmtDate(t.move_out_date) : (t.agreement_end ? fmtDate(t.agreement_end) : '—');
       return `<tr class="${grpCls}">
         <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
-        <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
+        <td class="font-semibold">${p ? esc(p.unit) : ''}</td>
         <td class="text-center font-bold">${esc(t.room_code||'')}</td>
         <td class="font-semibold">${esc(t.name)}</td>
         <td class="num">${fmt(t.room_rental)}</td>
@@ -4950,7 +4950,7 @@ function renderTenants(){
     }
     return `<tr class="${[cls, grpCls].filter(Boolean).join(' ')}">
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
-      <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
+      <td class="font-semibold">${p ? esc(p.unit) : ''}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
       <td class="font-semibold">${esc(t.name)}${endingChip}</td>
       <td class="num">${fmt(t.room_rental)}</td>
@@ -4989,7 +4989,7 @@ function renderTenants(){
       vacantRows = vacant.map(r=>`
         <tr class="bg-amber-50/40">
           <td class="text-slate-500 font-semibold">${esc(prop.condo)}</td>
-          <td class="text-slate-500 text-xs">${esc(prop.unit)}</td>
+          <td class="font-semibold">${esc(prop.unit)}</td>
           <td class="text-slate-500 italic">— Vacant —</td>
           <td class="text-center font-bold text-[#92400E]">${esc(r)}</td>
           <td class="num text-slate-300">—</td>
@@ -6845,7 +6845,7 @@ function renderPayments(){
     }
     return `<tr class="${grpCls}">
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
-      <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
+      <td class="font-semibold">${p ? esc(p.unit) : ''}</td>
       <td class="font-bold">Room ${esc(r.room_code)}${splitChip}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td>${fmtDate(r.paid_on)}</td>
@@ -7169,7 +7169,7 @@ function renderRentStatus(pid){
     }
     return `<tr class="${grpCls}">
       <td class="font-semibold">${r.prop ? esc(r.prop.condo) : '—'}</td>
-      <td class="text-slate-500 text-xs">${r.prop ? esc(r.prop.unit) : ''}</td>
+      <td class="font-semibold">${r.prop ? esc(r.prop.unit) : ''}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
       <td class="font-semibold"><button class="text-left hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.name||'')}</button>${proChips}</td>
       <td class="num">${fmt(r.expectedRoom)}</td>
@@ -7447,7 +7447,7 @@ function buildExpenseSection(items, opts){
     const grpCls = (_expGrp % 2 === 1) ? 'prop-grp-alt' : '';
     return `<tr class="anim-row ${grpCls}">
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
-      <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
+      <td class="font-semibold">${p ? esc(p.unit) : ''}</td>
       <td>${esc(r.description||'')}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td>${fmtDate(r.expense_date)}</td>
@@ -7683,7 +7683,7 @@ function renderExtras(){
     const grpCls = (_extGrp % 2 === 1) ? 'prop-grp-alt' : '';
     return `<tr class="${grpCls}">
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
-      <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
+      <td class="font-semibold">${p ? esc(p.unit) : ''}</td>
       <td>${esc(r.description||'')}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td class="text-right whitespace-nowrap">
