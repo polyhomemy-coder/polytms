@@ -4934,8 +4934,8 @@ function renderTenants(){
       return `<tr class="${grpCls}">
         <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
         <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
-        <td class="font-semibold">${esc(t.name)}</td>
         <td class="text-center font-bold">${esc(t.room_code||'')}</td>
+        <td class="font-semibold">${esc(t.name)}</td>
         <td class="num">${fmt(t.room_rental)}</td>
         <td>${esc(t.carpark||'')}</td>
         <td>${fmtDate(t.agreement_start)} →<br>${fmtDate(t.agreement_end)}</td>
@@ -4951,8 +4951,8 @@ function renderTenants(){
     return `<tr class="${[cls, grpCls].filter(Boolean).join(' ')}">
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
       <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
-      <td class="font-semibold">${esc(t.name)}${endingChip}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
+      <td class="font-semibold">${esc(t.name)}${endingChip}</td>
       <td class="num">${fmt(t.room_rental)}</td>
       <td>${esc(t.carpark||'')}</td>
       <td class="num">${fmt(t.carpark_rental)}</td>
@@ -5013,11 +5013,11 @@ function renderTenants(){
   }
   if(isMovedOut){
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Condo</th><th>Unit</th><th>Name</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Contact</th><th></th>
+      <th>Condo</th><th>Unit</th><th>Room</th><th>Name</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Contact</th><th></th>
     </tr></thead><tbody>${rows || `<tr><td colspan="10" class="text-center text-slate-400 py-10">No moved-out tenants on record.</td></tr>`}</tbody>`;
   } else {
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Condo</th><th>Unit</th><th>Name</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Contact</th><th></th>
+      <th>Condo</th><th>Unit</th><th>Room</th><th>Name</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Contact</th><th></th>
     </tr></thead><tbody>${allRows || `<tr><td colspan="11" class="text-center text-slate-400 py-10">${q?'No tenants match your search.':'No tenants yet.'}</td></tr>`}</tbody>`;
   }
 }
@@ -7170,8 +7170,8 @@ function renderRentStatus(pid){
     return `<tr class="${grpCls}">
       <td class="font-semibold">${r.prop ? esc(r.prop.condo) : '—'}</td>
       <td class="text-slate-500 text-xs">${r.prop ? esc(r.prop.unit) : ''}</td>
-      <td class="font-semibold"><button class="text-left hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.name||'')}</button>${proChips}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
+      <td class="font-semibold"><button class="text-left hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.name||'')}</button>${proChips}</td>
       <td class="num">${fmt(r.expectedRoom)}</td>
       <td>${esc(t.carpark||'—')}</td>
       <td class="num">${fmt(r.expectedCp)}</td>
@@ -7196,7 +7196,7 @@ function renderRentStatus(pid){
   </tr>`:'';
   const tbl = $('#rentStatusTable');
   if(tbl) tbl.innerHTML = `<thead><tr>
-    <th>Condo</th><th>Unit</th><th>Tenant</th><th>Room</th>
+    <th>Condo</th><th>Unit</th><th>Room</th><th>Tenant</th>
     <th class="num">Room Rental</th>
     <th>Carpark Lot</th><th class="num">Carpark Rental</th>
     <th>Move-in Date</th>
