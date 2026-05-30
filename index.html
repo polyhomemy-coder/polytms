@@ -1973,6 +1973,9 @@ try {
 } catch(_){}
 let sb = null;
 let state = {
+  role: 'manager',              // 'manager' | 'admin' | 'owner' — loaded from profiles table on login
+  currentUserId: null,          // logged-in user's Supabase auth UUID
+  ownerPropertyId: null,        // for owner role: their assigned property UUID
   properties:[], tenants:[], payments:[], aircon:[], expenses:[], extras:[], pendingIsewa:[],
   reportStatus:[],            // sign-off records: {id,property_id,year,month,admin_checked_at,admin_checked_by,manager_verified_at,manager_verified_by,launched_at}
   year: new Date().getFullYear(),
@@ -2602,8 +2605,11 @@ $('#btnSettings').onclick = ()=>{ $('#inpUrl').value=localStorage.getItem(LS_URL
       if(error) throw error;
       stat.innerHTML='<span class="text-emerald-600">✓ Signed in</span>';
       hideLogin();
+      state.currentUserId = data.user?.id;
+      state.role = await fetchUserRole(data.user?.id);
       showUserBox(data.user?.email);
       await bootApp();
+      applyRoleUI();
     } catch(e){
       stat.innerHTML='<span class="text-rose-600">'+esc(e.message||'Sign-in failed')+'</span>';
     } finally {
@@ -4332,7 +4338,15 @@ function renderAdminDashboard(){
     </div><!-- end right -->
 
   </div>
+
+  ${state.role === 'manager' ? `<div id="userMgmtPanel" style="margin-top:8px"></div>` : ''}
   `;
+
+  // Render user management panel async (manager only)
+  if(state.role === 'manager'){
+    const panel = document.getElementById('userMgmtPanel');
+    if(panel) renderUserManagementPanel(panel);
+  }
 }
 
 // ----- Contract-ending notice banner -----
@@ -10753,6 +10767,271 @@ function showUserBox(email){
   if(box) box.classList.remove('hidden');
   if(emEl) emEl.textContent = email || '';
 }
+
+// ══════════════════════════════════════════════════════════════
+//  ROLE-BASED ACCESS CONTROL
+//  Roles: manager | admin | owner
+//  Future-proof: adding 'tenant' later only needs an extra case here.
+// ══════════════════════════════════════════════════════════════
+
+// Fetch this user's role from the profiles table.
+// Falls back to 'admin' if no row exists (safe default — still
+// loses Manager tab, won't accidentally grant full access).
+async function fetchUserRole(userId){
+  if(!sb || !userId) return 'admin';
+  try {
+    const {data, error} = await sb.from('profiles').select('role,property_id').eq('id', userId).single();
+    if(error || !data) return 'admin';
+    if(data.property_id) state.ownerPropertyId = data.property_id;
+    return (data.role || 'admin').toLowerCase();
+  } catch(_){ return 'admin'; }
+}
+
+// Apply tab / UI visibility based on state.role.
+//   manager → all tabs, user management panel visible
+//   admin   → no Manager tab
+//   owner   → only Income Report + Tenants, scoped to their property
+function applyRoleUI(){
+  const role = state.role;
+  const tabs = {
+    dashboard : document.querySelector('.tab-btn[data-tab="dashboard"]'),
+    admin     : document.querySelector('.tab-btn[data-tab="admin"]'),
+    properties: document.querySelector('.tab-btn[data-tab="properties"]'),
+    tenants   : document.querySelector('.tab-btn[data-tab="tenants"]'),
+    income    : document.querySelector('.tab-btn[data-tab="income"]'),
+    expenses  : document.querySelector('.tab-btn[data-tab="expenses"]'),
+    report    : document.querySelector('.tab-btn[data-tab="report"]'),
+  };
+
+  // Visibility rules per role
+  const visible = {
+    manager  : ['dashboard','admin','properties','tenants','income','expenses','report'],
+    admin    : ['admin','properties','tenants','income','expenses','report'],
+    owner    : ['tenants','report'],
+  }[role] || ['admin','properties','tenants','income','expenses','report'];
+
+  Object.entries(tabs).forEach(([key, btn])=>{
+    if(btn) btn.style.display = visible.includes(key) ? '' : 'none';
+  });
+
+  // If current active tab is now hidden, navigate to first visible tab
+  const activeBtn = document.querySelector('.tab-btn.active');
+  if(activeBtn && !visible.includes(activeBtn.dataset.tab)){
+    const firstVisible = visible[0];
+    const target = document.querySelector(`.tab-btn[data-tab="${firstVisible}"]`);
+    if(target) target.click();
+  }
+
+  // Owner: lock property filter to their assigned property
+  if(role === 'owner' && state.ownerPropertyId){
+    _applyOwnerPropertyScope(state.ownerPropertyId);
+  }
+}
+
+// Restricts an owner to see only their own property in all views.
+function _applyOwnerPropertyScope(propertyId){
+  // Lock the property filter selects used in report + other tabs
+  ['rptProp'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    // Disable all options except theirs; select it
+    [...el.options].forEach(o=>{ o.disabled = o.value !== propertyId; });
+    el.value = propertyId;
+  });
+}
+
+// Extracts role from a Supabase user object (legacy fallback only).
+// Real roles now come from the profiles table via fetchUserRole().
+function _roleFromUser(user){
+  if(!user) return 'admin';
+  return (user.app_metadata?.role || user.user_metadata?.role || 'admin').toLowerCase();
+}
+
+// ── User Management ───────────────────────────────────────────
+// Fetch all profiles (manager only — RLS blocks others).
+async function fetchAllProfiles(){
+  if(!sb) return [];
+  try {
+    const {data, error} = await sb.from('profiles')
+      .select('id,email,name,role,property_id,created_at')
+      .order('created_at', {ascending:true});
+    return error ? [] : (data||[]);
+  } catch(_){ return []; }
+}
+
+// Upsert a profile (manager only).
+async function saveProfile(profile){
+  const {error} = await sb.from('profiles').upsert(profile, {onConflict:'id'});
+  if(error) throw new Error(error.message);
+}
+
+// Delete a profile row (does NOT delete the auth.users row — just removes TMS access role).
+async function deleteProfile(id){
+  const {error} = await sb.from('profiles').delete().eq('id', id);
+  if(error) throw new Error(error.message);
+}
+
+// Invite a new user by email via Supabase magic link.
+// The new user gets a profile row auto-created by the DB trigger with role='admin'.
+// Manager can then change the role via the UI.
+async function inviteUser(email){
+  // We use signInWithOtp (magic link) — it creates the auth user if not exists
+  // and sends them a login link. No service-role key required.
+  const {error} = await sb.auth.signInWithOtp({
+    email,
+    options:{ shouldCreateUser: true, emailRedirectTo: location.href }
+  });
+  if(error) throw new Error(error.message);
+}
+
+// Render the User Management panel (injected into Admin dashboard, manager only).
+async function renderUserManagementPanel(container){
+  container.innerHTML = `<div class="text-sm text-slate-400 py-4">Loading users…</div>`;
+  let profiles = [];
+  try { profiles = await fetchAllProfiles(); } catch(e){
+    container.innerHTML = `<div class="text-sm text-rose-500 py-2">Could not load users: ${esc(e.message)}</div>`;
+    return;
+  }
+  const props = state.properties || [];
+  const propOptions = props.map(p=>`<option value="${p.id}">${esc(p.condo)} ${esc(p.unit)}</option>`).join('');
+
+  const roleChip = r => ({
+    manager: `<span style="background:#E8F8FA;color:#007B8A;border:1px solid #B3E3EA;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">👑 Manager</span>`,
+    admin:   `<span style="background:#E8F4FD;color:#1E5BB8;border:1px solid #BAD8F0;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">🗂️ Admin</span>`,
+    owner:   `<span style="background:#FFF4E5;color:#F4811F;border:1px solid #F8C893;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">🏠 Owner</span>`,
+    tenant:  `<span style="background:#DCFCE7;color:#065F46;border:1px solid #86EFAC;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">🔑 Tenant</span>`,
+  }[r] || `<span style="background:#F1F5F9;color:#64748B;border:1px solid #CBD5E1;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${esc(r)}</span>`);
+
+  const rows = profiles.map(p=>{
+    const isMe = p.id === state.currentUserId;
+    const propName = p.property_id ? (props.find(x=>x.id===p.property_id)||{}) : null;
+    const propLabel = propName ? `${propName.condo||''} ${propName.unit||''}`.trim() : '—';
+    return `<tr data-uid="${p.id}">
+      <td style="padding:10px 12px;font-size:13px;color:var(--ink)">${esc(p.email||'')}</td>
+      <td style="padding:10px 12px">${roleChip(p.role)}</td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--muted)">${esc(propLabel)}</td>
+      <td style="padding:10px 12px;text-align:right">
+        ${isMe ? `<span style="font-size:11px;color:var(--muted);font-style:italic">You</span>` :
+          `<button onclick="openEditUserModal('${p.id}','${esc(p.email||'')}','${p.role}','${p.property_id||''}')"
+            style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">Edit</button>`
+        }
+      </td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="background:var(--card);border-radius:16px;border:1px solid var(--line);overflow:hidden;margin-bottom:24px">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--ink)">👥 User Management</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">Manage who can access polyTMS and their role</div>
+        </div>
+        <button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Invite User</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:var(--th-bg)">
+              <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Email</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Role</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Property (Owner)</th>
+              <th style="padding:10px 12px"></th>
+            </tr>
+          </thead>
+          <tbody>${rows||`<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No users yet</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById('btnInviteUser').onclick = openInviteUserModal;
+}
+
+// ── Invite User Modal ─────────────────────────────────────────
+function openInviteUserModal(){
+  openModal({
+    title:'Invite New User',
+    body:`<div style="display:flex;flex-direction:column;gap:14px">
+      <div>
+        <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">EMAIL ADDRESS</label>
+        <input id="inviteEmail" type="email" class="input" placeholder="user@example.com" style="width:100%;box-sizing:border-box">
+      </div>
+      <div style="font-size:12px;color:var(--muted);background:var(--th-bg);border-radius:10px;padding:10px 12px;line-height:1.6">
+        A magic link will be sent to their email. They'll be added as <strong>Admin</strong> by default.
+        Use <strong>Edit</strong> to change their role after they sign in.
+      </div>
+    </div>`,
+    confirmText:'Send Invite',
+    onConfirm: async ()=>{
+      const email = (document.getElementById('inviteEmail')?.value||'').trim();
+      if(!email){ toast('Enter an email address','bad'); return; }
+      try {
+        await inviteUser(email);
+        toast(`✉️ Invite sent to ${email}`);
+      } catch(e){ toast('Invite failed: '+e.message,'bad'); }
+    }
+  });
+}
+
+// ── Edit User Modal ───────────────────────────────────────────
+function openEditUserModal(uid, email, currentRole, currentPropId){
+  const props = state.properties || [];
+  const propOptions = props.map(p=>
+    `<option value="${p.id}" ${p.id===currentPropId?'selected':''}>${esc(p.condo)} ${esc(p.unit)}</option>`
+  ).join('');
+
+  openModal({
+    title:`Edit User`,
+    body:`<div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:13px;color:var(--ink);font-weight:600">${esc(email)}</div>
+      <div>
+        <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">ROLE</label>
+        <select id="editUserRole" class="input" style="width:100%">
+          <option value="manager" ${currentRole==='manager'?'selected':''}>👑 Manager — full access</option>
+          <option value="admin"   ${currentRole==='admin'  ?'selected':''}>🗂️ Admin — no Manager tab</option>
+          <option value="owner"   ${currentRole==='owner'  ?'selected':''}>🏠 Owner — income report + tenants only</option>
+        </select>
+      </div>
+      <div id="ownerPropRow" style="display:${currentRole==='owner'?'block':'none'}">
+        <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">PROPERTY</label>
+        <select id="editUserProp" class="input" style="width:100%">
+          <option value="">— Select property —</option>
+          ${propOptions}
+        </select>
+      </div>
+      <button id="btnRemoveUser" style="margin-top:4px;font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;cursor:pointer;width:fit-content">🗑 Remove Access</button>
+    </div>`,
+    confirmText:'Save',
+    onConfirm: async ()=>{
+      const role = document.getElementById('editUserRole')?.value;
+      const propId = document.getElementById('editUserProp')?.value || null;
+      try {
+        await saveProfile({id:uid, email, role, property_id: role==='owner' ? propId : null});
+        toast(`✓ Updated ${email} → ${role}`);
+        // Re-render user panel
+        const container = document.getElementById('userMgmtPanel');
+        if(container) await renderUserManagementPanel(container);
+      } catch(e){ toast('Save failed: '+e.message,'bad'); }
+    }
+  });
+  // Wire role dropdown to show/hide property picker
+  setTimeout(()=>{
+    const roleEl = document.getElementById('editUserRole');
+    const propRow = document.getElementById('ownerPropRow');
+    if(roleEl && propRow) roleEl.onchange = ()=>{ propRow.style.display = roleEl.value==='owner' ? 'block' : 'none'; };
+    // Wire remove button
+    const removeBtn = document.getElementById('btnRemoveUser');
+    if(removeBtn) removeBtn.onclick = async ()=>{
+      if(!await confirmModal(`Remove access for ${email}? They won't be able to log in to TMS.`,{confirmText:'Remove',danger:true})) return;
+      try {
+        await deleteProfile(uid);
+        toast(`🗑 Removed ${email}`);
+        closeModal();
+        const container = document.getElementById('userMgmtPanel');
+        if(container) await renderUserManagementPanel(container);
+      } catch(e){ toast('Remove failed: '+e.message,'bad'); }
+    };
+  }, 50);
+}
 async function signOutAndReturnToLogin(){
   try { await sb.auth.signOut(); } catch(_){}
   // Hard reload so all in-memory state (tenants, payments, etc) clears.
@@ -10802,8 +11081,11 @@ async function signOutAndReturnToLogin(){
     // Session present → hide loading screen + login overlay, boot the app.
     hideAppLoading();
     hideLogin();
+    state.currentUserId = sess.user?.id;
+    state.role = await fetchUserRole(sess.user?.id);
     showUserBox(sess.user?.email);
     await bootApp();
+    applyRoleUI();
     return;
   }
 
