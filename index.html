@@ -9216,8 +9216,7 @@ function renderReportHTML(ctx, opts){
       <div class="no-badge ${i%2?'alt':''}">${i+1}</div>
       <span class="tbl-cell">${l.type==='room'?'Room '+esc(l.code):'Carpark '+esc(l.code)}</span>
       <span class="tbl-cell num" ${l.rental?'':'style="color:#C8D8DC"'}>
-        ${l.rental?fmtNum(l.rental):'—'}
-        ${l.proRateNote?`<div style="font-size:10px;font-weight:500;color:rgba(0,123,138,.7);margin-top:2px;font-style:italic">${esc(l.proRateLabel||'')} ${esc(l.proRateNote)}</div>`:''}
+        ${l.proRateNote?`<span style="font-size:9.5px;font-weight:500;color:rgba(0,123,138,.7);font-style:italic;margin-right:5px;white-space:nowrap">${esc(l.proRateNote)}</span>`:''}${l.rental?fmtNum(l.rental):'—'}
       </span>
       <span class="tbl-cell num" ${l.aircond?'':'style="color:#C8D8DC"'}>${l.aircond?fmtNum(l.aircond):'—'}</span>
     </div>`).join('') || `<div class="tbl-row grid-income"><span class="tbl-cell muted" style="grid-column:1/5;text-align:center">No income recorded</span></div>`;
@@ -9522,13 +9521,13 @@ function renderReportDesktopHTML(ctx, opts){
       ? tenureStr(l.tenant)
       : (cpTenant ? tenureStr(cpTenant) : '—');
     const proRateHtml = l.proRateNote
-      ? `<div style="font-size:10px;font-weight:500;color:rgba(0,123,138,.65);margin-top:3px;font-style:italic;text-align:right">${esc(l.proRateLabel||'')} ${esc(l.proRateNote)}</div>`
+      ? `<span style="font-size:10px;font-weight:500;color:rgba(0,123,138,.6);font-style:italic;margin-right:6px;white-space:nowrap">${esc(l.proRateNote)}</span>`
       : '';
     return `<tr>
       <td class="n">${i+1}</td>
       <td class="muted">${typeLabel}</td>
       <td class="muted">${codeLabel}</td>
-      <td class="num">${l.rental?fmtNum(l.rental):'—'}${proRateHtml}</td>
+      <td class="num" style="white-space:nowrap">${proRateHtml}${l.rental?fmtNum(l.rental):'—'}</td>
       <td class="num">${l.aircond?fmtNum(l.aircond):'—'}</td>
       <td class="muted small">${tenancyTxt}</td>
       <td class="small" style="text-align:center;font-weight:700;color:#F4811F">${tenureTxt}</td>
