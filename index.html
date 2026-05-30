@@ -4932,8 +4932,9 @@ function renderTenants(){
     if(isMovedOut){
       const moDate = t.move_out_date ? fmtDate(t.move_out_date) : (t.agreement_end ? fmtDate(t.agreement_end) : '—');
       return `<tr class="${grpCls}">
+        <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
+        <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
         <td class="font-semibold">${esc(t.name)}</td>
-        <td>${p ? `${esc(p.condo)}<br><span class="text-slate-500 text-xs">${esc(p.unit)}</span>` : '—'}</td>
         <td class="text-center font-bold">${esc(t.room_code||'')}</td>
         <td class="num">${fmt(t.room_rental)}</td>
         <td>${esc(t.carpark||'')}</td>
@@ -4948,8 +4949,9 @@ function renderTenants(){
       </tr>`;
     }
     return `<tr class="${[cls, grpCls].filter(Boolean).join(' ')}">
+      <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
+      <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
       <td class="font-semibold">${esc(t.name)}${endingChip}</td>
-      <td>${p ? `${esc(p.condo)}<br><span class="text-slate-500 text-xs">${esc(p.unit)}</span>` : '—'}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
       <td class="num">${fmt(t.room_rental)}</td>
       <td>${esc(t.carpark||'')}</td>
@@ -4986,8 +4988,9 @@ function renderTenants(){
       const propLabel = prop.condo+' · '+prop.unit;
       vacantRows = vacant.map(r=>`
         <tr class="bg-amber-50/40">
+          <td class="text-slate-500 font-semibold">${esc(prop.condo)}</td>
+          <td class="text-slate-500 text-xs">${esc(prop.unit)}</td>
           <td class="text-slate-500 italic">— Vacant —</td>
-          <td class="text-slate-500">${esc(propLabel)}</td>
           <td class="text-center font-bold text-[#92400E]">${esc(r)}</td>
           <td class="num text-slate-300">—</td>
           <td class="text-slate-300">—</td>
@@ -5010,12 +5013,12 @@ function renderTenants(){
   }
   if(isMovedOut){
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Name</th><th>Property</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Contact</th><th></th>
-    </tr></thead><tbody>${rows || `<tr><td colspan="9" class="text-center text-slate-400 py-10">No moved-out tenants on record.</td></tr>`}</tbody>`;
+      <th>Condo</th><th>Unit</th><th>Name</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Contact</th><th></th>
+    </tr></thead><tbody>${rows || `<tr><td colspan="10" class="text-center text-slate-400 py-10">No moved-out tenants on record.</td></tr>`}</tbody>`;
   } else {
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Name</th><th>Property</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Contact</th><th></th>
-    </tr></thead><tbody>${allRows || `<tr><td colspan="10" class="text-center text-slate-400 py-10">${q?'No tenants match your search.':'No tenants yet.'}</td></tr>`}</tbody>`;
+      <th>Condo</th><th>Unit</th><th>Name</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Contact</th><th></th>
+    </tr></thead><tbody>${allRows || `<tr><td colspan="11" class="text-center text-slate-400 py-10">${q?'No tenants match your search.':'No tenants yet.'}</td></tr>`}</tbody>`;
   }
 }
 
@@ -6841,7 +6844,8 @@ function renderPayments(){
         : `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">≠ Expected ${fmt(expected)}</span>`;
     }
     return `<tr class="${grpCls}">
-      <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
+      <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
+      <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
       <td class="font-bold">Room ${esc(r.room_code)}${splitChip}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td>${fmtDate(r.paid_on)}</td>
@@ -6863,7 +6867,7 @@ function renderPayments(){
   }).join('');
   const dateDefault = `${state.year}-${String(state.month).padStart(2,'0')}-01`;
   const addRow = `<tr class="add-row pay-add-row">
-    <td><select class="pay-add-prop input !text-xs !py-1 !px-2 !w-full">
+    <td colspan="2"><select class="pay-add-prop input !text-xs !py-1 !px-2 !w-full">
       <option value="">— pick unit —</option>${propOpts}
     </select></td>
     <td>
@@ -6883,17 +6887,18 @@ function renderPayments(){
   const host = $('#payTable');
   host.classList.add('table-fixed');
   host.innerHTML = `<colgroup>
-      <col style="width:22%">
-      <col style="width:260px">
+      <col style="width:13%">
+      <col style="width:9%">
+      <col style="width:220px">
       <col style="width:120px">
       <col style="width:130px">
       <col style="width:auto">
       <col style="width:120px">
     </colgroup>
     <thead><tr>
-      <th>Property</th><th>Room</th><th class="num">Amount Received</th><th>Paid On</th><th>Remark</th><th></th>
-    </tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-slate-400 py-6">No room payments yet — add one below.</td></tr>'}
-    ${rows?`<tr><td colspan="2" class="text-right font-bold">TOTAL</td><td class="num font-extrabold">${fmt(tot)}</td><td colspan="3"></td></tr>`:''}
+      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Amount Received</th><th>Paid On</th><th>Remark</th><th></th>
+    </tr></thead><tbody>${rows || '<tr><td colspan="7" class="text-center text-slate-400 py-6">No room payments yet — add one below.</td></tr>'}
+    ${rows?`<tr><td colspan="3" class="text-right font-bold">TOTAL</td><td class="num font-extrabold">${fmt(tot)}</td><td colspan="3"></td></tr>`:''}
     ${addRow}
     </tbody>`;
 
@@ -7163,8 +7168,9 @@ function renderRentStatus(pid){
       proChips += `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FFE4E6;color:#9F1239">🚪 Last-month pro-rate RM ${lp.total} (${lp.daysOccupied}/${lp.daysInMonth}d)</span></div>`;
     }
     return `<tr class="${grpCls}">
+      <td class="font-semibold">${r.prop ? esc(r.prop.condo) : '—'}</td>
+      <td class="text-slate-500 text-xs">${r.prop ? esc(r.prop.unit) : ''}</td>
       <td class="font-semibold"><button class="text-left hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.name||'')}</button>${proChips}</td>
-      <td>${r.prop ? `${esc(r.prop.condo)}<br><span class="text-slate-500 text-xs">${esc(r.prop.unit)}</span>` : ''}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
       <td class="num">${fmt(r.expectedRoom)}</td>
       <td>${esc(t.carpark||'—')}</td>
@@ -7179,7 +7185,7 @@ function renderRentStatus(pid){
     </tr>`;
   }).join('');
   const totalsRow = rows.length ? `<tr style="background:#E8F8FA">
-    <td colspan="3" class="text-right font-bold">TOTAL</td>
+    <td colspan="4" class="text-right font-bold">TOTAL</td>
     <td class="num font-extrabold">${fmt(totRoom)}</td>
     <td></td>
     <td class="num font-extrabold">${fmt(totCp)}</td>
@@ -7190,13 +7196,13 @@ function renderRentStatus(pid){
   </tr>`:'';
   const tbl = $('#rentStatusTable');
   if(tbl) tbl.innerHTML = `<thead><tr>
-    <th>Tenant</th><th>Property</th><th>Room</th>
+    <th>Condo</th><th>Unit</th><th>Tenant</th><th>Room</th>
     <th class="num">Room Rental</th>
     <th>Carpark Lot</th><th class="num">Carpark Rental</th>
     <th>Move-in Date</th>
     <th class="num">Contract RM</th><th class="num">Paid RM</th>
     <th>Status</th><th></th>
-  </tr></thead><tbody>${html || `<tr><td colspan="11" class="text-center text-slate-400 py-8">${filter!=='all' ? `No tenants with status "${filter}" for this month.` : 'No active tenancies for this month. Add tenants in the Tenants tab.'}</td></tr>`}${totalsRow}</tbody>`;
+  </tr></thead><tbody>${html || `<tr><td colspan="12" class="text-center text-slate-400 py-8">${filter!=='all' ? `No tenants with status "${filter}" for this month.` : 'No active tenancies for this month. Add tenants in the Tenants tab.'}</td></tr>`}${totalsRow}</tbody>`;
 }
 
 // ----- AIRCON -----
@@ -7440,7 +7446,8 @@ function buildExpenseSection(items, opts){
     if(r.property_id !== _expLastPid){ _expLastPid = r.property_id; _expGrp++; }
     const grpCls = (_expGrp % 2 === 1) ? 'prop-grp-alt' : '';
     return `<tr class="anim-row ${grpCls}">
-      <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
+      <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
+      <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
       <td>${esc(r.description||'')}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td>${fmtDate(r.expense_date)}</td>
@@ -7470,7 +7477,7 @@ function buildExpenseSection(items, opts){
   // Distinct amber tint + left accent so the input row is unmistakable as
   // "fill me in" rather than another saved expense.
   const addRow = cat ? `<tr class="add-row exp-add-row" data-cat="${esc(cat)}">
-    <td><select class="exp-add-prop input !text-xs !py-1 !px-2 !w-full" title="Property">
+    <td colspan="2"><select class="exp-add-prop input !text-xs !py-1 !px-2 !w-full" title="Property">
       <option value="">— pick unit —</option>${propOpts}
     </select></td>
     <td><input class="exp-add-desc input !text-xs !py-1 !px-2 !w-full" placeholder="${descPlaceholder}" value="${descPrefill}"></td>
@@ -7486,17 +7493,18 @@ function buildExpenseSection(items, opts){
   // table sizes itself to its own content and the right-hand columns drift.
   return `<table class="data w-full table-fixed">
     <colgroup>
-      <col style="width:22%">
+      <col style="width:13%">
+      <col style="width:9%">
       <col style="width:auto">
       <col style="width:120px">
       <col style="width:130px">
       <col style="width:120px">
     </colgroup>
     <thead><tr>
-      <th>Property</th><th>Description</th><th class="num">Amount</th><th>Date</th><th></th>
+      <th>Condo</th><th>Unit</th><th>Description</th><th class="num">Amount</th><th>Date</th><th></th>
     </tr></thead>
     <tbody>${rows}
-      ${showSubtotal && items.length ? `<tr><td colspan="2" class="text-right font-bold">Subtotal</td><td class="num font-extrabold">${fmt(tot)}</td><td colspan="2"></td></tr>` : ''}
+      ${showSubtotal && items.length ? `<tr><td colspan="3" class="text-right font-bold">Subtotal</td><td class="num font-extrabold">${fmt(tot)}</td><td colspan="2"></td></tr>` : ''}
       ${addRow}
     </tbody>
   </table>`;
@@ -7674,7 +7682,8 @@ function renderExtras(){
     if(r.property_id !== _extLastPid){ _extLastPid = r.property_id; _extGrp++; }
     const grpCls = (_extGrp % 2 === 1) ? 'prop-grp-alt' : '';
     return `<tr class="${grpCls}">
-      <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
+      <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
+      <td class="text-slate-500 text-xs">${p ? esc(p.unit) : ''}</td>
       <td>${esc(r.description||'')}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td class="text-right whitespace-nowrap">
@@ -7691,7 +7700,7 @@ function renderExtras(){
     return `<option value="${p.id}"${sel}>${esc(p.condo)} · ${esc(p.unit)}</option>`;
   }).join('');
   const addRow = `<tr class="add-row ext-add-row">
-    <td><select class="ext-add-prop input !text-xs !py-1 !px-2 !w-full">
+    <td colspan="2"><select class="ext-add-prop input !text-xs !py-1 !px-2 !w-full">
       <option value="">— pick unit —</option>${propOpts}
     </select></td>
     <td><input class="ext-add-desc input !text-xs !py-1 !px-2 !w-full" placeholder="Description (required)…"></td>
@@ -7704,15 +7713,16 @@ function renderExtras(){
   const host = $('#extTable');
   host.classList.add('table-fixed');
   host.innerHTML = `<colgroup>
-      <col style="width:22%">
+      <col style="width:13%">
+      <col style="width:9%">
       <col style="width:auto">
       <col style="width:140px">
       <col style="width:120px">
     </colgroup>
     <thead><tr>
-      <th>Property</th><th>Description</th><th class="num">Amount</th><th></th>
-    </tr></thead><tbody>${rows || '<tr><td colspan="4" class="text-center text-slate-400 py-6">No extra income yet — add one below.</td></tr>'}
-    ${rows?`<tr><td colspan="2" class="text-right font-bold">TOTAL</td><td class="num font-extrabold">${fmt(tot)}</td><td></td></tr>`:''}
+      <th>Condo</th><th>Unit</th><th>Description</th><th class="num">Amount</th><th></th>
+    </tr></thead><tbody>${rows || '<tr><td colspan="5" class="text-center text-slate-400 py-6">No extra income yet — add one below.</td></tr>'}
+    ${rows?`<tr><td colspan="3" class="text-right font-bold">TOTAL</td><td class="num font-extrabold">${fmt(tot)}</td><td></td></tr>`:''}
     ${addRow}
     </tbody>`;
 
