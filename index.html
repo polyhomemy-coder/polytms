@@ -9831,48 +9831,112 @@ let _lastReportHTML = null;
 // light-mode so the PDF/print output stays clean.
 function _reportDarkCSS(){
   return `<style id="rpt-dark-override">
-    /* ── Base ── */
-    html{background:#0A1A1E!important}
-    body{background:#0A1A1E!important;color:#C4E0E6!important}
-    /* ── Mobile report cards ── */
-    .section-card,.owner-card{background:#112028!important;box-shadow:0 2px 16px rgba(0,0,0,.45)!important}
-    .section-head{background:linear-gradient(90deg,#00505C,#006D7A)!important}
-    .tbl-header{background:rgba(0,100,115,.25)!important;border-bottom-color:rgba(0,123,138,.3)!important}
-    .tbl-header span{color:#5ECFDA!important}
-    .tbl-row{border-bottom-color:rgba(255,255,255,.05)!important;background:transparent!important}
-    .tbl-row.alt{background:rgba(255,255,255,.03)!important}
-    .tbl-cell{color:#C4E0E6!important}
-    .tbl-cell.num{color:#5ECFDA!important}
-    .tbl-cell.muted{color:#7BA8B0!important}
-    .owner-row{border-bottom-color:rgba(255,255,255,.06)!important}
-    .owner-key{color:#7BA8B0!important}
-    .owner-val{color:#D0ECF0!important}
-    .footer{color:#3A5860!important}
-    /* ── Nett card / nett box — keep orange gradient, already dark-friendly ── */
-    .nett-card,.nett-box{box-shadow:0 4px 20px rgba(0,0,0,.45)!important}
-    /* ── Desktop report ── */
-    /* Wrapper / page */
-    .rpt-page,.rpt-wrap{background:#0A1A1E!important}
-    /* Desktop header meta panels */
-    .rpt-meta-box,[class*="rpt-meta"]{background:rgba(0,100,115,.20)!important;border-color:rgba(0,180,204,.18)!important;color:#C4E0E6!important}
-    /* All white bg cells/panels in desktop report */
-    .r-wrap{background:#0A1A1E!important}
-    /* Desktop tables */
-    table.r{border-collapse:collapse}
-    table.r td,table.r th{border-color:rgba(255,255,255,.07)!important;color:#C4E0E6!important;background:transparent!important}
-    table.r thead tr th{background:rgba(0,100,115,.28)!important;color:#5ECFDA!important}
-    table.r tbody tr:nth-child(even) td{background:rgba(255,255,255,.025)!important}
-    table.r td.num,table.r td.n{color:#5ECFDA!important}
-    table.r td.muted,table.r td.small{color:#7BA8B0!important}
-    table.r-sub td.spacer,table.r-sub th.spacer{background:rgba(0,100,115,.18)!important}
+    /* ════════════════════════════════════════════
+       POLYHOME REPORT — DARK MODE PREVIEW LAYER
+       Applied to iframe only; NOT exported.
+    ════════════════════════════════════════════ */
+
+    /* ── Page background ── */
+    html,body{ background:#0A1A1E !important; color:#C4E0E6 !important }
+
+    /* ══ DESKTOP REPORT ══════════════════════════ */
+
+    /* The white sheet card */
+    .sheet{ background:#0F2028 !important; box-shadow:0 4px 32px rgba(0,0,0,.6) !important }
+
+    /* Top divider line */
+    .top{ border-bottom-color:#1E4050 !important }
+
+    /* Brand / title text */
+    .brand-label{ color:#FF9A45 !important }
+    .doc-title{ color:#5ECFDA !important }
+    .doc-period{ color:#7BA8B0 !important }
+    .month-tag{ color:#1A3A44 !important }
+
+    /* Address / meta box (owner contact) */
+    .addr-box{ background:#0D2530 !important; border-color:#1E4050 !important }
+    .addr-box .t{ color:#5ECFDA !important }
+    .addr-box .v{ color:#C4E0E6 !important }
+    .addr-box .orange{ color:#FF9A45 !important }
+    .addr-row{ border-bottom-color:#1E4050 !important }
+
+    /* Hello / owner card — keeps teal gradient, fine */
+    /* Meta grid inside hello-left */
+    .meta-grid .lbl{ color:rgba(255,255,255,.55) !important }
+    .meta-grid .val{ color:#fff !important }
+
+    /* Nett box — keeps orange gradient, fine */
+
+    /* Section heading row */
+    .sec-head{ background:linear-gradient(90deg,#00505C,#006B78) !important }
+
+    /* Main income / sub tables */
+    table.r{ background:#0F2028 !important; border-color:#1A3540 !important }
+    table.r th{ background:#0D2530 !important; color:#5ECFDA !important; border-bottom-color:#1A3540 !important }
+    table.r td{ color:#C4E0E6 !important; border-bottom-color:#152A34 !important; background:transparent !important }
+    table.r tr:nth-child(even) td{ background:rgba(255,255,255,.028) !important }
+    table.r tr:last-child td{ border-bottom:none !important }
+    table.r td.n{ background:#0D2530 !important; color:#5ECFDA !important }
+    table.r td.num, table.r th.num{ color:#5ECFDA !important }
+    table.r td.muted{ color:#7BA8B0 !important }
+    table.r td.small{ color:#7BA8B0 !important }
+    table.r td.center{ color:#C4E0E6 !important }
+
+    /* Totals gradient row — keeps orange, already visible */
+    tr.totals{ /* keep as is */ }
+
+    /* Sub-tables (Extra Income / Expenses) — spacer column */
+    table.r-sub td.spacer, table.r-sub th.spacer{ background:#0D2530 !important }
+
+    /* Tenure column (orange text) stays orange, visible on dark */
+
+    /* Footer strip */
+    .foot{ border-top-color:#1A3540 !important; color:#486870 !important }
+    .foot b{ color:#5ECFDA !important }
+    .tag{ background:rgba(244,129,31,.18) !important; color:#FF9A45 !important }
+
+    /* Pro-rate formula inline span */
+    span[style*="color:rgba(0,123,138"]{ color:#5ECFDA !important }
+
+    /* ══ MOBILE REPORT ═══════════════════════════ */
+
+    /* Header card — keeps teal gradient, fine */
+
+    /* Nett card — keeps orange gradient, fine */
+
+    /* Section cards */
+    .section-card{ background:#0F2028 !important; box-shadow:0 2px 16px rgba(0,0,0,.5) !important }
+    .section-head{ background:linear-gradient(90deg,#00505C,#006B78) !important }
+    .owner-card{ background:#0F2028 !important; box-shadow:0 2px 16px rgba(0,0,0,.5) !important }
+
+    /* Table rows */
+    .tbl-header{ background:#0D2530 !important; border-bottom-color:#1A3540 !important }
+    .tbl-header span{ color:#5ECFDA !important }
+    .tbl-row{ border-bottom-color:#152A34 !important }
+    .tbl-row.alt{ background:rgba(255,255,255,.03) !important }
+    .tbl-cell{ color:#C4E0E6 !important }
+    .tbl-cell.num{ color:#5ECFDA !important }
+    .tbl-cell.muted{ color:#7BA8B0 !important }
+
     /* No-badge circles */
-    .no-badge{background:rgba(0,123,138,.22)!important;color:#5ECFDA!important}
-    .no-badge.alt{background:rgba(244,129,31,.18)!important;color:#FF9A45!important}
-    /* Pro-rate inline formula text */
-    span[style*="color:rgba(0,123,138"]{color:#5ECFDA!important}
-    /* Totals gradient rows stay orange — already visible */
+    .no-badge{ background:#0D2530 !important; color:#5ECFDA !important }
+    .no-badge.alt{ background:rgba(244,129,31,.18) !important; color:#FF9A45 !important }
+
+    /* Owner rows */
+    .owner-row{ border-bottom-color:#152A34 !important }
+    .owner-key{ color:#7BA8B0 !important }
+    .owner-val{ color:#D0ECF0 !important }
+    .owner-val.orange{ color:#FF9A45 !important }
+
+    /* Footer */
+    .footer{ color:#3A5860 !important }
+
+    /* Section total strips — keep orange gradient */
+    .section-total{ /* keep */ }
+
     /* BF / loss notice */
-    .bf-notice-d{background:rgba(0,0,0,.30)!important}
+    .bf-notice{ background:rgba(0,0,0,.30) !important }
+    .bf-notice-d{ background:rgba(0,0,0,.30) !important }
   </style>`;
 }
 
