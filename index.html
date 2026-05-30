@@ -5456,7 +5456,7 @@ async function moveOutTenant(id){
             🚫 Yes — forfeit RM ${fmt(totalDep)}
           </button>
         </div>
-        <p class="help mt-2">If <b>Yes</b>, the full deposit (RM ${fmt(totalDep)}) is added as <b>Extra Income</b> under the move-out month, labelled <i>"Deposit Forfeited (Room ${esc(t.room_code||'?')})"</i>.<br>
+        <p class="help mt-2">If <b>Yes</b>, the full deposit (RM ${fmt(totalDep)}) is added as <b>Extra Income</b> under the move-out month, labelled <i>"Deposit Forfeited — Move Out (Room ${esc(t.room_code||'?')})"</i>.<br>
         If <b>No</b>, you can later open the moved-out tenant and fill in the refund amount, breakdown, and any remarks.</p>
       </div>
     </div>
@@ -5522,7 +5522,7 @@ async function moveOutTenant(id){
       if(isReportLocked(t.property_id, yy, mm)){
         toast('🔒 '+MONTHS_FULL[mm-1]+' '+yy+' is locked — RM '+fmt(totalDep)+' deposit was NOT posted as Extra Income. Unlock the report first, then add it manually.', 'warn');
       } else {
-        const desc = `Deposit Forfeited (Room ${t.room_code||'?'}) — ${t.name}`;
+        const desc = `Deposit Forfeited — Move Out (Room ${t.room_code||'?'}) — ${t.name}`;
         const {error: eErr} = await sb.from('extra_incomes').insert({
           property_id: t.property_id,
           year: yy, month: mm,
@@ -8969,6 +8969,7 @@ function buildReportLineMap(P, ctx, roomTenancies){
     );
     const amt = Number(p.amount||0);
     let roomShare = amt;
+    let _lineProRateNote = null; // formula string to attach to the room line
     if((p.payment_kind==='first_month_prorate' || p.payment_kind==='last_month_prorate') && t){
       // Pro-rate split — use the SAME helper that produced the stored
       // payment amount (`computeFirstMonthProRate` / `computeLastMonthProRate`)
@@ -8978,9 +8979,14 @@ function buildReportLineMap(P, ctx, roomTenancies){
       const pr = (p.payment_kind==='first_month_prorate')
         ? computeFirstMonthProRate(t)
         : computeLastMonthProRate(t);
+      const isLast = p.payment_kind==='last_month_prorate';
       if(pr && pr.sameCarpark && Math.abs((pr.roomShare + pr.carparkShare) - amt) < 0.5){
         roomShare = pr.roomShare;
-        ensureLine('carpark', normCarpark(t.carpark)).rental += pr.carparkShare;
+        const cpLine = ensureLine('carpark', normCarpark(t.carpark));
+        cpLine.rental += pr.carparkShare;
+        cpLine.proRateNote = `RM ${pr.carparkFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
+        cpLine.proRateLabel = isLast ? '🚪 Move-out' : '🆕 Move-in';
+        _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
       } else {
         // Fallback: proportional split with ceiling.
         const roomFull = Number(t.room_rental||0);
@@ -8992,6 +8998,12 @@ function buildReportLineMap(P, ctx, roomTenancies){
           const cpShare = amt - roomShare;
           ensureLine('carpark', normCarpark(t.carpark)).rental += cpShare;
         }
+        if(pr) _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
+      }
+      if(_lineProRateNote){
+        const rl = ensureLine('room', code);
+        rl.proRateNote  = _lineProRateNote;
+        rl.proRateLabel = isLast ? '🚪 Move-out' : '🆕 Move-in';
       }
     } else if(p.payment_kind==='advance_covered_full' && t){
       // 2nd-month: tenant paid prior pro-rate in cash; the 1-month advance
@@ -9203,7 +9215,10 @@ function renderReportHTML(ctx, opts){
     <div class="tbl-row grid-income ${i%2?'alt':''}">
       <div class="no-badge ${i%2?'alt':''}">${i+1}</div>
       <span class="tbl-cell">${l.type==='room'?'Room '+esc(l.code):'Carpark '+esc(l.code)}</span>
-      <span class="tbl-cell num" ${l.rental?'':'style="color:#C8D8DC"'}>${l.rental?fmtNum(l.rental):'—'}</span>
+      <span class="tbl-cell num" ${l.rental?'':'style="color:#C8D8DC"'}>
+        ${l.rental?fmtNum(l.rental):'—'}
+        ${l.proRateNote?`<div style="font-size:10px;font-weight:500;color:rgba(0,123,138,.7);margin-top:2px;font-style:italic">${esc(l.proRateLabel||'')} ${esc(l.proRateNote)}</div>`:''}
+      </span>
       <span class="tbl-cell num" ${l.aircond?'':'style="color:#C8D8DC"'}>${l.aircond?fmtNum(l.aircond):'—'}</span>
     </div>`).join('') || `<div class="tbl-row grid-income"><span class="tbl-cell muted" style="grid-column:1/5;text-align:center">No income recorded</span></div>`;
 
@@ -9506,11 +9521,14 @@ function renderReportDesktopHTML(ctx, opts){
     const tenureTxt  = l.type==='room'
       ? tenureStr(l.tenant)
       : (cpTenant ? tenureStr(cpTenant) : '—');
+    const proRateHtml = l.proRateNote
+      ? `<div style="font-size:10px;font-weight:500;color:rgba(0,123,138,.65);margin-top:3px;font-style:italic;text-align:right">${esc(l.proRateLabel||'')} ${esc(l.proRateNote)}</div>`
+      : '';
     return `<tr>
       <td class="n">${i+1}</td>
       <td class="muted">${typeLabel}</td>
       <td class="muted">${codeLabel}</td>
-      <td class="num">${l.rental?fmtNum(l.rental):'—'}</td>
+      <td class="num">${l.rental?fmtNum(l.rental):'—'}${proRateHtml}</td>
       <td class="num">${l.aircond?fmtNum(l.aircond):'—'}</td>
       <td class="muted small">${tenancyTxt}</td>
       <td class="small" style="text-align:center;font-weight:700;color:#F4811F">${tenureTxt}</td>
