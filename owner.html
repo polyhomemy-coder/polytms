@@ -875,9 +875,27 @@ async function saveElecBills(){
   state.user   = sess.user;
 
   // Check role — redirect non-owners back to main TMS
+  // Exception: ?preview=1 lets manager preview the owner portal
+  const isPreview = new URLSearchParams(location.search).get('preview') === '1';
   const role = await getMyRole();
-  if(role !== 'owner'){
+  if(role !== 'owner' && !isPreview){
     window.location.href = 'index.html';
+    return;
+  }
+
+  // In preview mode, load first property (not scoped to owner's assigned one)
+  if(isPreview){
+    const {data: allProps} = await sb.from('properties').select('*').limit(5);
+    state.properties = allProps || [];
+    state.activePropId = state.properties[0]?.id || null;
+    // Show preview banner
+    const banner = document.createElement('div');
+    banner.style.cssText = 'background:#004C56;color:#fff;text-align:center;padding:7px;font-size:12px;font-weight:700;position:sticky;top:60px;z-index:50';
+    banner.innerHTML = '👁 Manager Preview Mode — <a href="index.html" style="color:#F4811F">← Back to TMS</a>';
+    document.getElementById('tabnav').insertAdjacentElement('afterend', banner);
+    $('topbarUser').textContent = sess.user.email + ' (Preview)';
+    hideLoading(); showApp();
+    await loadPropData();
     return;
   }
 

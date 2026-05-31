@@ -1343,7 +1343,7 @@
         <div style="display:flex;gap:4px">
           <button class="role-preview-btn active" data-preview="manager" onclick="setRolePreview('manager')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:var(--sb-bg);color:var(--brand);cursor:pointer">👑 Mgr</button>
           <button class="role-preview-btn" data-preview="admin" onclick="setRolePreview('admin')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer">🗂️ Admin</button>
-          <button class="role-preview-btn" data-preview="owner" onclick="setRolePreview('owner')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer">🏠 Owner</button>
+          <button class="role-preview-btn" data-preview="owner" onclick="window.open('owner.html?preview=1','_blank')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer">🏠 Owner</button>
         </div>
       </div>
       <!-- Signed-in user pill + sign-out (shown only when auth session is active) -->
@@ -11083,7 +11083,10 @@ function openEditUserModal(uid, email, currentRole, currentPropId){
         ${propOptions}
       </select>
     </div>
-    <button id="btnRemoveUser" style="margin-top:4px;font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;cursor:pointer;width:fit-content">🗑 Remove Access</button>
+    <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
+      <button id="btnResetPw" style="font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#FFF4E5;color:#F4811F;border:1px solid #F8C893;cursor:pointer">📧 Send Password Reset</button>
+      <button id="btnRemoveUser" style="font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;cursor:pointer">🗑 Remove Access</button>
+    </div>
   </div>`;
   openModal('Edit User', editBodyHtml, async ()=>{
     const role = document.getElementById('editUserRole')?.value;
@@ -11100,6 +11103,20 @@ function openEditUserModal(uid, email, currentRole, currentPropId){
     const roleEl = document.getElementById('editUserRole');
     const propRow = document.getElementById('ownerPropRow');
     if(roleEl && propRow) roleEl.onchange = ()=>{ propRow.style.display = roleEl.value==='owner' ? 'block' : 'none'; };
+    // Wire password reset button
+    const resetBtn = document.getElementById('btnResetPw');
+    if(resetBtn) resetBtn.onclick = async ()=>{
+      resetBtn.disabled = true; resetBtn.textContent = 'Sending…';
+      try {
+        const {error} = await sb.auth.resetPasswordForEmail(email, {
+          redirectTo: location.origin + location.pathname.replace('index.html','') + 'owner.html'
+        });
+        if(error) throw error;
+        toast(`📧 Password reset email sent to ${email}`);
+        closeModal();
+      } catch(e){ toast('Failed: '+e.message,'bad'); }
+      finally { resetBtn.disabled=false; resetBtn.textContent='📧 Send Password Reset'; }
+    };
     // Wire remove button
     const removeBtn = document.getElementById('btnRemoveUser');
     if(removeBtn) removeBtn.onclick = async ()=>{
