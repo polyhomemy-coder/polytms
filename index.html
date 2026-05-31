@@ -1337,6 +1337,15 @@
         <button class="theme-btn" id="btnThemeDark" onclick="setTheme('dark')">🌙 Dark</button>
       </div>
       <button id="btnSettings" title="Settings" class="bg-white border border-[color:var(--line)] hover:bg-slate-50">⚙️ Settings</button>
+      <!-- Preview as Role (manager only) -->
+      <div id="rolePreviewBox" style="display:none;background:var(--th-bg);border-radius:10px;padding:8px 10px;border:1px solid var(--line)">
+        <div class="sb-label" style="margin-bottom:5px">👁 Preview as</div>
+        <div style="display:flex;gap:4px">
+          <button class="role-preview-btn active" data-preview="manager" onclick="setRolePreview('manager')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:var(--sb-bg);color:var(--brand);cursor:pointer">👑 Mgr</button>
+          <button class="role-preview-btn" data-preview="admin" onclick="setRolePreview('admin')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer">🗂️ Admin</button>
+          <button class="role-preview-btn" data-preview="owner" onclick="setRolePreview('owner')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer">🏠 Owner</button>
+        </div>
+      </div>
       <!-- Signed-in user pill + sign-out (shown only when auth session is active) -->
       <div id="userBox" class="hidden" style="font-size:11px;color:#64748B;text-align:center;line-height:1.3">
         <div id="userEmail" style="font-weight:700;color:#0F172A;word-break:break-all"></div>
@@ -1974,6 +1983,7 @@ try {
 let sb = null;
 let state = {
   role: 'manager',              // 'manager' | 'admin' | 'owner' — loaded from profiles table on login
+  realRole: null,               // stores true role during preview mode; null = not previewing
   currentUserId: null,          // logged-in user's Supabase auth UUID
   ownerPropertyId: null,        // for owner role: their assigned property UUID
   properties:[], tenants:[], payments:[], aircon:[], expenses:[], extras:[], pendingIsewa:[],
@@ -10826,6 +10836,50 @@ function applyRoleUI(){
   if(role === 'owner' && state.ownerPropertyId){
     _applyOwnerPropertyScope(state.ownerPropertyId);
   }
+
+  // Show preview box only for the real manager (not during preview itself)
+  const previewBox = document.getElementById('rolePreviewBox');
+  if(previewBox) previewBox.style.display = state.realRole === 'manager' || state.role === 'manager' ? 'block' : 'none';
+}
+
+// ── Role Preview (manager only) ───────────────────────────────
+// Lets the manager temporarily view TMS as another role.
+// state.realRole stores the true role; state.role becomes the preview.
+function setRolePreview(previewRole){
+  // Save real role on first preview
+  if(!state.realRole) state.realRole = state.role;
+
+  state.role = previewRole;
+  applyRoleUI();
+
+  // Update button active states
+  document.querySelectorAll('.role-preview-btn').forEach(btn=>{
+    const isActive = btn.dataset.preview === previewRole;
+    btn.style.background = isActive ? 'var(--sb-bg)' : 'transparent';
+    btn.style.color = isActive ? 'var(--brand)' : 'var(--muted)';
+    btn.style.borderColor = isActive ? 'var(--brand)' : 'var(--line)';
+  });
+
+  // Re-render current tab so content reflects the preview role
+  const activeTab = document.querySelector('.tab-btn.active');
+  if(activeTab) renderTab(activeTab.dataset.tab);
+
+  // Show preview banner if not viewing as real role
+  const isPreviewMode = previewRole !== state.realRole;
+  let banner = document.getElementById('rolePreviewBanner');
+  if(isPreviewMode){
+    if(!banner){
+      banner = document.createElement('div');
+      banner.id = 'rolePreviewBanner';
+      banner.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#004C56;color:#fff;padding:8px 18px;border-radius:20px;font-size:12px;font-weight:700;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.3);display:flex;align-items:center;gap:10px;white-space:nowrap';
+      document.body.appendChild(banner);
+    }
+    const label = {admin:'🗂️ Admin', owner:'🏠 Owner'}[previewRole] || previewRole;
+    banner.innerHTML = `👁 Previewing as ${label} &nbsp;<button onclick="setRolePreview('${state.realRole}')" style="background:rgba(255,255,255,.2);border:none;color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;cursor:pointer">✕ Exit Preview</button>`;
+  } else {
+    if(banner) banner.remove();
+    state.realRole = null; // clear on returning to real role
+  }
 }
 
 // Restricts an owner to see only their own property in all views.
@@ -10871,17 +10925,31 @@ async function deleteProfile(id){
   if(error) throw new Error(error.message);
 }
 
-// Invite a new user by email via Supabase magic link.
-// The new user gets a profile row auto-created by the DB trigger with role='admin'.
-// Manager can then change the role via the UI.
-async function inviteUser(email){
-  // We use signInWithOtp (magic link) — it creates the auth user if not exists
-  // and sends them a login link. No service-role key required.
-  const {error} = await sb.auth.signInWithOtp({
+// Smart invite-or-restore:
+// 1. Calls the DB function restore_or_invite_profile() which checks if
+//    the email already exists in auth.users.
+//    - If YES → silently restores the profile row. No email sent. ✅
+//    - If NO  → returns 'invite_needed' → we send a magic link email.
+// This fixes the "admin accidentally removed someone" case — re-adding
+// their email just restores access instantly with no email required.
+async function inviteUser(email, role='owner', propertyId=null){
+  const {data, error} = await sb.rpc('restore_or_invite_profile', {
+    p_email: email.toLowerCase(),
+    p_role: role,
+    p_property_id: propertyId || null,
+  });
+  if(error) throw new Error(error.message);
+  const result = data;
+  if(result?.action === 'restored'){
+    return {restored: true};
+  }
+  // User doesn't exist yet — send magic link
+  const {error: otpErr} = await sb.auth.signInWithOtp({
     email,
     options:{ shouldCreateUser: true, emailRedirectTo: location.href }
   });
-  if(error) throw new Error(error.message);
+  if(otpErr) throw new Error(otpErr.message);
+  return {restored: false};
 }
 
 // Render the User Management panel (injected into Admin dashboard, manager only).
@@ -10972,9 +11040,15 @@ function openInviteUserModal(){
     const email = (document.getElementById('inviteEmail')?.value||'').trim();
     if(!email){ toast('Enter an email address','bad'); return; }
     try {
-      await inviteUser(email);
-      toast(`✉️ Invite sent to ${email}`);
-    } catch(e){ toast('Invite failed: '+e.message,'bad'); }
+      const result = await inviteUser(email);
+      if(result.restored){
+        toast(`✅ Access restored for ${email} — they can log in now`);
+      } else {
+        toast(`✉️ Invite sent to ${email}`);
+      }
+      const container = document.getElementById('userMgmtPanel');
+      if(container) await renderUserManagementPanel(container);
+    } catch(e){ toast('Failed: '+e.message,'bad'); }
   }, 'Send Invite');
 }
 
