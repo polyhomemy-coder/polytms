@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>POLYHOME — Owner Portal</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --brand:#007B8A;--brand2:#00A3B5;--orange:#F4811F;
+    --bg:#F0F9FB;--card:#fff;--ink:#0F2A36;--muted:#6B8E99;
+    --line:#D8EEF2;--th-bg:#E8F8FA;--radius:14px;
+    --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  body{font-family:var(--font);background:var(--bg);color:var(--ink);min-height:100vh}
+
+  /* ── Login ── */
+  #loginOverlay{position:fixed;inset:0;z-index:100;display:flex;background:#091922}
+  #loginOverlay.hidden{display:none}
+  .login-left{flex:1;background:linear-gradient(155deg,#091922,#004C56 45%,#00626E 75%,#0090A3);
+    display:flex;flex-direction:column;justify-content:center;padding:52px 60px;min-height:100vh}
+  .login-right{width:460px;flex-shrink:0;background:#fff;display:flex;flex-direction:column;
+    justify-content:center;padding:56px 48px;min-height:100vh}
+  .login-logo{font-size:28px;font-weight:900;color:#fff;letter-spacing:-1px;margin-bottom:8px}
+  .login-logo span{color:#F4811F}
+  .login-sub{font-size:13px;color:rgba(255,255,255,.6);margin-bottom:32px}
+  .login-feature{display:flex;align-items:center;gap:12px;margin-bottom:14px;color:rgba(255,255,255,.8);font-size:13px}
+  .login-feature-icon{width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.1);
+    display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+  .login-right h2{font-size:24px;font-weight:800;color:#0F2A36;margin-bottom:4px}
+  .login-right p{font-size:13px;color:#6B8E99;margin-bottom:28px}
+  .field-label{font-size:11px;font-weight:700;color:#94B4BB;text-transform:uppercase;
+    letter-spacing:.6px;display:block;margin-bottom:6px}
+  .inp{width:100%;padding:13px 15px;border-radius:11px;border:1.5px solid #D8EEF2;
+    background:#FAFEFF;font-size:14px;font-family:var(--font);outline:none;transition:border .15s}
+  .inp:focus{border-color:var(--brand)}
+  .btn-primary{width:100%;padding:14px;border-radius:12px;font-size:15px;font-weight:700;
+    border:none;cursor:pointer;background:linear-gradient(135deg,#004C56,#00626E 50%,#0090A3);
+    color:#fff;box-shadow:0 4px 18px rgba(0,98,110,.3);font-family:var(--font);
+    transition:filter .2s}
+  .btn-primary:hover{filter:brightness(1.1)}
+  @media(max-width:800px){
+    #loginOverlay{flex-direction:column}
+    .login-left{min-height:auto;padding:36px 28px 28px}
+    .login-right{width:100%;min-height:auto;padding:36px 28px 44px}
+  }
+
+  /* ── App shell ── */
+  #app{display:none;flex-direction:column;min-height:100vh}
+  #app.visible{display:flex}
+
+  /* ── Top header ── */
+  #topbar{background:#fff;border-bottom:1px solid var(--line);padding:0 24px;
+    height:60px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50;
+    box-shadow:0 1px 8px rgba(0,123,138,.06)}
+  .topbar-logo{font-size:18px;font-weight:900;color:var(--brand);letter-spacing:-.5px}
+  .topbar-logo span{color:var(--orange)}
+  .topbar-badge{font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;
+    letter-spacing:2px;border-left:1px solid var(--line);padding-left:12px;margin-left:4px}
+  .prop-selector{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .prop-selector select{padding:7px 12px;border-radius:10px;border:1.5px solid var(--line);
+    background:var(--bg);font-size:13px;font-weight:600;color:var(--ink);font-family:var(--font);outline:none}
+  .topbar-user{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
+  .btn-signout{padding:6px 14px;border-radius:9px;border:1px solid var(--line);
+    background:#FFF0F0;color:#C0392B;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)}
+
+  /* ── Tab nav ── */
+  #tabnav{background:#fff;border-bottom:1px solid var(--line);padding:0 24px;
+    display:flex;gap:4px;overflow-x:auto}
+  .tab-btn{padding:14px 18px;font-size:13px;font-weight:700;color:var(--muted);border:none;
+    background:none;cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;
+    font-family:var(--font);transition:color .15s,border-color .15s}
+  .tab-btn:hover{color:var(--brand)}
+  .tab-btn.active{color:var(--brand);border-bottom-color:var(--brand)}
+
+  /* ── Content area ── */
+  #content{flex:1;padding:24px;max-width:1100px;margin:0 auto;width:100%}
+  @media(max-width:600px){#content{padding:14px}}
+
+  /* ── Cards ── */
+  .card{background:var(--card);border-radius:var(--radius);border:1px solid var(--line);
+    padding:20px 22px;margin-bottom:16px}
+  .card-title{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:14px;
+    display:flex;align-items:center;gap:8px}
+  .card-title span{font-size:18px}
+
+  /* ── Stat chips ── */
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+  .stat-card{background:var(--card);border-radius:12px;border:1px solid var(--line);padding:16px 18px}
+  .stat-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.5px;margin-bottom:6px}
+  .stat-val{font-size:22px;font-weight:800;color:var(--brand)}
+  .stat-val.orange{color:var(--orange)}
+
+  /* ── Table ── */
+  .tbl{width:100%;border-collapse:collapse;font-size:13px}
+  .tbl th{background:var(--th-bg);padding:9px 12px;text-align:left;font-size:11px;
+    font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .tbl td{padding:10px 12px;border-bottom:1px solid var(--line);color:var(--ink)}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr:hover td{background:#F7FDFE}
+  .num{text-align:right}
+  .badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700}
+  .badge-green{background:#DCFCE7;color:#065F46}
+  .badge-red{background:#FEE2E2;color:#991B1B}
+  .badge-yellow{background:#FEF3C7;color:#92400E}
+  .badge-blue{background:#E8F4FD;color:#1E5BB8}
+
+  /* ── Month/Year picker ── */
+  .picker-row{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+  .picker-row label{font-size:12px;font-weight:700;color:var(--muted)}
+  .picker-row select,.picker-row input{padding:8px 12px;border-radius:10px;
+    border:1.5px solid var(--line);background:#fff;font-size:13px;font-weight:600;
+    color:var(--ink);font-family:var(--font);outline:none}
+  .picker-row select:focus,.picker-row input:focus{border-color:var(--brand)}
+
+  /* ── Yearly bar chart ── */
+  .bar-wrap{display:flex;align-items:flex-end;gap:6px;height:140px;padding:0 4px;margin-bottom:8px}
+  .bar-col{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:0}
+  .bar-stack{width:100%;display:flex;flex-direction:column;justify-content:flex-end;
+    border-radius:6px 6px 0 0;transition:height .4s}
+  .bar-label{font-size:9px;font-weight:700;color:var(--muted);white-space:nowrap}
+  .bar-val{font-size:9px;font-weight:800;color:var(--brand)}
+  .legend-row{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+  .legend-item{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--muted)}
+  .legend-dot{width:10px;height:10px;border-radius:3px}
+
+  /* ── Electricity input ── */
+  .elec-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+  .elec-card{background:var(--th-bg);border-radius:12px;border:1px solid var(--line);padding:12px 14px}
+  .elec-month{font-size:12px;font-weight:700;color:var(--ink);margin-bottom:8px}
+  .elec-inp{width:100%;padding:7px 10px;border-radius:8px;border:1.5px solid var(--line);
+    background:#fff;font-size:13px;font-weight:700;color:var(--ink);font-family:var(--font);
+    text-align:right;outline:none}
+  .elec-inp:focus{border-color:var(--brand)}
+  .elec-aircon{font-size:11px;color:var(--muted);margin-top:5px}
+  .elec-diff{font-size:11px;font-weight:700;margin-top:3px}
+  .btn-save-elec{padding:8px 20px;border-radius:10px;background:var(--brand);color:#fff;
+    font-size:13px;font-weight:700;border:none;cursor:pointer;font-family:var(--font);
+    margin-top:16px;transition:filter .15s}
+  .btn-save-elec:hover{filter:brightness(1.1)}
+
+  /* ── PDF export button ── */
+  .btn-export{padding:9px 20px;border-radius:10px;background:var(--orange);color:#fff;
+    font-size:13px;font-weight:700;border:none;cursor:pointer;font-family:var(--font);
+    display:flex;align-items:center;gap:7px;transition:filter .15s}
+  .btn-export:hover{filter:brightness(1.1)}
+
+  /* ── Empty state ── */
+  .empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:13px}
+
+  /* ── Loading spinner ── */
+  #loadingScreen{position:fixed;inset:0;background:#091922;display:flex;align-items:center;
+    justify-content:center;z-index:200;flex-direction:column;gap:12px}
+  #loadingScreen.hidden{display:none}
+  .spinner{width:36px;height:36px;border:3px solid rgba(255,255,255,.15);
+    border-top-color:#00A3B5;border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading-text{color:rgba(255,255,255,.5);font-size:13px;font-weight:600}
+
+  /* ── Toast ── */
+  #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
+    background:#0F2A36;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;
+    font-weight:700;z-index:9999;transition:transform .3s;pointer-events:none;white-space:nowrap}
+  #toast.show{transform:translateX(-50%) translateY(0)}
+  #toast.bad{background:#C0392B}
+
+  /* ── Report iframe ── */
+  #reportFrame{width:100%;min-height:600px;border:none;border-radius:12px;
+    box-shadow:0 2px 20px rgba(0,0,0,.08)}
+
+  @media print{
+    #topbar,#tabnav,.picker-row,.btn-export,#toast{display:none!important}
+    #content{padding:0;max-width:100%}
+    .card{border:none;box-shadow:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- Loading screen -->
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div class="loading-text">Loading your portal…</div>
+</div>
+
+<!-- Login overlay -->
+<div id="loginOverlay" class="hidden">
+  <div class="login-left">
+    <div class="login-logo">POLY<span>HOME</span></div>
+    <div class="login-sub">Owner Portal</div>
+    <div class="login-feature"><div class="login-feature-icon">📊</div>View your monthly income reports</div>
+    <div class="login-feature"><div class="login-feature-icon">📈</div>Track yearly rental performance</div>
+    <div class="login-feature"><div class="login-feature-icon">❄️</div>Monitor aircon & electricity costs</div>
+    <div class="login-feature"><div class="login-feature-icon">👥</div>See your active tenants</div>
+  </div>
+  <div class="login-right">
+    <h2>Welcome back</h2>
+    <p>Sign in to view your property performance</p>
+    <div style="margin-bottom:16px">
+      <label class="field-label">Email</label>
+      <input id="loginEmail" type="email" class="inp" placeholder="your@email.com" autocomplete="email">
+    </div>
+    <div style="margin-bottom:24px">
+      <label class="field-label">Password</label>
+      <input id="loginPassword" type="password" class="inp" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn-primary" id="btnLogin">Sign In →</button>
+    <div style="margin-top:12px;text-align:center;min-height:20px">
+      <span id="loginStatus" style="font-size:13px"></span>
+    </div>
+  </div>
+</div>
+
+<!-- Main app -->
+<div id="app">
+  <div id="topbar">
+    <div class="topbar-logo">POLY<span>HOME</span></div>
+    <div class="topbar-badge">Owner Portal</div>
+    <div class="prop-selector">
+      <select id="propSelect" onchange="onPropChange()"></select>
+      <span class="topbar-user" id="topbarUser"></span>
+      <button class="btn-signout" id="btnSignOut">Sign Out</button>
+    </div>
+  </div>
+
+  <div id="tabnav">
+    <button class="tab-btn active" data-tab="property">🏠 My Property</button>
+    <button class="tab-btn" data-tab="report">📋 Income Report</button>
+    <button class="tab-btn" data-tab="yearly">📈 Yearly Overview</button>
+    <button class="tab-btn" data-tab="aircon">❄️ Aircon & Electricity</button>
+  </div>
+
+  <div id="content">
+    <div id="paneProperty"></div>
+    <div id="paneReport" class="hidden"></div>
+    <div id="paneYearly" class="hidden"></div>
+    <div id="paneAircon" class="hidden"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────
+const SUPA_URL = 'https://nqnskbvgaajnxvjqzcck.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xbnNrYnZnYWFqbnh2anF6Y2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0Mjg2MzksImV4cCI6MjA5NDAwNDYzOX0.-XI0bnscd-Pnc2euw4hLt5nBoRpTUoW4FVII_KWg-Hs';
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+let sb = null;
+let state = {
+  user: null,
+  userId: null,
+  properties: [],      // owner's properties
+  activePropId: null,
+  tenants: [],
+  payments: [],
+  aircon: [],
+  expenses: [],
+  extras: [],
+  elecBills: [],
+  year: new Date().getFullYear(),
+  month: new Date().getMonth() + 1,
+  activeTab: 'property',
+};
+
+// ── Helpers ──────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const fmt = n => Number(n||0).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+let _toastTimer;
+function toast(msg, type=''){
+  const el = $('toast');
+  el.textContent = msg; el.className = 'show' + (type==='bad'?' bad':'');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(()=>el.className='', 3000);
+}
+
+// ── Auth ─────────────────────────────────────────────────────
+function showLogin(){ $('loginOverlay').classList.remove('hidden'); }
+function hideLogin(){ $('loginOverlay').classList.add('hidden'); }
+function showApp()  { $('app').classList.add('visible'); }
+function hideLoading(){ $('loadingScreen').classList.add('hidden'); }
+
+async function getMyRole(){
+  try {
+    const {data} = await sb.from('profiles').select('role,property_id').eq('id', state.userId).single();
+    return data?.role || 'owner';
+  } catch(_){ return 'owner'; }
+}
+
+async function getMyPropertyIds(){
+  // Get all property_ids from profiles where owner_id = me
+  // Since one owner can have multiple properties, we store them in profiles
+  // For now, fetch all profiles rows for this user (there may be multiple if we support multi-property)
+  // Simple approach: profiles.property_id for this user
+  const {data} = await sb.from('profiles').select('property_id').eq('id', state.userId);
+  const ids = (data||[]).map(r=>r.property_id).filter(Boolean);
+  return ids;
+}
+
+// ── Data loading ─────────────────────────────────────────────
+async function loadAllData(){
+  const propIds = await getMyPropertyIds();
+  if(!propIds.length){
+    $('paneProperty').innerHTML = `<div class="empty">⚠️ No property assigned to your account yet.<br>Please contact your property manager.</div>`;
+    return;
+  }
+
+  // Load properties
+  const {data: props} = await sb.from('properties').select('*').in('id', propIds);
+  state.properties = props || [];
+
+  // Default active property
+  if(!state.activePropId || !state.properties.find(p=>p.id===state.activePropId)){
+    state.activePropId = state.properties[0]?.id || null;
+  }
+
+  // Populate property selector
+  const sel = $('propSelect');
+  if(state.properties.length <= 1){
+    sel.style.display = 'none';
+  } else {
+    sel.innerHTML = state.properties.map(p=>
+      `<option value="${p.id}" ${p.id===state.activePropId?'selected':''}>${esc(p.condo)} ${esc(p.unit)}</option>`
+    ).join('');
+  }
+
+  await loadPropData();
+}
+
+async function loadPropData(){
+  const pid = state.activePropId;
+  if(!pid) return;
+
+  const [
+    {data: tenants},
+    {data: payments},
+    {data: aircon},
+    {data: expenses},
+    {data: extras},
+    {data: elec},
+  ] = await Promise.all([
+    sb.from('tenants').select('*').eq('property_id', pid),
+    sb.from('rental_payments').select('*').eq('property_id', pid),
+    sb.from('aircon_topups').select('*').eq('property_id', pid),
+    sb.from('expenses').select('*').eq('property_id', pid),
+    sb.from('extra_incomes').select('*').eq('property_id', pid),
+    sb.from('owner_electricity_bills').select('*').eq('property_id', pid).eq('owner_id', state.userId),
+  ]);
+
+  state.tenants  = tenants  || [];
+  state.payments = payments || [];
+  state.aircon   = aircon   || [];
+  state.expenses = expenses || [];
+  state.extras   = extras   || [];
+  state.elecBills = elec    || [];
+
+  renderActiveTab();
+}
+
+function onPropChange(){
+  state.activePropId = $('propSelect').value;
+  loadPropData();
+}
+
+// ── Tab routing ───────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    state.activeTab = btn.dataset.tab;
+    ['property','report','yearly','aircon'].forEach(t=>{
+      const el = $('pane'+t.charAt(0).toUpperCase()+t.slice(1));
+      if(el) el.classList.toggle('hidden', t !== state.activeTab);
+    });
+    renderActiveTab();
+  };
+});
+
+function renderActiveTab(){
+  if(state.activeTab === 'property') renderProperty();
+  if(state.activeTab === 'report')   renderReport();
+  if(state.activeTab === 'yearly')   renderYearly();
+  if(state.activeTab === 'aircon')   renderAircon();
+}
+
+// ── Tab 1: My Property ────────────────────────────────────────
+function renderProperty(){
+  const el = $('paneProperty');
+  const prop = state.properties.find(p=>p.id===state.activePropId);
+  if(!prop){ el.innerHTML = `<div class="empty">No property data.</div>`; return; }
+
+  const active = state.tenants.filter(t=>t.active!==false);
+  const moved  = state.tenants.filter(t=>t.active===false);
+  const rooms  = (prop.room_codes||'').split(',').map(r=>r.trim()).filter(Boolean);
+  const occupiedRooms = new Set(active.map(t=>(t.room_code||'').toUpperCase()));
+  const vacant = rooms.filter(r=>!occupiedRooms.has(r.toUpperCase()));
+  const totalRental = active.reduce((s,t)=>s+(Number(t.rental||0)+Number(t.carpark_rental||0)),0);
+
+  el.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-label">Property</div><div class="stat-val" style="font-size:16px">${esc(prop.condo)}<br><span style="color:var(--muted);font-size:13px">${esc(prop.unit)}</span></div></div>
+      <div class="stat-card"><div class="stat-label">Total Rooms</div><div class="stat-val">${rooms.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Occupied</div><div class="stat-val">${active.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Vacant</div><div class="stat-val" style="color:${vacant.length?'#C85900':'var(--brand)'}">${vacant.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Monthly Rental</div><div class="stat-val orange">RM ${fmt(totalRental)}</div></div>
+      ${prop.market_rental ? `<div class="stat-card"><div class="stat-label">Market Rental</div><div class="stat-val" style="font-size:16px;color:#6B8E99">RM ${fmt(prop.market_rental)}</div></div>` : ''}
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>👥</span> Active Tenants (${active.length})</div>
+      ${active.length===0 ? '<div class="empty" style="padding:20px">No active tenants</div>' : `
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Room</th><th>Tenant</th><th>Rental</th><th>Lease Start</th><th>Lease End</th><th>Status</th>
+          </tr></thead>
+          <tbody>
+            ${active.map(t=>{
+              const now = new Date(); const end = t.end_date ? new Date(t.end_date) : null;
+              const days = end ? Math.round((end-now)/86400000) : null;
+              const badge = days===null ? '' : days<0 ? `<span class="badge badge-red">Expired</span>`
+                : days<=30 ? `<span class="badge badge-yellow">⏰ ${days}d left</span>`
+                : `<span class="badge badge-green">Active</span>`;
+              return `<tr>
+                <td><b style="color:var(--brand)">${esc(t.room_code||'—')}</b></td>
+                <td>${esc(t.name||'—')}</td>
+                <td class="num">RM ${fmt(Number(t.rental||0)+Number(t.carpark_rental||0))}</td>
+                <td>${t.start_date||'—'}</td>
+                <td>${t.end_date||'—'}</td>
+                <td>${badge}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    </div>
+
+    ${vacant.length ? `<div class="card">
+      <div class="card-title"><span>🏠</span> Vacant Rooms (${vacant.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${vacant.map(r=>`<span class="badge badge-yellow">${esc(r)}</span>`).join('')}
+      </div>
+    </div>` : ''}
+  `;
+}
+
+// ── Tab 2: Income Report ──────────────────────────────────────
+function renderReport(){
+  const el = $('paneReport');
+  const prop = state.properties.find(p=>p.id===state.activePropId);
+  if(!prop){ el.innerHTML = `<div class="empty">No property data.</div>`; return; }
+
+  // Build month/year options
+  const now = new Date();
+  let monthOpts = '';
+  for(let i=0;i<18;i++){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const y=d.getFullYear(), m=d.getMonth()+1;
+    const val=`${y}-${String(m).padStart(2,'0')}`;
+    const sel = (y===state.year && m===state.month) ? 'selected' : '';
+    monthOpts += `<option value="${val}" ${sel}>${MONTHS_FULL[m-1]} ${y}</option>`;
+  }
+
+  el.innerHTML = `
+    <div class="picker-row">
+      <label>Month</label>
+      <select id="reportMonthPick" onchange="onReportMonthChange()">${monthOpts}</select>
+      <button class="btn-export" onclick="exportReportPDF()">⬇️ Download PDF</button>
+    </div>
+    <div id="reportContent"></div>
+  `;
+  renderReportContent();
+}
+
+function onReportMonthChange(){
+  const v = $('reportMonthPick')?.value;
+  if(v){ const [y,m]=v.split('-').map(Number); state.year=y; state.month=m; }
+  renderReportContent();
+}
+
+function renderReportContent(){
+  const el = $('reportContent');
+  if(!el) return;
+  const prop = state.properties.find(p=>p.id===state.activePropId);
+  const y=state.year, m=state.month;
+
+  // Income: payments for this month
+  const payments = state.payments.filter(p=>p.year===y && p.month===m);
+  const totalIncome = payments.reduce((s,p)=>s+Number(p.amount||0),0);
+  const extras = state.extras.filter(e=>e.year===y && e.month===m);
+  const totalExtras = extras.reduce((s,e)=>s+Number(e.amount||0),0);
+
+  // Expenses for this month
+  const expenses = state.expenses.filter(e=>{
+    const d = new Date(e.date||'');
+    return d.getFullYear()===y && d.getMonth()+1===m;
+  });
+  const totalExp = expenses.reduce((s,e)=>s+Number(e.amount||0),0);
+  const nett = totalIncome + totalExtras - totalExp;
+
+  el.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-label">Rental Collected</div><div class="stat-val">RM ${fmt(totalIncome)}</div></div>
+      <div class="stat-card"><div class="stat-label">Extra Income</div><div class="stat-val">RM ${fmt(totalExtras)}</div></div>
+      <div class="stat-card"><div class="stat-label">Expenses</div><div class="stat-val" style="color:#C85900">RM ${fmt(totalExp)}</div></div>
+      <div class="stat-card"><div class="stat-label">Nett Income</div><div class="stat-val orange">RM ${fmt(nett)}</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>💰</span> Rental Payments — ${MONTHS_FULL[m-1]} ${y}</div>
+      ${payments.length===0 ? '<div class="empty" style="padding:20px">No payments recorded</div>' : `
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr><th>Room</th><th>Tenant</th><th>Type</th><th class="num">Amount</th></tr></thead>
+          <tbody>
+            ${payments.map(p=>{
+              const t = state.tenants.find(t=>(t.room_code||'').toUpperCase()===(p.room_code||'').toUpperCase());
+              return `<tr>
+                <td><b style="color:var(--brand)">${esc(p.room_code||'—')}</b></td>
+                <td>${esc(t?.name||p.remark||'—')}</td>
+                <td>${esc(p.item_type||'—')}</td>
+                <td class="num">RM ${fmt(p.amount)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot><tr style="background:var(--th-bg)">
+            <td colspan="3" style="font-weight:800;padding:10px 12px">Total</td>
+            <td class="num" style="font-weight:800;padding:10px 12px">RM ${fmt(totalIncome)}</td>
+          </tr></tfoot>
+        </table>
+      </div>`}
+    </div>
+
+    ${extras.length ? `<div class="card">
+      <div class="card-title"><span>➕</span> Extra Income</div>
+      <table class="tbl">
+        <thead><tr><th>Description</th><th class="num">Amount</th></tr></thead>
+        <tbody>${extras.map(e=>`<tr><td>${esc(e.description||'—')}</td><td class="num">RM ${fmt(e.amount)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr style="background:var(--th-bg)"><td style="font-weight:800;padding:10px 12px">Total</td><td class="num" style="font-weight:800;padding:10px 12px">RM ${fmt(totalExtras)}</td></tr></tfoot>
+      </table>
+    </div>` : ''}
+
+    ${expenses.length ? `<div class="card">
+      <div class="card-title"><span>📤</span> Expenses</div>
+      <table class="tbl">
+        <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th></tr></thead>
+        <tbody>${expenses.map(e=>`<tr><td>${e.date||'—'}</td><td>${esc(e.description||'—')}</td><td class="num">RM ${fmt(e.amount)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr style="background:var(--th-bg)"><td colspan="2" style="font-weight:800;padding:10px 12px">Total</td><td class="num" style="font-weight:800;padding:10px 12px">RM ${fmt(totalExp)}</td></tr></tfoot>
+      </table>
+    </div>` : ''}
+
+    <div class="card" style="background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:12px;font-weight:700;opacity:.7;text-transform:uppercase;letter-spacing:.5px">Nett Income — ${MONTHS_FULL[m-1]} ${y}</div>
+          <div style="font-size:32px;font-weight:900;color:#F4811F;margin-top:4px">RM ${fmt(nett)}</div>
+        </div>
+        ${prop?.market_rental ? `<div style="text-align:right">
+          <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.5px">vs Market Rental</div>
+          <div style="font-size:18px;font-weight:800;margin-top:4px">${nett >= prop.market_rental ? '📈' : '📉'} RM ${fmt(prop.market_rental)}</div>
+          <div style="font-size:12px;opacity:.7;margin-top:2px">${nett >= prop.market_rental ? '+' : ''}RM ${fmt(nett - prop.market_rental)} vs market</div>
+        </div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function exportReportPDF(){
+  window.print();
+}
+
+// ── Tab 3: Yearly Overview ────────────────────────────────────
+function renderYearly(){
+  const el = $('paneYearly');
+  const prop = state.properties.find(p=>p.id===state.activePropId);
+  if(!prop){ el.innerHTML = `<div class="empty">No property data.</div>`; return; }
+
+  const yearOpts = [state.year, state.year-1, state.year-2].map(y=>
+    `<option value="${y}" ${y===state.year?'selected':''}>${y}</option>`
+  ).join('');
+
+  el.innerHTML = `
+    <div class="picker-row">
+      <label>Year</label>
+      <select id="yearPick" onchange="state.year=Number(this.value);renderYearly()">
+        ${yearOpts}
+      </select>
+    </div>
+    <div id="yearlyContent"></div>
+  `;
+  renderYearlyContent();
+}
+
+function renderYearlyContent(){
+  const el = $('yearlyContent');
+  if(!el) return;
+  const prop = state.properties.find(p=>p.id===state.activePropId);
+  const y = state.year;
+  const market = Number(prop?.market_rental||0);
+
+  // Calculate nett per month
+  const monthly = MONTHS.map((mon, i)=>{
+    const m = i+1;
+    const income = state.payments.filter(p=>p.year===y && p.month===m).reduce((s,p)=>s+Number(p.amount||0),0);
+    const extras = state.extras.filter(e=>e.year===y && e.month===m).reduce((s,e)=>s+Number(e.amount||0),0);
+    const exp    = state.expenses.filter(e=>{ const d=new Date(e.date||''); return d.getFullYear()===y && d.getMonth()+1===m; }).reduce((s,e)=>s+Number(e.amount||0),0);
+    const nett   = income + extras - exp;
+    return {mon, m, income, extras, exp, nett};
+  });
+
+  const maxVal = Math.max(...monthly.map(x=>x.nett), market, 1);
+  const totalNett = monthly.reduce((s,x)=>s+x.nett, 0);
+  const avgNett   = totalNett / 12;
+
+  // Bar chart
+  const bars = monthly.map(x=>{
+    const h = Math.max(0, Math.round((x.nett / maxVal) * 120));
+    const mh= market ? Math.round((market / maxVal) * 120) : 0;
+    const color = x.nett >= market ? '#00A3B5' : '#F4811F';
+    return `<div class="bar-col">
+      <div class="bar-val" style="font-size:8px">${x.nett>0?'RM '+fmt(x.nett):''}</div>
+      <div style="position:relative;width:100%;height:120px;display:flex;align-items:flex-end">
+        ${market ? `<div style="position:absolute;bottom:${mh}px;left:0;right:0;border-top:1.5px dashed rgba(244,129,31,.5)"></div>` : ''}
+        <div style="width:100%;height:${h}px;background:${color};border-radius:5px 5px 0 0;transition:height .4s"></div>
+      </div>
+      <div class="bar-label">${x.mon}</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title"><span>📈</span> Monthly Nett Income — ${y}</div>
+      ${market ? `<div class="legend-row">
+        <div class="legend-item"><div class="legend-dot" style="background:#00A3B5"></div>Nett Income ≥ Market</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#F4811F"></div>Nett Income &lt; Market</div>
+        <div class="legend-item"><div style="width:20px;border-top:2px dashed rgba(244,129,31,.6)"></div>Market Rental RM ${fmt(market)}/mo</div>
+      </div>` : ''}
+      <div class="bar-wrap">${bars}</div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-label">Total Nett ${y}</div><div class="stat-val orange">RM ${fmt(totalNett)}</div></div>
+      <div class="stat-card"><div class="stat-label">Avg Monthly Nett</div><div class="stat-val">RM ${fmt(avgNett)}</div></div>
+      ${market ? `<div class="stat-card"><div class="stat-label">Market Rental/mo</div><div class="stat-val" style="color:var(--muted)">RM ${fmt(market)}</div></div>
+      <div class="stat-card"><div class="stat-label">vs Market (avg)</div><div class="stat-val" style="color:${avgNett>=market?'#059669':'#C85900'}">${avgNett>=market?'▲':'▼'} RM ${fmt(Math.abs(avgNett-market))}</div></div>` : ''}
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>📋</span> Monthly Breakdown — ${y}</div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Month</th>
+            <th class="num">Rental</th>
+            <th class="num">Extras</th>
+            <th class="num">Expenses</th>
+            <th class="num">Nett Income</th>
+            ${market ? `<th class="num">vs Market</th>` : ''}
+          </tr></thead>
+          <tbody>
+            ${monthly.map(x=>{
+              const diff = x.nett - market;
+              const hasData = x.income > 0 || x.extras > 0 || x.exp > 0;
+              return `<tr style="${!hasData?'opacity:.4':''}">
+                <td><b>${x.mon} ${y}</b></td>
+                <td class="num">RM ${fmt(x.income)}</td>
+                <td class="num">RM ${fmt(x.extras)}</td>
+                <td class="num" style="color:#C85900">RM ${fmt(x.exp)}</td>
+                <td class="num"><b style="color:var(--orange)">RM ${fmt(x.nett)}</b></td>
+                ${market ? `<td class="num"><span style="color:${diff>=0?'#059669':'#C85900'};font-weight:700">${diff>=0?'+':''}RM ${fmt(diff)}</span></td>` : ''}
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="background:var(--th-bg)">
+              <td style="font-weight:800;padding:10px 12px">Total ${y}</td>
+              <td class="num" style="font-weight:800;padding:10px 12px">RM ${fmt(monthly.reduce((s,x)=>s+x.income,0))}</td>
+              <td class="num" style="font-weight:800;padding:10px 12px">RM ${fmt(monthly.reduce((s,x)=>s+x.extras,0))}</td>
+              <td class="num" style="font-weight:800;color:#C85900;padding:10px 12px">RM ${fmt(monthly.reduce((s,x)=>s+x.exp,0))}</td>
+              <td class="num" style="font-weight:800;color:var(--orange);padding:10px 12px">RM ${fmt(totalNett)}</td>
+              ${market ? `<td class="num" style="font-weight:800;color:${avgNett>=market?'#059669':'#C85900'};padding:10px 12px">${avgNett>=market?'▲':'▼'} avg RM ${fmt(Math.abs(avgNett-market))}/mo</td>` : ''}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ── Tab 4: Aircon & Electricity ───────────────────────────────
+function renderAircon(){
+  const el = $('paneAircon');
+  const y = state.year;
+
+  const yearOpts = [state.year, state.year-1, state.year-2].map(yr=>
+    `<option value="${yr}" ${yr===y?'selected':''}>${yr}</option>`
+  ).join('');
+
+  el.innerHTML = `
+    <div class="picker-row">
+      <label>Year</label>
+      <select id="airconYearPick" onchange="state.year=Number(this.value);renderAircon()">
+        ${yearOpts}
+      </select>
+    </div>
+    <div id="airconContent"></div>
+  `;
+  renderAirconContent();
+}
+
+function renderAirconContent(){
+  const el = $('airconContent');
+  if(!el) return;
+  const y = state.year;
+
+  // Build monthly data
+  const monthly = MONTHS.map((mon, i)=>{
+    const m = i+1;
+    const airconTotal = state.aircon.filter(a=>{
+      const d = new Date(a.date||'');
+      return d.getFullYear()===y && d.getMonth()+1===m;
+    }).reduce((s,a)=>s+Number(a.amount||0),0);
+    const bill = state.elecBills.find(b=>b.year===y && b.month===m);
+    return {mon, m, airconTotal, elecBill: bill?.amount||0, billId: bill?.id||null};
+  });
+
+  const totalAircon = monthly.reduce((s,x)=>s+x.airconTotal,0);
+  const totalElec   = monthly.reduce((s,x)=>s+x.elecBill,0);
+
+  el.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-label">Total Aircon Top-up ${y}</div><div class="stat-val">RM ${fmt(totalAircon)}</div></div>
+      <div class="stat-card"><div class="stat-label">Total Electricity ${y}</div><div class="stat-val orange">RM ${fmt(totalElec)}</div></div>
+      <div class="stat-card"><div class="stat-label">Combined Cost ${y}</div><div class="stat-val" style="color:#C85900">RM ${fmt(totalAircon+totalElec)}</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>❄️</span> Aircon Top-ups & Electricity Bill — ${y}</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
+        Enter your monthly electricity bill below. Normal range for coliving is <b>RM 200 – RM 350/month</b>.
+        This helps you compare your electricity costs against what's being topped up for aircon.
+      </p>
+      <div class="elec-grid">
+        ${monthly.map(x=>{
+          const diff = x.elecBill - x.airconTotal;
+          return `<div class="elec-card">
+            <div class="elec-month">${x.mon} ${y}</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Electricity Bill (RM)</div>
+            <input class="elec-inp" type="number" min="0" step="0.01"
+              id="elec_${y}_${x.m}" value="${x.elecBill||''}" placeholder="0.00"
+              oninput="updateElecDiff(${y},${x.m})">
+            <div class="elec-aircon">❄️ Aircon top-up: <b>RM ${fmt(x.airconTotal)}</b></div>
+            <div class="elec-diff" id="diff_${y}_${x.m}" style="color:${diff>0?'#C85900':diff<0?'#059669':'var(--muted)'}">
+              ${x.elecBill>0 ? (diff>0?`⚠️ RM ${fmt(diff)} above aircon`:`✅ RM ${fmt(Math.abs(diff))} below aircon`) : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <button class="btn-save-elec" onclick="saveElecBills()">💾 Save Electricity Bills</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>📋</span> Monthly Summary — ${y}</div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Month</th>
+            <th class="num">❄️ Aircon Top-up</th>
+            <th class="num">⚡ Electricity Bill</th>
+            <th class="num">Combined</th>
+            <th class="num">Difference</th>
+          </tr></thead>
+          <tbody>
+            ${monthly.map(x=>{
+              const diff = x.elecBill - x.airconTotal;
+              const hasData = x.airconTotal>0 || x.elecBill>0;
+              return `<tr style="${!hasData?'opacity:.4':''}">
+                <td><b>${x.mon} ${y}</b></td>
+                <td class="num">RM ${fmt(x.airconTotal)}</td>
+                <td class="num">RM ${fmt(x.elecBill)}</td>
+                <td class="num"><b>RM ${fmt(x.airconTotal+x.elecBill)}</b></td>
+                <td class="num"><span style="color:${diff>0?'#C85900':diff<0?'#059669':'var(--muted)'};font-weight:700">
+                  ${x.elecBill>0 ? (diff>0?`⚠️ +RM ${fmt(diff)}`:diff<0?`✅ -RM ${fmt(Math.abs(diff))}`:'—') : '—'}
+                </span></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot><tr style="background:var(--th-bg)">
+            <td style="font-weight:800;padding:10px 12px">Total ${y}</td>
+            <td class="num" style="font-weight:800;padding:10px 12px">RM ${fmt(totalAircon)}</td>
+            <td class="num" style="font-weight:800;padding:10px 12px">RM ${fmt(totalElec)}</td>
+            <td class="num" style="font-weight:800;padding:10px 12px">RM ${fmt(totalAircon+totalElec)}</td>
+            <td></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function updateElecDiff(y, m){
+  const val  = Number($(`elec_${y}_${m}`)?.value||0);
+  const aircon = state.aircon.filter(a=>{
+    const d=new Date(a.date||''); return d.getFullYear()===y && d.getMonth()+1===m;
+  }).reduce((s,a)=>s+Number(a.amount||0),0);
+  const diff = val - aircon;
+  const el = $(`diff_${y}_${m}`);
+  if(!el) return;
+  if(val>0){
+    el.style.color = diff>0?'#C85900':diff<0?'#059669':'var(--muted)';
+    el.textContent = diff>0?`⚠️ RM ${fmt(diff)} above aircon`:diff<0?`✅ RM ${fmt(Math.abs(diff))} below aircon`:'= same as aircon';
+  } else {
+    el.textContent = '';
+  }
+}
+
+async function saveElecBills(){
+  const y = state.year;
+  const rows = MONTHS.map((_,i)=>{
+    const m = i+1;
+    const val = Number($(`elec_${y}_${m}`)?.value||0);
+    return {property_id: state.activePropId, owner_id: state.userId, year: y, month: m, amount: val};
+  }).filter(r=>r.amount>0);
+
+  try {
+    // Upsert all months that have a value
+    if(rows.length){
+      const {error} = await sb.from('owner_electricity_bills').upsert(rows, {onConflict:'property_id,year,month'});
+      if(error) throw error;
+    }
+    // Delete months that were cleared (amount=0)
+    const cleared = MONTHS.map((_,i)=>i+1).filter(m=>{
+      return Number($(`elec_${y}_${m}`)?.value||0) === 0;
+    });
+    if(cleared.length){
+      await sb.from('owner_electricity_bills')
+        .delete()
+        .eq('property_id', state.activePropId)
+        .eq('owner_id', state.userId)
+        .eq('year', y)
+        .in('month', cleared);
+    }
+    // Reload
+    const {data:elec} = await sb.from('owner_electricity_bills').select('*')
+      .eq('property_id', state.activePropId).eq('owner_id', state.userId);
+    state.elecBills = elec||[];
+    toast('✅ Electricity bills saved');
+    renderAircon();
+  } catch(e){ toast('Save failed: '+e.message, 'bad'); }
+}
+
+// ── Boot ──────────────────────────────────────────────────────
+(async()=>{
+  sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
+    auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
+  });
+
+  // Check existing session
+  let sess = null;
+  try { sess = (await sb.auth.getSession())?.data?.session||null; } catch(_){}
+
+  if(!sess){
+    hideLoading();
+    showLogin();
+    return;
+  }
+
+  state.userId = sess.user.id;
+  state.user   = sess.user;
+
+  // Check role — redirect non-owners back to main TMS
+  const role = await getMyRole();
+  if(role !== 'owner'){
+    window.location.href = 'index.html';
+    return;
+  }
+
+  $('topbarUser').textContent = sess.user.email;
+  hideLoading();
+  showApp();
+  await loadAllData();
+})();
+
+// ── Login wiring ──────────────────────────────────────────────
+(function(){
+  const loginBtn = $('btnLogin');
+  const stat     = $('loginStatus');
+  const emailIn  = $('loginEmail');
+  const pwIn     = $('loginPassword');
+
+  const doLogin = async ()=>{
+    const email = (emailIn?.value||'').trim();
+    const pw = pwIn?.value||'';
+    if(!email||!pw){ stat.innerHTML='<span style="color:#C0392B">Enter email and password</span>'; return; }
+    loginBtn.disabled=true; loginBtn.style.opacity='.6';
+    stat.innerHTML='<span style="color:#6B8E99">Signing in…</span>';
+    try {
+      const {data,error} = await sb.auth.signInWithPassword({email,password:pw});
+      if(error) throw error;
+      state.userId = data.user.id;
+      state.user   = data.user;
+      const role = await getMyRole();
+      if(role !== 'owner'){
+        window.location.href = 'index.html';
+        return;
+      }
+      hideLogin();
+      $('topbarUser').textContent = data.user.email;
+      showApp();
+      await loadAllData();
+    } catch(e){
+      stat.innerHTML=`<span style="color:#C0392B">${esc(e.message||'Sign-in failed')}</span>`;
+    } finally {
+      loginBtn.disabled=false; loginBtn.style.opacity='';
+    }
+  };
+
+  if(loginBtn) loginBtn.onclick = doLogin;
+  [emailIn,pwIn].forEach(el=>{ if(el) el.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();doLogin();}}); });
+
+  $('btnSignOut').onclick = async ()=>{
+    await sb.auth.signOut();
+    location.reload();
+  };
+})();
+</script>
+</body>
+</html>

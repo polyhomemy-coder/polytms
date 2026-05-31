@@ -2617,6 +2617,7 @@ $('#btnSettings').onclick = ()=>{ $('#inpUrl').value=localStorage.getItem(LS_URL
       hideLogin();
       state.currentUserId = data.user?.id;
       state.role = await fetchUserRole(data.user?.id);
+      if(state.role === 'owner'){ window.location.href = 'owner.html'; return; }
       applyRoleUI(); // apply immediately — don't wait for bootApp data load
       showUserBox(data.user?.email);
       await bootApp();
@@ -11164,6 +11165,7 @@ async function signOutAndReturnToLogin(){
     hideLogin();
     state.currentUserId = sess.user?.id;
     state.role = await fetchUserRole(sess.user?.id);
+    if(state.role === 'owner'){ window.location.href = 'owner.html'; return; }
     applyRoleUI(); // apply immediately — don't wait for bootApp data load
     showUserBox(sess.user?.email);
     await bootApp();
