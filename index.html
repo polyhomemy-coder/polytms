@@ -1343,7 +1343,7 @@
         <div style="display:flex;gap:4px">
           <button class="role-preview-btn active" data-preview="manager" onclick="setRolePreview('manager')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:var(--sb-bg);color:var(--brand);cursor:pointer">👑 Mgr</button>
           <button class="role-preview-btn" data-preview="admin" onclick="setRolePreview('admin')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer">🗂️ Admin</button>
-          <button class="role-preview-btn" data-preview="owner" onclick="window.open('owner.html?preview=1','_blank')" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer">🏠 Owner</button>
+          <button class="role-preview-btn" data-preview="owner" onclick="openOwnerPreviewModal()" style="flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer">🏠 Owner</button>
         </div>
       </div>
       <!-- Signed-in user pill + sign-out (shown only when auth session is active) -->
@@ -10846,6 +10846,32 @@ function applyRoleUI(){
 // ── Role Preview (manager only) ───────────────────────────────
 // Lets the manager temporarily view TMS as another role.
 // state.realRole stores the true role; state.role becomes the preview.
+// Opens owner.html in a full-screen overlay iframe — uses the manager's
+// existing session via ?preview=1, no separate login needed.
+async function openOwnerPreviewModal(){
+  // Get current session token so owner.html can bootstrap without needing localStorage in iframe
+  const { data: { session } } = await sb.auth.getSession();
+  const token = session?.access_token || '';
+  const refresh = session?.refresh_token || '';
+
+  let overlay = document.getElementById('ownerPreviewOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'ownerPreviewOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9998;background:#000;display:flex;flex-direction:column';
+    const src = `owner.html?preview=1&at=${encodeURIComponent(token)}&rt=${encodeURIComponent(refresh)}`;
+    overlay.innerHTML = `
+      <div style="background:#004C56;color:#fff;padding:8px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <span style="font-size:13px;font-weight:700">👁 Owner Portal Preview</span>
+        <button onclick="document.getElementById('ownerPreviewOverlay').remove()" style="background:rgba(255,255,255,.2);border:none;color:#fff;font-size:12px;font-weight:700;padding:5px 14px;border-radius:8px;cursor:pointer">✕ Close Preview</button>
+      </div>
+      <iframe src="${src}" style="flex:1;border:none;width:100%"></iframe>`;
+    document.body.appendChild(overlay);
+  } else {
+    overlay.style.display = 'flex';
+  }
+}
+
 function setRolePreview(previewRole){
   // Save real role on first preview
   if(!state.realRole) state.realRole = state.role;

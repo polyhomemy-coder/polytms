@@ -861,9 +861,21 @@ async function saveElecBills(){
     auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
   });
 
-  // Check existing session
+  // Check existing session — or bootstrap from token passed via URL (iframe preview mode)
   let sess = null;
   try { sess = (await sb.auth.getSession())?.data?.session||null; } catch(_){}
+
+  if(!sess){
+    const params = new URLSearchParams(location.search);
+    const at = params.get('at');
+    const rt = params.get('rt');
+    if(at && rt){
+      try {
+        const { data } = await sb.auth.setSession({ access_token: at, refresh_token: rt });
+        sess = data?.session || null;
+      } catch(_){}
+    }
+  }
 
   if(!sess){
     hideLoading();
