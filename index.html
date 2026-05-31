@@ -10958,28 +10958,24 @@ async function renderUserManagementPanel(container){
 
 // ── Invite User Modal ─────────────────────────────────────────
 function openInviteUserModal(){
-  openModal({
-    title:'Invite New User',
-    body:`<div style="display:flex;flex-direction:column;gap:14px">
-      <div>
-        <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">EMAIL ADDRESS</label>
-        <input id="inviteEmail" type="email" class="input" placeholder="user@example.com" style="width:100%;box-sizing:border-box">
-      </div>
-      <div style="font-size:12px;color:var(--muted);background:var(--th-bg);border-radius:10px;padding:10px 12px;line-height:1.6">
-        A magic link will be sent to their email. They'll be added as <strong>Admin</strong> by default.
-        Use <strong>Edit</strong> to change their role after they sign in.
-      </div>
-    </div>`,
-    confirmText:'Send Invite',
-    onConfirm: async ()=>{
-      const email = (document.getElementById('inviteEmail')?.value||'').trim();
-      if(!email){ toast('Enter an email address','bad'); return; }
-      try {
-        await inviteUser(email);
-        toast(`✉️ Invite sent to ${email}`);
-      } catch(e){ toast('Invite failed: '+e.message,'bad'); }
-    }
-  });
+  const bodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">EMAIL ADDRESS</label>
+      <input id="inviteEmail" type="email" class="input" placeholder="user@example.com" style="width:100%;box-sizing:border-box">
+    </div>
+    <div style="font-size:12px;color:var(--muted);background:var(--th-bg);border-radius:10px;padding:10px 12px;line-height:1.6">
+      A magic link will be sent to their email. They'll be added as <strong>Owner</strong> by default —
+      use <strong>Edit</strong> to change their role after they sign in.
+    </div>
+  </div>`;
+  openModal('Invite New User', bodyHtml, async ()=>{
+    const email = (document.getElementById('inviteEmail')?.value||'').trim();
+    if(!email){ toast('Enter an email address','bad'); return; }
+    try {
+      await inviteUser(email);
+      toast(`✉️ Invite sent to ${email}`);
+    } catch(e){ toast('Invite failed: '+e.message,'bad'); }
+  }, 'Send Invite');
 }
 
 // ── Edit User Modal ───────────────────────────────────────────
@@ -10999,36 +10995,31 @@ function openEditUserModal(uid, email, currentRole, currentPropId){
          <option value="owner"   ${currentRole==='owner'  ?'selected':''}>🏠 Owner — income report + tenants only</option>
        </select>`;
 
-  openModal({
-    title:`Edit User`,
-    body:`<div style="display:flex;flex-direction:column;gap:14px">
-      <div style="font-size:13px;color:var(--ink);font-weight:600">${esc(email)}</div>
-      <div>
-        <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">ROLE</label>
-        ${roleField}
-      </div>
-      <div id="ownerPropRow" style="display:${currentRole==='owner'?'block':'none'}">
-        <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">PROPERTY</label>
-        <select id="editUserProp" class="input" style="width:100%">
-          <option value="">— Select property —</option>
-          ${propOptions}
-        </select>
-      </div>
-      <button id="btnRemoveUser" style="margin-top:4px;font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;cursor:pointer;width:fit-content">🗑 Remove Access</button>
-    </div>`,
-    confirmText:'Save',
-    onConfirm: async ()=>{
-      const role = document.getElementById('editUserRole')?.value;
-      const propId = document.getElementById('editUserProp')?.value || null;
-      try {
-        await saveProfile({id:uid, email, role, property_id: role==='owner' ? propId : null});
-        toast(`✓ Updated ${email} → ${role}`);
-        // Re-render user panel
-        const container = document.getElementById('userMgmtPanel');
-        if(container) await renderUserManagementPanel(container);
-      } catch(e){ toast('Save failed: '+e.message,'bad'); }
-    }
-  });
+  const editBodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:13px;color:var(--ink);font-weight:600">${esc(email)}</div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">ROLE</label>
+      ${roleField}
+    </div>
+    <div id="ownerPropRow" style="display:${currentRole==='owner'?'block':'none'}">
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">PROPERTY</label>
+      <select id="editUserProp" class="input" style="width:100%">
+        <option value="">— Select property —</option>
+        ${propOptions}
+      </select>
+    </div>
+    <button id="btnRemoveUser" style="margin-top:4px;font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;cursor:pointer;width:fit-content">🗑 Remove Access</button>
+  </div>`;
+  openModal('Edit User', editBodyHtml, async ()=>{
+    const role = document.getElementById('editUserRole')?.value;
+    const propId = document.getElementById('editUserProp')?.value || null;
+    try {
+      await saveProfile({id:uid, email, role, property_id: role==='owner' ? propId : null});
+      toast(`✓ Updated ${email} → ${role}`);
+      const container = document.getElementById('userMgmtPanel');
+      if(container) await renderUserManagementPanel(container);
+    } catch(e){ toast('Save failed: '+e.message,'bad'); }
+  }, 'Save');
   // Wire role dropdown to show/hide property picker
   setTimeout(()=>{
     const roleEl = document.getElementById('editUserRole');
