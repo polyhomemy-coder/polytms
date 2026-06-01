@@ -1282,7 +1282,7 @@ async function exportReportPDF(){
   try{
     await loadHtml2pdf();
 
-    // Ensure font is loaded in host document
+    // Preload the report font in the host document.
     if(!document.querySelector('link[data-pdf-font]')){
       const lk=document.createElement('link');
       lk.rel='stylesheet';
@@ -1296,24 +1296,28 @@ async function exportReportPDF(){
 
     // Extract <style> and <body> from the standalone HTML
     const styleMatch=html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-    const bodyMatch =html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    const bodyMatch =html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if(!styleMatch||!bodyMatch) throw new Error('Cannot parse report HTML');
 
-    // Mount off-screen in main doc (html2canvas can't read iframe styles)
-    const styleEl=document.createElement('style');
-    styleEl.setAttribute('data-pdf-tmp','1');
-    styleEl.textContent=_scopeReportCSS(styleMatch[1], '_ownerPdfHost');
-    document.head.appendChild(styleEl);
+    // Show a "Generating PDF…" overlay so the user doesn't see the brief
+    // style flash while the report is mounted in the document for capture.
+    let overlay=document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;pointer-events:all';
+    overlay.innerHTML='<div style="background:#fff;padding:28px 36px;border-radius:18px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.25)"><div style="font-size:36px">📄</div><div style="margin-top:10px;font-size:16px;font-weight:700;color:#007B8A">Generating PDF…</div><div style="font-size:12px;color:#666;margin-top:4px">Please wait</div></div>';
+    document.body.appendChild(overlay);
 
+    // Mount the report with position:absolute (NOT fixed) so html2canvas sees
+    // the full height — position:fixed clips to the viewport on tall reports.
+    // The <style> lives INSIDE host so it is removed together with it.
     const host=document.createElement('div');
     host.id='_ownerPdfHost';
-    host.style.cssText="position:fixed;left:-9999px;top:0;width:1100px;background:#F0F9FB;z-index:9999;pointer-events:none;font-family:'Plus Jakarta Sans',sans-serif";
-    host.innerHTML=bodyMatch[1];
+    host.style.cssText="position:absolute;left:0;top:0;width:1100px;z-index:9999;background:#F0F9FB;font-family:'Plus Jakarta Sans',sans-serif;";
+    host.innerHTML=`<style>${styleMatch[1]}</style>${bodyMatch[1]}`;
     document.body.appendChild(host);
 
-    // Wait for fonts + paint
+    // Wait for fonts + one render cycle.
     try{ if(document.fonts&&document.fonts.ready) await document.fonts.ready; }catch(_){}
-    await new Promise(r=>setTimeout(r,600));
+    await new Promise(r=>setTimeout(r,800));
 
     const condo=(prop.condo||'property').replace(/\s+/g,'_');
     const unit=(prop.unit||'').replace(/\s+/g,'_');
@@ -1323,7 +1327,7 @@ async function exportReportPDF(){
       margin:     [8,8,8,8],
       filename,
       image:      {type:'jpeg',quality:0.95},
-      html2canvas:{scale:2,useCORS:true,backgroundColor:'#F0F9FB',windowWidth:1100},
+      html2canvas:{scale:2,useCORS:true,backgroundColor:'#F0F9FB',windowWidth:1100,scrollX:0,scrollY:0},
       jsPDF:      {unit:'mm',format:'a4',orientation:'portrait'},
       pagebreak:  {mode:['css','legacy','avoid-all']},
     }).save();
@@ -1331,8 +1335,8 @@ async function exportReportPDF(){
   }catch(e){
     toast('PDF failed: '+e.message,'bad');
   }finally{
-    const _ph=document.getElementById('_ownerPdfHost'); if(_ph) _ph.remove();
-    document.querySelectorAll('style[data-pdf-tmp]').forEach(el=>el.remove());
+    document.getElementById('_ownerPdfHost')?.remove();
+    overlay?.remove();
     if(btn){ btn.textContent='⬇️ PDF'; btn.disabled=false; }
   }
 }

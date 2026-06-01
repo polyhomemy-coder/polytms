@@ -3275,7 +3275,7 @@ function _scopeFlatRules(css, scope){
 // only the unstyled DOM (text without gradients, fonts, layout).
 async function _downloadDesktopPDF(propId, y, m){
   await loadHtml2pdf();
-  // Make sure the report's font is loaded in the host document.
+  // Preload the report font in the host document so html2canvas picks it up.
   if(!document.querySelector('link[data-pdf-font]')){
     const link = document.createElement('link');
     link.rel = 'stylesheet';
@@ -3291,26 +3291,29 @@ async function _downloadDesktopPDF(propId, y, m){
   });
   // Pull <style> + <body> contents out of the standalone HTML.
   const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-  const bodyMatch  = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  const bodyMatch  = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
   if(!styleMatch || !bodyMatch) throw new Error('Could not parse report HTML');
 
-  // Inject the scoped <style> into <head>, the body content into a hidden
-  // host div in the main doc. After PDF generation we rip both out — no
-  // permanent style or DOM pollution remains.
-  const styleEl = document.createElement('style');
-  styleEl.textContent = _scopeReportCSS(styleMatch[1], '_pdfHost');
-  document.head.appendChild(styleEl);
+  // Show a "Generating PDF…" overlay so the user doesn't see the brief
+  // style flash while the report is mounted in the document for capture.
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;pointer-events:all';
+  overlay.innerHTML = '<div style="background:#fff;padding:28px 36px;border-radius:18px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.25)"><div style="font-size:36px">📄</div><div style="margin-top:10px;font-size:16px;font-weight:700;color:#007B8A">Generating PDF…</div><div style="font-size:12px;color:#666;margin-top:4px">Please wait</div></div>';
+  document.body.appendChild(overlay);
 
+  // Mount the report at the top of the document with position:absolute so it
+  // is NOT clipped by the viewport (unlike position:fixed). html2canvas needs
+  // the full height to be in the layout tree to capture multi-page reports.
+  // The <style> tag lives INSIDE the host so it is removed with it afterwards.
   const host = document.createElement('div');
   host.id = '_pdfHost';
-  // Off-screen but laid out at 1100px (the report's canonical width).
-  host.style.cssText = 'position:fixed;left:-9999px;top:0;width:1100px;background:#F0F9FB;font-family:\'Plus Jakarta Sans\',sans-serif;z-index:9999;pointer-events:none';
-  host.innerHTML = bodyMatch[1];
+  host.style.cssText = "position:absolute;left:0;top:0;width:1100px;z-index:9999;background:#F0F9FB;font-family:'Plus Jakarta Sans',sans-serif;";
+  host.innerHTML = `<style>${styleMatch[1]}</style>${bodyMatch[1]}`;
   document.body.appendChild(host);
 
-  // Wait for the font + a paint frame so html2canvas snapshots the styled DOM.
+  // Wait for fonts + one render cycle.
   try { if(document.fonts && document.fonts.ready) await document.fonts.ready; } catch(_){}
-  await new Promise(r=>setTimeout(r, 600));
+  await new Promise(r=>setTimeout(r, 800));
 
   const P = state.properties.find(p=>p.id===propId) || {};
   const monStr = MONTHS_FULL[m-1] + ' ' + y;
@@ -3321,13 +3324,13 @@ async function _downloadDesktopPDF(propId, y, m){
       margin:      [8, 8, 8, 8],
       filename,
       image:       { type: 'jpeg', quality: 0.95 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#F0F9FB', windowWidth: 1100 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#F0F9FB', windowWidth: 1100, scrollX: 0, scrollY: 0 },
       jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak:   { mode: ['css', 'legacy', 'avoid-all'] },
     }).save();
   } finally {
-    host.remove();
-    styleEl.remove();
+    overlay.remove();
+    host.remove();  // removes the embedded <style> too — no DOM pollution
   }
 }
 
