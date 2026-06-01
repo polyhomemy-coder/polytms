@@ -1257,17 +1257,14 @@ function _scopeReportCSS(css, scopeId){
   return out;
 }
 
-// Lazy-load html2pdf.js (same approach as TMS)
-let _h2pLoaded=false;
-async function loadHtml2pdf(){
-  if(_h2pLoaded&&window.html2pdf) return;
-  await new Promise((res,rej)=>{
-    const s=document.createElement('script');
-    s.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-    s.onload=res; s.onerror=rej;
-    document.head.appendChild(s);
-  });
-  _h2pLoaded=true;
+// Lazy-load html2canvas + jsPDF individually (more reliable than html2pdf wrapper)
+let _pdfLibsLoaded=false;
+async function loadPdfLibs(){
+  if(_pdfLibsLoaded&&window.html2canvas&&window.jspdf) return;
+  const load=src=>new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+  await load('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+  await load('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  _pdfLibsLoaded=true;
 }
 
 async function exportReportPDF(){
@@ -1279,70 +1276,81 @@ async function exportReportPDF(){
   const btn=document.querySelector('.btn-export');
   if(btn){ btn.textContent='⏳ Generating…'; btn.disabled=true; }
 
+  let overlay=null, host=null, styleEl=null;
   try{
-    await loadHtml2pdf();
+    await loadPdfLibs();
 
-    // Preload the report font in the host document.
-    if(!document.querySelector('link[data-pdf-font]')){
-      const lk=document.createElement('link');
-      lk.rel='stylesheet';
-      lk.href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
-      lk.dataset.pdfFont='1';
-      document.head.appendChild(lk);
-    }
-
-    // Always use desktop HTML for PDF (A4 layout)
+    // Build the desktop report HTML
     const html=buildOwnerReportDesktopHTML(prop,y,m,launchedRecord);
-
-    // Extract <style> and <body> from the standalone HTML
     const styleMatch=html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
     const bodyMatch =html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if(!styleMatch||!bodyMatch) throw new Error('Cannot parse report HTML');
 
-    // Show a "Generating PDF…" overlay so the user doesn't see any flash.
-    let overlay=document.createElement('div');
-    overlay.id='_pdfOverlay';
-    overlay.style.cssText='position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;pointer-events:all';
-    overlay.innerHTML='<div style="background:#fff;padding:28px 36px;border-radius:18px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.25)"><div style="font-size:36px">📄</div><div style="margin-top:10px;font-size:16px;font-weight:700;color:#007B8A">Generating PDF…</div><div style="font-size:12px;color:#666;margin-top:4px">Please wait</div></div>';
+    // Show loading overlay
+    overlay=document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML='<div style="background:#fff;padding:28px 36px;border-radius:18px;text-align:center"><div style="font-size:32px">📄</div><div style="margin-top:10px;font-size:16px;font-weight:700;color:#007B8A">Generating PDF…</div><div style="font-size:12px;color:#888;margin-top:4px">Please wait</div></div>';
     document.body.appendChild(overlay);
 
-    // Inject report CSS into <head> (unscoped — overlay hides any visual
-    // conflict). Use position:absolute (NOT fixed) so html2canvas captures the
-    // full document height; fixed elements are clipped to the viewport.
-    const styleEl=document.createElement('style');
+    // Inject report CSS into head temporarily
+    styleEl=document.createElement('style');
     styleEl.setAttribute('data-pdf-tmp','1');
     styleEl.textContent=styleMatch[1];
     document.head.appendChild(styleEl);
 
-    const host=document.createElement('div');
+    // Mount report at the top of the page using position:absolute
+    // so html2canvas can capture full height without viewport clipping
+    host=document.createElement('div');
     host.id='_ownerPdfHost';
-    host.style.cssText="position:absolute;left:0;top:0;width:1100px;background:#F0F9FB;font-family:'Plus Jakarta Sans',sans-serif;";
+    host.style.cssText="position:absolute;left:0;top:0;width:1100px;background:#F0F9FB;font-family:'Plus Jakarta Sans',sans-serif;z-index:1;";
     host.innerHTML=bodyMatch[1];
     document.body.appendChild(host);
 
-    // Wait for fonts + one render cycle.
-    try{ if(document.fonts&&document.fonts.ready) await document.fonts.ready; }catch(_){}
-    await new Promise(r=>setTimeout(r,800));
+    // Let the browser paint
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    try{ await document.fonts.ready; }catch(_){}
+    await new Promise(r=>setTimeout(r,600));
+
+    // Capture with html2canvas directly — explicit width/height from the host
+    const canvas=await window.html2canvas(host,{
+      scale:2,
+      useCORS:true,
+      backgroundColor:'#F0F9FB',
+      width:host.scrollWidth||1100,
+      height:host.scrollHeight||2000,
+      windowWidth:1100,
+      logging:false,
+      x:0, y:0,
+    });
+
+    // Build PDF page by page with jsPDF
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF({unit:'mm',format:'a4',orientation:'portrait'});
+    const margin=8, pgW=210, pgH=297;
+    const cW=pgW-2*margin, cH=pgH-2*margin;
+    const imgData=canvas.toDataURL('image/jpeg',0.92);
+    const imgW=cW;
+    const imgH=(canvas.height*imgW)/canvas.width;
+    let posY=margin, remaining=imgH;
+    pdf.addImage(imgData,'JPEG',margin,posY,imgW,imgH);
+    remaining-=cH;
+    while(remaining>0){
+      pdf.addPage();
+      posY=margin-(imgH-remaining);
+      pdf.addImage(imgData,'JPEG',margin,posY,imgW,imgH);
+      remaining-=cH;
+    }
 
     const condo=(prop.condo||'property').replace(/\s+/g,'_');
     const unit=(prop.unit||'').replace(/\s+/g,'_');
-    const filename=`${condo}_${unit}_${MONTHS_FULL[m-1]}_${y}_Income_Report.pdf`;
-
-    await window.html2pdf().from(host).set({
-      margin:     [8,8,8,8],
-      filename,
-      image:      {type:'jpeg',quality:0.95},
-      html2canvas:{scale:2,useCORS:true,backgroundColor:'#F0F9FB',windowWidth:1100,logging:false},
-      jsPDF:      {unit:'mm',format:'a4',orientation:'portrait'},
-      pagebreak:  {mode:['css','legacy','avoid-all']},
-    }).save();
+    pdf.save(`${condo}_${unit}_${MONTHS_FULL[m-1]}_${y}_Income_Report.pdf`);
 
   }catch(e){
     toast('PDF failed: '+e.message,'bad');
   }finally{
-    document.getElementById('_ownerPdfHost')?.remove();
-    document.getElementById('_pdfOverlay')?.remove();
-    document.querySelectorAll('style[data-pdf-tmp]').forEach(el=>el.remove());
+    host?.remove();
+    overlay?.remove();
+    styleEl?.remove();
     if(btn){ btn.textContent='⬇️ PDF'; btn.disabled=false; }
   }
 }
