@@ -1048,7 +1048,8 @@ let state = {
   properties:[], activePropId:null,
   tenants:[], payments:[], aircon:[], expenses:[], extras:[],
   elecBills:[], reportStatus:[],
-  year:new Date().getFullYear(), month:new Date().getMonth()+1,
+  year:(new Date().getMonth()===0?new Date().getFullYear()-1:new Date().getFullYear()),
+  month:(new Date().getMonth()===0?12:new Date().getMonth()),
   activeTab:'report',
 };
 
