@@ -3304,13 +3304,13 @@ async function _downloadDesktopPDF(propId, y, m){
   const host = document.createElement('div');
   host.id = '_pdfHost';
   // Off-screen but laid out at 1100px (the report's canonical width).
-  host.style.cssText = 'position:fixed;left:-99999px;top:0;width:1100px;background:#F0F9FB;font-family:\'Plus Jakarta Sans\',sans-serif;z-index:-1';
+  host.style.cssText = 'position:fixed;left:-9999px;top:0;width:1100px;background:#F0F9FB;font-family:\'Plus Jakarta Sans\',sans-serif;z-index:9999;pointer-events:none';
   host.innerHTML = bodyMatch[1];
   document.body.appendChild(host);
 
   // Wait for the font + a paint frame so html2canvas snapshots the styled DOM.
   try { if(document.fonts && document.fonts.ready) await document.fonts.ready; } catch(_){}
-  await new Promise(r=>setTimeout(r, 400));
+  await new Promise(r=>setTimeout(r, 600));
 
   const P = state.properties.find(p=>p.id===propId) || {};
   const monStr = MONTHS_FULL[m-1] + ' ' + y;
