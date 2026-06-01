@@ -538,6 +538,8 @@
 
   <!-- LEFT HERO PANEL -->
   <div id="loginLeft" style="flex:1;background:linear-gradient(155deg,#091922 0%,#004C56 45%,#00626E 75%,#0090A3 100%);display:flex;flex-direction:column;justify-content:space-between;padding:52px 60px;position:relative;overflow:hidden;min-height:100vh">
+    <!-- Animated particle canvas overlay -->
+    <canvas id="loginParticleCanvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none"></canvas>
 
     <!-- Matrix dots only (grid lines removed) -->
     <div style="position:absolute;inset:0;background-image:radial-gradient(circle,rgba(0,180,204,0.22) 1.3px,transparent 1.3px);background-size:22px 22px;pointer-events:none;z-index:0"></div>
@@ -11364,6 +11366,102 @@ function _initLiveSync(){
   resetTimers();
   setInterval(resetTimers, 60 * 1000);
 })();
+</script>
+<script>
+
+(function(){
+  const canvas = document.getElementById('loginParticleCanvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let W, H, particles;
+  const COUNT = 70;
+  const MAX_DIST = 140;
+  const COLORS = ['rgba(0,180,204,', 'rgba(0,123,138,', 'rgba(0,210,240,'];
+
+  function resize(){
+    W = canvas.width  = canvas.offsetWidth;
+    H = canvas.height = canvas.offsetHeight;
+  }
+
+  function rand(min,max){ return Math.random()*(max-min)+min; }
+
+  function makeParticle(){
+    return {
+      x: rand(0,W), y: rand(0,H),
+      vx: rand(-0.35,0.35), vy: rand(-0.35,0.35),
+      r: rand(1.5,3.5),
+      alpha: rand(0.35,0.85),
+      color: COLORS[Math.floor(Math.random()*COLORS.length)],
+      pulse: rand(0, Math.PI*2),
+      pulseSpeed: rand(0.012,0.028)
+    };
+  }
+
+  function init(){
+    resize();
+    particles = Array.from({length:COUNT}, makeParticle);
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    for(let i=0;i<particles.length;i++){
+      for(let j=i+1;j<particles.length;j++){
+        const dx=particles[i].x-particles[j].x, dy=particles[i].y-particles[j].y;
+        const dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist<MAX_DIST){
+          const op=0.18*(1-dist/MAX_DIST);
+          ctx.beginPath();
+          ctx.strokeStyle=`rgba(0,180,204,${op})`;
+          ctx.lineWidth=0.8;
+          ctx.moveTo(particles[i].x,particles[i].y);
+          ctx.lineTo(particles[j].x,particles[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+    particles.forEach(p=>{
+      p.pulse += p.pulseSpeed;
+      const glow = 0.3+0.2*Math.sin(p.pulse);
+      const g = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*4);
+      g.addColorStop(0, p.color+(p.alpha*glow*0.5).toFixed(3)+')');
+      g.addColorStop(1, p.color+'0)');
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r*4,0,Math.PI*2);
+      ctx.fillStyle=g;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle=p.color+p.alpha.toFixed(3)+')';
+      ctx.fill();
+    });
+  }
+
+  function update(){
+    particles.forEach(p=>{
+      p.x+=p.vx; p.y+=p.vy;
+      if(p.x<-20) p.x=W+20; else if(p.x>W+20) p.x=-20;
+      if(p.y<-20) p.y=H+20; else if(p.y>H+20) p.y=-20;
+    });
+  }
+
+  let raf;
+  function loop(){ draw(); update(); raf=requestAnimationFrame(loop); }
+  function startAnim(){ if(raf) return; init(); loop(); }
+  function stopAnim(){ cancelAnimationFrame(raf); raf=null; }
+
+  const overlay = canvas.closest('#loginOverlay');
+  if(overlay){
+    const mo = new MutationObserver(()=>{
+      if(!overlay.classList.contains('hidden')) startAnim();
+      else stopAnim();
+    });
+    mo.observe(overlay, {attributes:true, attributeFilter:['class']});
+    if(!overlay.classList.contains('hidden')) startAnim();
+  } else { startAnim(); }
+
+  window.addEventListener('resize', ()=>{ if(raf){ resize(); particles=Array.from({length:COUNT},makeParticle); }});
+})();
+
 </script>
 </body>
 </html>
