@@ -259,7 +259,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--ink);min-height:10
   .tab-btn{padding:6px 9px;font-size:11px}
 }
 @media(max-width:360px){
-  .btn-signout .signout-text{display:none}
   #topbar{padding:0 12px}
   .topbar-logo img{height:24px}
 }
@@ -1006,7 +1005,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--ink);min-height:10
     </div>
     <div class="topbar-right">
       <span class="topbar-user" id="topbarUser"></span>
-      <button class="btn-signout" id="btnSignOut">⬡ <span class="signout-text">Sign out</span></button>
+      <button class="btn-signout" id="btnSignOut">Sign out</button>
     </div>
   </div>
 
@@ -1780,13 +1779,7 @@ function openTenantDetail(tenantId){
     ${row('Move-out Date', fmtD(t.move_out_date))}
     ${row('Tenure', mo!=null ? mo+' months' : null)}
 
-    <!-- DEPOSITS & KEYS -->
-    ${section('Deposits & Keys')}
-    ${row('Room Deposit', (t.room_deposit!=null&&t.room_deposit!=='') ? 'RM '+fmt(t.room_deposit) : (t.deposit ? 'RM '+fmt(t.deposit) : null))}
-    ${row('Carpark Deposit', (t.carpark_deposit!=null&&t.carpark_deposit!=='') ? 'RM '+fmt(t.carpark_deposit) : null)}
-    ${row('Utility Deposit', (t.utility_deposit!=null&&t.utility_deposit!=='') ? 'RM '+fmt(t.utility_deposit) : null)}
-    ${row('Key Card Set', t.key_card_set)}
-    ${row('Access Card', t.access_card)}
+    <!-- Deposits & Keys hidden by owner request -->
 
     <!-- SECONDARY TENANT -->
     ${(t.secondary_name||t.secondary_ic) ? section('Secondary Tenant') : ''}
