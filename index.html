@@ -9800,7 +9800,7 @@ function renderReportDesktopHTML(ctx, opts){
     <div class="nett-box">
       <div class="lbl"><span>Nett Rental Income</span><span class="divider">|</span><span>${MONTHS[month-1]} ${year}</span></div>
       <div class="amt"><span>RM</span>${fmtNum(nett)}</div>
-      <div class="formula">= Rental + Air-Cond + Extra Income − Expenses</div>
+      <div class="formula">= Rental + AirCond + Extra Income − Expenses</div>
       ${nett < -0.005 ? `<div class="bf-notice-d">↪ Loss of <b>RM ${fmtNum(-nett)}</b> will be carried forward to next month&#39;s expenses until cleared.</div>` : ''}
     </div>
   </div>
