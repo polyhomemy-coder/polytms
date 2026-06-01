@@ -59,18 +59,21 @@ body{font-family:var(--font);background:var(--bg);color:var(--ink);min-height:10
 #app.visible{display:flex}
 
 /* ── Top header ── */
-#topbar{background:#fff;border-bottom:1px solid var(--line);padding:0 20px;
-  height:60px;display:flex;align-items:center;gap:12px;
+#topbar{background:#fff;border-bottom:1px solid var(--line);padding:0 16px;
+  height:56px;display:flex;align-items:center;gap:8px;overflow:hidden;
   position:sticky;top:0;z-index:50;box-shadow:var(--shadow)}
-.topbar-logo img{height:28px;object-fit:contain;display:block}
+.topbar-logo{flex-shrink:1;min-width:0;overflow:hidden}
+.topbar-logo img{height:26px;width:auto;max-width:140px;object-fit:contain;display:block}
 .topbar-right{margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0}
 .topbar-user{font-size:12px;color:var(--muted);font-weight:600;
   white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis}
 /* view toggle removed — auto responsive */
-.btn-signout{padding:6px 14px;border-radius:9px;border:1.5px solid var(--line);
+.btn-signout{padding:8px 14px;border-radius:9px;border:1.5px solid var(--line);
   background:#fff;color:var(--muted);font-size:12px;font-weight:700;
-  cursor:pointer;font-family:var(--font);transition:all .15s}
-.btn-signout:hover{border-color:#C0392B;color:#C0392B;background:#FFF5F5}
+  cursor:pointer;font-family:var(--font);transition:all .15s;
+  -webkit-tap-highlight-color:rgba(192,57,43,.15);touch-action:manipulation;
+  min-height:36px;min-width:44px}
+.btn-signout:hover,.btn-signout:active{border-color:#C0392B;color:#C0392B;background:#FFF5F5}
 
 /* ── Property selector bar ── */
 #propBar{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;
@@ -1220,10 +1223,82 @@ function renderReportContent(){
 }
 
 
-function exportReportPDF(){
-  const iframe=$('reportFrame');
-  if(iframe&&iframe.contentWindow) iframe.contentWindow.print();
-  else window.print();
+// Lazy-load html2pdf.js (same approach as TMS)
+let _h2pLoaded=false;
+async function loadHtml2pdf(){
+  if(_h2pLoaded&&window.html2pdf) return;
+  await new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+    s.onload=res; s.onerror=rej;
+    document.head.appendChild(s);
+  });
+  _h2pLoaded=true;
+}
+
+async function exportReportPDF(){
+  const prop=state.properties.find(p=>p.id===state.activePropId);
+  const y=state.year, m=state.month;
+  const launchedRecord=state.reportStatus.find(r=>r.year===y&&r.month===m);
+  if(!prop||!launchedRecord){ toast('No report to export','bad'); return; }
+
+  const btn=document.querySelector('.btn-export');
+  if(btn){ btn.textContent='⏳ Generating…'; btn.disabled=true; }
+
+  try{
+    await loadHtml2pdf();
+
+    // Ensure font is loaded in host document
+    if(!document.querySelector('link[data-pdf-font]')){
+      const lk=document.createElement('link');
+      lk.rel='stylesheet';
+      lk.href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+      lk.dataset.pdfFont='1';
+      document.head.appendChild(lk);
+    }
+
+    // Always use desktop HTML for PDF (A4 layout)
+    const html=buildOwnerReportDesktopHTML(prop,y,m,launchedRecord);
+
+    // Extract <style> and <body> from the standalone HTML
+    const styleMatch=html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+    const bodyMatch =html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if(!styleMatch||!bodyMatch) throw new Error('Cannot parse report HTML');
+
+    // Mount off-screen in main doc (html2canvas can't read iframe styles)
+    const styleEl=document.createElement('style');
+    styleEl.textContent=styleMatch[1];
+    document.head.appendChild(styleEl);
+
+    const host=document.createElement('div');
+    host.style.cssText='position:fixed;left:-99999px;top:0;width:1100px;background:#F0F9FB;z-index:-1;font-family:'Plus Jakarta Sans',sans-serif';
+    host.innerHTML=bodyMatch[1];
+    document.body.appendChild(host);
+
+    // Wait for fonts + paint
+    try{ if(document.fonts&&document.fonts.ready) await document.fonts.ready; }catch(_){}
+    await new Promise(r=>setTimeout(r,400));
+
+    const condo=(prop.condo||'property').replace(/\s+/g,'_');
+    const unit=(prop.unit||'').replace(/\s+/g,'_');
+    const filename=`${condo}_${unit}_${MONTHS_FULL[m-1]}_${y}_Income_Report.pdf`;
+
+    await window.html2pdf().from(host).set({
+      margin:     [8,8,8,8],
+      filename,
+      image:      {type:'jpeg',quality:0.95},
+      html2canvas:{scale:2,useCORS:true,backgroundColor:'#F0F9FB',windowWidth:1100},
+      jsPDF:      {unit:'mm',format:'a4',orientation:'portrait'},
+      pagebreak:  {mode:['css','legacy','avoid-all']},
+    }).save();
+
+  }catch(e){
+    toast('PDF failed: '+e.message,'bad');
+  }finally{
+    document.querySelectorAll('div[style*="-99999px"]').forEach(el=>el.remove());
+    document.querySelectorAll('style[data-pdf-tmp]').forEach(el=>el.remove());
+    if(btn){ btn.textContent='⬇️ PDF'; btn.disabled=false; }
+  }
 }
 
 // ── Build TMS-identical MOBILE report HTML ──────────────────
