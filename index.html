@@ -5169,17 +5169,17 @@ function renderTenants(){
       <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" class="font-semibold">${esc(t.name)}</td>
       <td class="whitespace-nowrap">${esc(t.contact||'')}</td>
       <td class="text-center text-slate-500">${t.no_of_staying||'—'}</td>
-      <td class="text-right">
-        <div class="flex flex-col gap-0.5 items-end">
-          <div class="flex gap-0.5">
-            <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs" onclick="openTenantView('${t.id}')" title="View details">${ICON.view}</button>
-            <button class="p-1.5 rounded bg-slate-100 text-xs" onclick="openTenantModal('${t.id}')" title="Edit">${ICON.edit}</button>
-            <button class="p-1.5 rounded bg-[#E8F4FD] text-[#1E5BB8] text-xs" onclick="openGenerateTAModal('${t.id}')" title="Tenancy Agreement">${ICON.doc}</button>
+      <td class="text-right" style="white-space:nowrap;min-width:76px">
+        <div style="display:inline-flex;flex-direction:column;gap:2px;align-items:flex-end">
+          <div style="display:flex;gap:2px">
+            <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs hover:opacity-75" onclick="openTenantView('${t.id}')" title="View details">${ICON.view}</button>
+            <button class="p-1.5 rounded bg-slate-100 text-xs hover:opacity-75" onclick="openTenantModal('${t.id}')" title="Edit">${ICON.edit}</button>
+            <button class="p-1.5 rounded bg-[#E8F4FD] text-[#1E5BB8] text-xs hover:opacity-75" onclick="openGenerateTAModal('${t.id}')" title="Tenancy Agreement">${ICON.doc}</button>
           </div>
-          <div class="flex gap-0.5">
-            <button class="p-1.5 rounded bg-[#DCFCE7] text-[#065F46] text-xs" onclick="recontractTenant('${t.id}')" title="Recontract">${ICON.undo}</button>
-            <button class="p-1.5 rounded bg-[#FFF4E5] text-[#F4811F] text-xs" onclick="moveOutTenant('${t.id}')" title="Move Out">${ICON.box}</button>
-            <button class="p-1.5 rounded bg-rose-50 text-rose-600 text-xs" onclick="delTenant('${t.id}')" title="Delete">${ICON.trash}</button>
+          <div style="display:flex;gap:2px">
+            <button class="p-1.5 rounded bg-[#DCFCE7] text-[#065F46] text-xs hover:opacity-75" onclick="recontractTenant('${t.id}')" title="Recontract">${ICON.undo}</button>
+            <button class="p-1.5 rounded bg-[#FFF4E5] text-[#F4811F] text-xs hover:opacity-75" onclick="moveOutTenant('${t.id}')" title="Move Out">${ICON.box}</button>
+            <button class="p-1.5 rounded bg-rose-50 text-rose-600 text-xs hover:opacity-75" onclick="delTenant('${t.id}')" title="Delete">${ICON.trash}</button>
           </div>
         </div>
       </td>
@@ -6043,34 +6043,61 @@ function openTenantView(id){
       </div>`;
   }
 
+  const sec = (title) => `<div class="text-[10px] font-bold uppercase tracking-widest text-[color:var(--brand)] mt-4 mb-1 pb-0.5 border-b border-slate-200">${title}</div>`;
+  const g2 = (...fields) => `<div class="grid grid-cols-2 gap-x-6 gap-y-0">${fields.join('')}</div>`;
+  const g3 = (...fields) => `<div class="grid grid-cols-3 gap-x-6 gap-y-0">${fields.join('')}</div>`;
   $('#modalTitle').innerHTML = `${esc(t.name)} ${statusBadge}`;
   $('#modalBody').innerHTML = `
-    <div class="grid md:grid-cols-2 gap-x-4 gap-y-0">
-      ${row('Property', p ? (p.condo+' · '+p.unit) : '—')}
-      ${row('Room Code', t.room_code)}
-      ${row('Room Rental', t.room_rental!=null ? 'RM '+fmt(t.room_rental) : null)}
-      ${row('Carpark', t.carpark)}
-      ${row('Carpark Rental', t.carpark_rental!=null ? 'RM '+fmt(t.carpark_rental) : null)}
-      ${row('IC / Passport', t.ic)}
-      ${row('Contact', t.contact)}
-      ${row('Email', t.email)}
-      ${row('Gender', t.gender)}
-      ${row('Nationality', t.nationality)}
-      ${row('Race', t.race)}
-      ${row('Marital Status', t.marital_status)}
-      ${row('No. of Staying', t.no_of_staying)}
-      ${row('Occupation', t.occupation)}
-      ${row('Company', t.company)}
-      ${row('Room Deposit', t.room_deposit!=null ? 'RM '+fmt(t.room_deposit) : null)}
-      ${row('Carpark Deposit', t.carpark_deposit!=null ? 'RM '+fmt(t.carpark_deposit) : null)}
-      ${row('Key Card Set', t.key_card_set)}
-      ${row('Emergency Name', t.emergency_name)}
-      ${row('Emergency Contact', t.emergency_contact)}
-      ${row('Agreement Start', fmtDate(t.agreement_start))}
-      ${row('Agreement End', fmtDate(t.agreement_end))}
-      ${row('Tenure', mo!=null ? (mo+' months') : null)}
-      ${row('Last Modified', t.updated_at ? new Date(t.updated_at).toLocaleString('en-MY',{dateStyle:'medium',timeStyle:'short'}) : null)}
-    </div>
+    ${sec('Property & Room')}
+    ${g3(
+      row('Property', p ? (p.condo+' · '+p.unit) : '—'),
+      row('Room Code', t.room_code),
+      row('Key Card Set', t.key_card_set)
+    )}
+    ${g3(
+      row('Room Rental', t.room_rental!=null ? 'RM '+fmt(t.room_rental) : null),
+      row('Room Deposit', t.room_deposit!=null ? 'RM '+fmt(t.room_deposit) : null),
+      row('')
+    )}
+    ${g3(
+      row('Carpark', t.carpark),
+      row('Carpark Rental', t.carpark_rental!=null ? 'RM '+fmt(t.carpark_rental) : null),
+      row('Carpark Deposit', t.carpark_deposit!=null ? 'RM '+fmt(t.carpark_deposit) : null)
+    )}
+
+    ${sec('Tenancy')}
+    ${g3(
+      row('Agreement Start', fmtDate(t.agreement_start)),
+      row('Agreement End', fmtDate(t.agreement_end)),
+      row('Tenure', mo!=null ? (mo+' months') : null)
+    )}
+
+    ${sec('Personal')}
+    ${g3(
+      row('IC / Passport', t.ic),
+      row('Contact', t.contact),
+      row('Email', t.email)
+    )}
+    ${g3(
+      row('Gender', t.gender),
+      row('Nationality', t.nationality),
+      row('Race', t.race)
+    )}
+    ${g3(
+      row('Marital Status', t.marital_status),
+      row('No. of Staying', t.no_of_staying),
+      row('')
+    )}
+    ${g2(
+      row('Occupation', t.occupation),
+      row('Company', t.company)
+    )}
+    ${g2(
+      row('Emergency Name', t.emergency_name),
+      row('Emergency Contact', t.emergency_contact)
+    )}
+
+    <div class="text-[10px] text-slate-400 mt-3">Last modified: ${t.updated_at ? new Date(t.updated_at).toLocaleString('en-MY',{dateStyle:'medium',timeStyle:'short'}) : '—'}</div>
     ${secondarySection}
     ${moveOutSection}`;
   const editBtn = t.active===false
@@ -6760,9 +6787,12 @@ function waNormalizePhone(raw){
 // Used on tenant contact fields so WA blast and reports are consistent.
 function normalizePhone(raw){
   if(!raw || !raw.trim()) return raw || '';
+  // Preserve Singapore numbers (+65 / 65XXXXXXXX / 8-digit starting with 6,8,9)
+  const trimmed = raw.trim().replace(/[\s\-]/g,'');
+  if(/^\+65/.test(trimmed) || /^65\d{8}$/.test(trimmed)) return trimmed.startsWith('+') ? trimmed : '+'+trimmed;
+  if(/^[689]\d{7}$/.test(trimmed)) return '+65'+trimmed; // bare 8-digit SG number
   const digits = waNormalizePhone(raw);   // gives '60XXXXXXXXX'
   if(!digits) return raw;
-  // Format as +60XX-XXXXXXX  (keeps original if it doesn't look like MY)
   return '+' + digits;
 }
 
