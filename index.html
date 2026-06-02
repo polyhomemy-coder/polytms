@@ -70,6 +70,7 @@
   html[data-theme="dark"] table.data tr.add-row td{background:#1A2E20;border-top-color:var(--accent)}
   html[data-theme="dark"] table.data tr.add-row:hover td{background:#1E3525}
   html[data-theme="dark"] .prop-grp-alt td{background:var(--row-alt)!important}
+  html[data-theme="dark"] #tenantTable tr.grp-first-row td{border-top:2px solid rgba(148,163,184,.3)!important}
   html[data-theme="dark"] .section-title{color:var(--ink)}
   html[data-theme="dark"] .help{color:var(--muted)}
   html[data-theme="dark"] .label{color:var(--muted)}
@@ -359,6 +360,8 @@
   #propTable td,#propTable th{padding:8px 8px}
   #propTable td:last-child{padding-right:6px}
   table.data tr.prop-grp-alt td{background:#F1F9FD}
+  /* Tenant tab: group separator line between properties */
+  #tenantTable tr.grp-first-row td{border-top:2px solid #CBD5E1 !important}
   /* ── Custom fast tooltip ── */
   #ttpTip{
     position:fixed;z-index:9999;pointer-events:none;
@@ -5126,18 +5129,14 @@ function renderTenants(){
   const rows = tenants.map(t=>{
     const p = state.properties.find(x=>x.id===t.property_id);
     const mo = tenureMonths(t.agreement_start, t.agreement_end);
-    // Alternate background per property group
-    if(t.property_id !== _lastPropId){ _lastPropId = t.property_id; _propGrp++; }
-    const grpCls = (_propGrp % 2 === 1) ? 'prop-grp-alt' : '';
+    // Group separator: add top border on first row of each new property group
+    const isNewGrp = t.property_id !== _lastPropId;
+    if(isNewGrp){ _lastPropId = t.property_id; _propGrp++; }
+    const grpCls = isNewGrp ? 'grp-first-row' : '';
     // Highlight rows whose contract ends within 60 days (only on the Active list)
     const cls = isMovedOut ? '' : (endingSoonClass(t)||'');
     const dte = daysToEnd(t);
-    let endingChip = '';
-    if(!isMovedOut && dte!=null && dte>=0 && dte<=60){
-      const txt = dte===0 ? 'ends today' : (dte===1 ? '1 day left' : (dte+' days left'));
-      const color = dte<=30 ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#FEF3C7] text-[#92400E]';
-      endingChip = ` <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${color}">⏰ ${txt}</span>`;
-    }
+    const endingChip = ''; // row color indicates expiry — no chip needed
     if(isMovedOut){
       const moDate = t.move_out_date ? fmtDate(t.move_out_date) : (t.agreement_end ? fmtDate(t.agreement_end) : '—');
       return `<tr class="${grpCls}">
@@ -5165,18 +5164,24 @@ function renderTenants(){
       <td class="num">${fmt(t.room_rental)}</td>
       <td>${esc(t.carpark||'')}</td>
       <td class="num">${fmt(t.carpark_rental)}</td>
-      <td>${fmtDate(t.agreement_start)}<br>${fmtDate(t.agreement_end)}</td>
-      <td class="text-center font-semibold">${mo!=null ? (mo+' mo') : '<span class="text-slate-400">—</span>'}</td>
-      <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" class="font-semibold">${esc(t.name)}${endingChip}</td>
-      <td>${esc(t.contact||'')}</td>
+      <td class="whitespace-nowrap">${fmtDate(t.agreement_start)}<br>${fmtDate(t.agreement_end)}</td>
+      <td class="text-center font-semibold whitespace-nowrap">${mo!=null ? (mo+' mo') : '<span class="text-slate-400">—</span>'}</td>
+      <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" class="font-semibold">${esc(t.name)}</td>
+      <td class="whitespace-nowrap">${esc(t.contact||'')}</td>
       <td class="text-center text-slate-500">${t.no_of_staying||'—'}</td>
-      <td class="text-right whitespace-nowrap">
-        <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantView('${t.id}')" title="View details">${ICON.view}</button>
-        <button class="p-1.5 rounded bg-slate-100 text-xs font-semibold" onclick="openTenantModal('${t.id}')" title="Edit">${ICON.edit}</button>
-        <button class="p-1.5 rounded bg-[#E8F4FD] text-[#1E5BB8] text-xs font-semibold" onclick="openGenerateTAModal('${t.id}')" title="Tenancy Agreement">${ICON.doc}</button>
-        <button class="p-1.5 rounded bg-[#DCFCE7] text-[#065F46] text-xs font-semibold" onclick="recontractTenant('${t.id}')" title="Recontract">${ICON.undo}</button>
-        <button class="p-1.5 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-semibold" onclick="moveOutTenant('${t.id}')" title="Move Out">${ICON.box}</button>
-        <button class="p-1.5 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delTenant('${t.id}')" title="Delete">${ICON.trash}</button>
+      <td class="text-right">
+        <div class="flex flex-col gap-0.5 items-end">
+          <div class="flex gap-0.5">
+            <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs" onclick="openTenantView('${t.id}')" title="View details">${ICON.view}</button>
+            <button class="p-1.5 rounded bg-slate-100 text-xs" onclick="openTenantModal('${t.id}')" title="Edit">${ICON.edit}</button>
+            <button class="p-1.5 rounded bg-[#E8F4FD] text-[#1E5BB8] text-xs" onclick="openGenerateTAModal('${t.id}')" title="Tenancy Agreement">${ICON.doc}</button>
+          </div>
+          <div class="flex gap-0.5">
+            <button class="p-1.5 rounded bg-[#DCFCE7] text-[#065F46] text-xs" onclick="recontractTenant('${t.id}')" title="Recontract">${ICON.undo}</button>
+            <button class="p-1.5 rounded bg-[#FFF4E5] text-[#F4811F] text-xs" onclick="moveOutTenant('${t.id}')" title="Move Out">${ICON.box}</button>
+            <button class="p-1.5 rounded bg-rose-50 text-rose-600 text-xs" onclick="delTenant('${t.id}')" title="Delete">${ICON.trash}</button>
+          </div>
+        </div>
       </td>
     </tr>`;
   }).join('');
