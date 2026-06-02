@@ -11342,7 +11342,9 @@ function openInviteUserModal(){
 // ════════════════════════════════════════════════════════════════
 function renderPropAssignPanel(container){
   const admins = state.adminProfiles || [];
-  const props  = [...state.properties].sort((a,b)=>(a.condo+' '+a.unit).localeCompare(b.condo+' '+b.unit));
+  const props  = [...state.properties]
+    .filter(p => _propPassesGlobalFilter(p))
+    .sort((a,b)=>(a.condo+' '+a.unit).localeCompare(b.condo+' '+b.unit));
 
   const adminName = id => {
     const a = admins.find(x=>x.id===id);
