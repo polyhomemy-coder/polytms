@@ -1325,6 +1325,10 @@
         <div class="sb-filter-label">Type</div>
         <div id="sbTypeChips" class="flex flex-wrap gap-1 mt-1"></div>
       </div>
+      <div id="sbAdminFilterSection" class="hidden">
+        <div class="sb-filter-label">Admin</div>
+        <div id="sbAdminChips" class="flex flex-wrap gap-1 mt-1"></div>
+      </div>
       <div id="sbFilterClearRow" class="hidden"><button id="sbFilterClear" class="sb-clear">✕ Clear filters</button></div>
     </div>
 
@@ -2002,6 +2006,8 @@ let state = {
   propSub: 'all',             // 'all' | 'vacancies' — Properties parent sub-pane
   propCityFilter: [],         // selected city values — empty = show all cities
   propTypeFilter: [],         // selected types ('H2M'|'R2R') — empty = show both
+  propAdminFilter: [],        // selected admin user IDs (manager only) — empty = show all admins
+  adminProfiles: [],          // [{id,email}] — all admin users, fetched on manager login
   tenantCityFilter: [],       // selected city values for tenant list — empty = show all
   tenantSub: 'active',        // 'active' | 'movedout' — Tenants parent sub-pane
 };
@@ -2218,21 +2224,26 @@ function confirmModal(msg, {confirmText='Confirm', cancelText='Cancel', danger=t
 
 function _propPassesGlobalFilter(p){
   if(!p) return true;
-  const cityFil = state.propCityFilter || [];
-  const typeFil = state.propTypeFilter || [];
-  if(cityFil.length && !cityFil.includes(p.city || '__none__')) return false;
-  if(typeFil.length && !typeFil.includes(p.property_type || 'H2M')) return false;
+  const cityFil  = state.propCityFilter  || [];
+  const typeFil  = state.propTypeFilter  || [];
+  const adminFil = state.propAdminFilter || [];
+  if(cityFil.length  && !cityFil.includes(p.city || '__none__')) return false;
+  if(typeFil.length  && !typeFil.includes(p.property_type || 'H2M')) return false;
+  if(adminFil.length && !adminFil.includes(p.created_by   || '__none__')) return false;
   return true;
 }
 
 function renderSidebarFilters(){
-  const cityChipsEl = document.getElementById('sbCityChips');
-  const typeChipsEl = document.getElementById('sbTypeChips');
-  const clearRow    = document.getElementById('sbFilterClearRow');
+  const cityChipsEl  = document.getElementById('sbCityChips');
+  const typeChipsEl  = document.getElementById('sbTypeChips');
+  const adminSection = document.getElementById('sbAdminFilterSection');
+  const adminChipsEl = document.getElementById('sbAdminChips');
+  const clearRow     = document.getElementById('sbFilterClearRow');
   if(!cityChipsEl || !typeChipsEl) return;
 
-  const cityFil = state.propCityFilter || [];
-  const typeFil = state.propTypeFilter || [];
+  const cityFil  = state.propCityFilter  || [];
+  const typeFil  = state.propTypeFilter  || [];
+  const adminFil = state.propAdminFilter || [];
 
   // Distinct cities from loaded properties
   const seen = new Set();
@@ -2240,7 +2251,7 @@ function renderSidebarFilters(){
   const cities = [...seen].sort((a,b)=>a.localeCompare(b));
 
   const mkChip = (label, active, group, value) =>
-    `<button type="button" class="sb-fchip${active?' active':''}" data-sbgroup="${group}" data-sbval="${label === '(no city)' ? '__none__' : value}">${label}</button>`;
+    `<button type="button" class="sb-fchip${active?' active':''}" data-sbgroup="${group}" data-sbval="${value}">${esc(label)}</button>`;
 
   cityChipsEl.innerHTML = cities.length
     ? cities.map(c=>mkChip(c, cityFil.includes(c), 'city', c)).join('')
@@ -2250,7 +2261,23 @@ function renderSidebarFilters(){
     mkChip('Help Manage', typeFil.includes('H2M'), 'type', 'H2M') +
     mkChip('Own Unit',    typeFil.includes('R2R'), 'type', 'R2R');
 
-  const totalActive = cityFil.length + typeFil.length;
+  // Admin filter chips — manager only
+  if(adminSection && adminChipsEl){
+    if(state.role === 'manager'){
+      adminSection.classList.remove('hidden');
+      const admins = state.adminProfiles || [];
+      adminChipsEl.innerHTML = admins.length
+        ? admins.map(a=>{
+            const label = a.email ? a.email.split('@')[0] : a.id.slice(0,8);
+            return mkChip(label, adminFil.includes(a.id), 'admin', a.id);
+          }).join('')
+        : '<span style="font-size:11px;color:#94a3b8">No admins</span>';
+    } else {
+      adminSection.classList.add('hidden');
+    }
+  }
+
+  const totalActive = cityFil.length + typeFil.length + adminFil.length;
   if(clearRow) clearRow.classList.toggle('hidden', totalActive === 0);
 }
 // ────────────────────────────────────────────────────────────────────────────
@@ -2733,11 +2760,11 @@ document.addEventListener('click', e=>{
 // These chips live in the sidebar and affect ALL tabs.
 document.addEventListener('click', e=>{
   // Sidebar chip toggle
-  const chip = e.target.closest('#sbCityChips .sb-fchip, #sbTypeChips .sb-fchip');
+  const chip = e.target.closest('#sbCityChips .sb-fchip, #sbTypeChips .sb-fchip, #sbAdminChips .sb-fchip');
   if(chip){
     const group = chip.dataset.sbgroup;
     const value = chip.dataset.sbval;
-    const key = group==='city' ? 'propCityFilter' : 'propTypeFilter';
+    const key = group==='city' ? 'propCityFilter' : group==='type' ? 'propTypeFilter' : 'propAdminFilter';
     const arr = state[key] = (state[key]||[]).slice();
     const idx = arr.indexOf(value);
     if(idx>=0) arr.splice(idx,1); else arr.push(value);
@@ -2746,8 +2773,9 @@ document.addEventListener('click', e=>{
   }
   // Clear all filters
   if(e.target.closest('#sbFilterClear')){
-    state.propCityFilter = [];
-    state.propTypeFilter = [];
+    state.propCityFilter  = [];
+    state.propTypeFilter  = [];
+    state.propAdminFilter = [];
     _applyGlobalFilterAndRender();
   }
 });
@@ -2802,7 +2830,12 @@ async function refreshMonthData(){
 
 // --- loaders -------------------------------------------------
 async function loadProperties(){
-  const {data,error}=await sb.from('properties').select('*').order('condo').order('unit');
+  let q = sb.from('properties').select('*').order('condo').order('unit');
+  // Admins only see properties they created — enforced client-side and by RLS
+  if(state.role === 'admin' && state.currentUserId){
+    q = q.eq('created_by', state.currentUserId);
+  }
+  const {data,error}=await q;
   if(error){toast(error.message,'bad');return;}
   state.properties=data||[];
 }
@@ -3963,6 +3996,13 @@ async function bootApp(){
   // setup that catches all future renders.
   _installAriaAutoMirror();
   await loadProperties();
+  // Manager: fetch list of admin users so the Admin sidebar filter can show their names
+  if(state.role === 'manager'){
+    try{
+      const {data:admins} = await sb.from('profiles').select('id,email').eq('role','admin').order('email');
+      state.adminProfiles = admins || [];
+    } catch(_){}
+  }
   await loadTenants();
   await loadReportStatus();
   await refreshMonthData();
@@ -8036,6 +8076,8 @@ function openPropertyModal(id){
         cleaning_charge_per_time: $('#f_clean_charge').value===''? null : Number($('#f_clean_charge').value)
       };
       if(!payload.condo||!payload.unit) throw new Error('Condo and Unit are required');
+      // Stamp creator — only on new properties (not edits)
+      if(!id && state.currentUserId) payload.created_by = state.currentUserId;
       // ── Multi-user safety ──────────────────────────────────────────────
       // Stamp updated_at so we can detect concurrent edits.
       payload.updated_at = new Date().toISOString();
