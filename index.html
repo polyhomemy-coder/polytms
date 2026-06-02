@@ -5162,13 +5162,13 @@ function renderTenants(){
       <td class="font-semibold whitespace-nowrap">${p ? esc(p.unit) : ''}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
       <td class="num">${fmt(t.room_rental)}</td>
-      <td>${esc(t.carpark||'')}</td>
+      <td style="line-height:1.4">${(t.carpark||'').split(/[\n,]/).map(c=>c.trim()).filter(Boolean).map(c=>esc(c)).join('<br>') || '—'}</td>
       <td class="num">${fmt(t.carpark_rental)}</td>
       <td class="whitespace-nowrap">${fmtDate(t.agreement_start)}<br>${fmtDate(t.agreement_end)}</td>
       <td class="text-center font-semibold whitespace-nowrap">${mo!=null ? (mo+' mo') : '<span class="text-slate-400">—</span>'}</td>
       <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" class="font-semibold">${esc(t.name)}</td>
-      <td class="whitespace-nowrap">${esc(t.contact||'')}</td>
-      <td class="text-center text-slate-500">${t.no_of_staying||'—'}</td>
+      <td class="whitespace-nowrap" style="line-height:1.4">${(t.contact||'').split(/[\n,]/).map(c=>c.trim()).filter(Boolean).map(c=>esc(c)).join('<br>')}</td>
+      <td class="text-center px-1 text-slate-500">${t.no_of_staying||'—'}</td>
       <td class="text-right" style="white-space:nowrap;min-width:76px">
         <div style="display:inline-flex;flex-direction:column;gap:2px;align-items:flex-end">
           <div style="display:flex;gap:2px">
@@ -5230,11 +5230,11 @@ function renderTenants(){
   }
   if(isMovedOut){
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Name</th><th>Contact</th><th class="text-center">No.</th><th></th>
+      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Name</th><th>Contact</th><th class="text-center px-1">PPL</th><th></th>
     </tr></thead><tbody>${rows || `<tr><td colspan="10" class="text-center text-slate-400 py-10">No moved-out tenants on record.</td></tr>`}</tbody>`;
   } else {
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Name</th><th>Contact</th><th class="text-center">No.</th><th></th>
+      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Name</th><th>Contact</th><th class="text-center px-1">PPL</th><th></th>
     </tr></thead><tbody>${allRows || `<tr><td colspan="12" class="text-center text-slate-400 py-10">${q?'No tenants match your search.':'No tenants yet.'}</td></tr>`}</tbody>`;
   }
 }
@@ -5933,7 +5933,7 @@ function openTenantView(id){
   }
   const row = (label, val) => val==null||val===''
     ? `<div class="py-1.5"><div class="text-xs uppercase tracking-wide text-slate-400">${esc(label)}</div><div class="text-sm text-slate-300">—</div></div>`
-    : `<div class="py-1.5"><div class="text-xs uppercase tracking-wide text-slate-500">${esc(label)}</div><div class="text-sm font-semibold text-slate-800">${esc(val)}</div></div>`;
+    : `<div class="py-1.5"><div class="text-xs uppercase tracking-wide text-slate-500">${esc(label)}</div><div class="text-sm font-semibold text-slate-800" style="line-height:1.5">${String(val).split('\n').map(l=>esc(l.trim())).filter(Boolean).join('<br>')}</div></div>`;
   // ---- First-month pro-rate reminder (active tenants only) ----
   // Shows when this tenant is in their move-in month or the month right after.
   // Surfaces the formula + a WhatsApp link to remind the tenant of next
@@ -6075,7 +6075,7 @@ function openTenantView(id){
     ${sec('Personal')}
     ${g3(
       row('IC / Passport', t.ic),
-      row('Contact', t.contact),
+      row('Contact', [t.contact, t.contact2].filter(Boolean).join('\n') || null),
       row('Email', t.email)
     )}
     ${g3(
@@ -8588,6 +8588,7 @@ function fillTenantFormFromPaste(){
   set('f_name',    d.name);
   set('f_ic',      d.ic);
   set('f_contact', d.contact);
+  if(d.contact2 && $('#f_contact2')){ $('#f_contact2').value = d.contact2; document.getElementById('f_contact2_wrap').style.display='block'; document.getElementById('f_contact2_btn').textContent='− Remove 2nd contact'; }
   set('f_email',   d.email);
   set('f_nat',     d.nationality);
   set('f_occ',     d.occupation);
@@ -8676,7 +8677,19 @@ function openTenantModal(id, prefill){
       <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
       <div><label class="label">Name *</label><input id="f_name" class="input" value="${esc(t.name||'')}"></div>
       <div><label class="label">IC / Passport</label><input id="f_ic" class="input" value="${esc(t.ic||'')}"></div>
-      <div><label class="label">Contact <span class="help">auto-formats to +60…</span></label><input id="f_contact" class="input" value="${esc(t.contact||'')}" onblur="this.value=normalizePhone(this.value)"></div>
+      <div>
+        <label class="label">Contact <span class="help">auto-formats to +60/+65…</span></label>
+        <input id="f_contact" class="input" value="${esc(t.contact||'')}" onblur="this.value=normalizePhone(this.value)">
+        <div id="f_contact2_wrap" style="display:${t.contact2?'block':'none'}; margin-top:4px">
+          <input id="f_contact2" class="input" placeholder="2nd contact number" value="${esc(t.contact2||'')}" onblur="this.value=normalizePhone(this.value)">
+        </div>
+        <button type="button" id="f_contact2_btn" onclick="
+          const w=document.getElementById('f_contact2_wrap');
+          const b=document.getElementById('f_contact2_btn');
+          if(w.style.display==='none'){w.style.display='block';b.textContent='− Remove 2nd contact';}
+          else{w.style.display='none';document.getElementById('f_contact2').value='';b.textContent='+ Add 2nd contact';}
+        " class="text-xs text-[color:var(--brand)] mt-1 underline underline-offset-2">${t.contact2 ? '− Remove 2nd contact' : '+ Add 2nd contact'}</button>
+      </div>
       <div><label class="label">Email</label><input id="f_email" class="input" value="${esc(t.email||'')}"></div>
       <div><label class="label">Gender</label>
         <select id="f_gender" class="input">
@@ -8805,6 +8818,7 @@ function openTenantModal(id, prefill){
       const payload = {
         property_id:$('#f_prop').value, name:$('#f_name').value.trim(),
         ic:$('#f_ic').value.trim(), contact:normalizePhone($('#f_contact').value.trim()),
+        contact2: normalizePhone(($('#f_contact2')?.value||'').trim()) || null,
         email:$('#f_email').value.trim(), gender:$('#f_gender').value,
         nationality:$('#f_nat').value.trim(),
         race:($('#f_nat').value.trim().toLowerCase()==='malaysian')
