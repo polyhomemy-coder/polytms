@@ -7988,7 +7988,7 @@ function openPropertyModal(id){
       <div><label class="label">Owner Name</label><input id="f_owner" class="input" value="${esc(p.owner_name||'')}"></div>
       <div><label class="label">Owner IC</label><input id="f_ic" class="input" value="${esc(p.owner_ic||'')}"></div>
       <div><label class="label">Owner Email</label><input id="f_email" class="input" value="${esc(p.owner_email||'')}">
-        ${!id?`<p class="help mt-1">📧 A login link will be sent automatically when you save.</p>`:''}
+        ${!id?`<p class="help mt-1">🏠 Owner account will be provisioned on save. Send the portal invitation from User Management when ready.</p>`:''}
       </div>
       <div><label class="label">Owner Contact</label><input id="f_contact" class="input" value="${esc(p.owner_contact||'')}"></div>
       <div><label class="label">Bank Name</label><input id="f_bank" class="input" value="${esc(p.bank_name||'')}"></div>
@@ -8059,23 +8059,19 @@ function openPropertyModal(id){
       await ensureBalanceForward();
       renderTab('properties');
 
-      // ── Auto-create owner portal account ──────────────────────────────
-      // Only for NEW properties (not edits) where owner_email was supplied.
-      // inviteUser() handles both cases: existing user → re-links the property,
-      // new user → sends a magic-link login email automatically.
+      // ── Auto-provision owner portal account (Approach 2) ─────────────────
+      // Silently creates the profile row so the owner appears in User Management
+      // with "Pending" status. No magic link is sent here — manager sends it
+      // manually via the "Send Invitation" button in User Management.
       const ownerEmail = payload.owner_email;
       if(!id && ownerEmail){
         const newPropId = savedProp?.id;
         try{
-          const result = await inviteUser(ownerEmail, 'owner', newPropId);
-          if(result?.restored){
-            toast(`🏠 Owner account linked — ${ownerEmail} can now log in to the owner portal`,'ok');
-          } else {
-            toast(`📧 Owner login link sent to ${ownerEmail}`,'ok');
-          }
-        } catch(inviteErr){
-          // Property was saved successfully — don't block on invite failure
-          toast(`Property saved. Owner invite failed: ${inviteErr.message} — you can retry from User Management.`,'warn');
+          await provisionOwnerAccount(ownerEmail, newPropId);
+          toast(`🏠 Owner account provisioned for ${ownerEmail} — send the invitation from User Management when ready.`,'ok');
+        } catch(provisionErr){
+          // Property was saved successfully — don't block on provisioning failure
+          toast(`Property saved. Owner provisioning failed: ${provisionErr.message} — you can add them from User Management.`,'warn');
         }
       }
   });
@@ -10980,7 +10976,7 @@ async function fetchAllProfiles(){
   if(!sb) return [];
   try {
     const {data, error} = await sb.from('profiles')
-      .select('id,email,name,role,property_id,created_at')
+      .select('id,email,name,role,property_id,created_at,portal_invited_at,last_login_at')
       .order('created_at', {ascending:true});
     return error ? [] : (data||[]);
   } catch(_){ return []; }
@@ -10996,6 +10992,34 @@ async function saveProfile(profile){
 async function deleteProfile(id){
   const {error} = await sb.from('profiles').delete().eq('id', id);
   if(error) throw new Error(error.message);
+}
+
+// ── Approach 2: Provision owner account silently (no email sent) ──────────────
+// Called on new property save. Creates the profile row in the DB so the owner
+// appears in User Management with status "Pending". No magic link is sent yet.
+// Manager clicks "Send Invitation" when they're ready.
+async function provisionOwnerAccount(email, propertyId){
+  const {data, error} = await sb.rpc('restore_or_invite_profile', {
+    p_email: email.toLowerCase(),
+    p_role: 'owner',
+    p_property_id: propertyId || null,
+  });
+  if(error) throw new Error(error.message);
+  return data; // {action:'created'|'restored'}
+}
+
+// Send (or resend) the magic-link invitation to an owner.
+// Also stamps portal_invited_at so we can show "Invited" status.
+async function sendOwnerInvitation(email){
+  // Send magic link
+  const {error: otpErr} = await sb.auth.signInWithOtp({
+    email,
+    options:{ shouldCreateUser: false, emailRedirectTo: location.origin + '/owner.html' }
+  });
+  if(otpErr) throw new Error(otpErr.message);
+  // Stamp portal_invited_at
+  await sb.from('profiles').update({ portal_invited_at: new Date().toISOString() })
+    .eq('email', email.toLowerCase());
 }
 
 // Smart invite-or-restore:
@@ -11045,22 +11069,51 @@ async function renderUserManagementPanel(container){
     tenant:  `<span style="background:#DCFCE7;color:#065F46;border:1px solid #86EFAC;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">🔑 Tenant</span>`,
   }[r] || `<span style="background:#F1F5F9;color:#64748B;border:1px solid #CBD5E1;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${esc(r)}</span>`);
 
+  // Status chip helper for owner rows
+  const statusChip = p => {
+    if(p.role !== 'owner') return '';
+    if(p.last_login_at){
+      return `<span style="background:#DCFCE7;color:#065F46;border:1px solid #86EFAC;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700">✅ Active</span>`;
+    }
+    if(p.portal_invited_at){
+      return `<span style="background:#FFF9E6;color:#92640A;border:1px solid #F8D47A;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700">📧 Invited</span>`;
+    }
+    return `<span style="background:#F1F5F9;color:#64748B;border:1px solid #CBD5E1;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700">⏳ Pending</span>`;
+  };
+
   const rows = profiles.map(p=>{
     const isMe = p.id === state.currentUserId;
     const propObj = p.property_id ? props.find(x=>x.id===p.property_id) : null;
     const propLabel = propObj ? `${propObj.condo||''} ${propObj.unit||''}`.trim() : '—';
     // Admin can only edit owner rows; manager can edit all (except themselves)
     const canEdit = !isMe && (isManager || (isAdmin && p.role === 'owner'));
+
+    // For owner rows: show Send/Resend Invitation button if not yet active
+    const inviteBtn = (p.role === 'owner' && !p.last_login_at && canEdit)
+      ? `<button onclick="doSendOwnerInvitation('${esc(p.email||'')}')"
+           style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;background:linear-gradient(135deg,#F4811F,#FF9A45);color:#fff;border:none;cursor:pointer;white-space:nowrap">
+           ${p.portal_invited_at ? '🔁 Resend' : '📧 Send Invitation'}</button>`
+      : '';
+
     const actionCell = isMe
       ? `<span style="font-size:11px;color:var(--muted);font-style:italic">You</span>`
       : canEdit
-        ? `<button onclick="openEditUserModal('${p.id}','${esc(p.email||'')}','${p.role}','${p.property_id||''}')"
-            style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">Edit</button>`
+        ? `<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;flex-wrap:wrap">
+             ${inviteBtn}
+             <button onclick="openEditUserModal('${p.id}','${esc(p.email||'')}','${p.role}','${p.property_id||''}')"
+               style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">Edit</button>
+           </div>`
         : `<span style="font-size:11px;color:var(--muted)">—</span>`;
+
+    const statusCell = p.role === 'owner'
+      ? `<td style="padding:10px 12px">${statusChip(p)}</td>`
+      : `<td style="padding:10px 12px;font-size:11px;color:var(--muted)">—</td>`;
+
     return `<tr data-uid="${p.id}">
       <td style="padding:10px 12px;font-size:13px;color:var(--ink)">${esc(p.email||'')}</td>
       <td style="padding:10px 12px">${roleChip(p.role)}</td>
       <td style="padding:10px 12px;font-size:12px;color:var(--muted)">${esc(propLabel)}</td>
+      ${statusCell}
       <td style="padding:10px 12px;text-align:right">${actionCell}</td>
     </tr>`;
   }).join('');
@@ -11085,16 +11138,32 @@ async function renderUserManagementPanel(container){
             <tr style="background:var(--th-bg)">
               <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Email</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Role</th>
-              <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Property (Owner)</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Property</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Status</th>
               <th style="padding:10px 12px"></th>
             </tr>
           </thead>
-          <tbody>${rows||`<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No users yet</td></tr>`}</tbody>
+          <tbody>${rows||`<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No users yet</td></tr>`}</tbody>
         </table>
       </div>
     </div>`;
 
   document.getElementById('btnInviteUser').onclick = openInviteUserModal;
+}
+
+// Called from the "Send Invitation" / "Resend" button in the User Management table.
+async function doSendOwnerInvitation(email){
+  if(!email) return;
+  const ok = await confirmModal(`Send portal login invitation to:\n\n${email}\n\nThey'll receive a magic link to access the owner portal.`, {confirmText:'Send Invitation'});
+  if(!ok) return;
+  try{
+    await sendOwnerInvitation(email);
+    toast(`📧 Invitation sent to ${email}`,'ok');
+    const container = document.getElementById('userMgmtPanel');
+    if(container) await renderUserManagementPanel(container);
+  } catch(e){
+    toast('Failed to send invitation: '+e.message,'bad');
+  }
 }
 
 // ── Invite User Modal ─────────────────────────────────────────

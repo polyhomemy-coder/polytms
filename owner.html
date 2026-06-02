@@ -2214,6 +2214,9 @@ async function saveElecBills(){
   }
 
   $('topbarUser').textContent=sess.user.email;
+  // Record that the owner has successfully logged in
+  sb.from('profiles').update({ last_login_at: new Date().toISOString() })
+    .eq('id', sess.user.id).then(()=>{});
   hideLoading();showApp();
   await loadAllData();
 })();
@@ -2233,6 +2236,9 @@ async function saveElecBills(){
       state.userId=data.user.id;state.user=data.user;
       const role=await getMyRole();
       if(role!=='owner'){window.location.href='index.html';return;}
+      // Record successful login
+      sb.from('profiles').update({ last_login_at: new Date().toISOString() })
+        .eq('id', data.user.id).then(()=>{});
       hideLogin();
       $('topbarUser').textContent=data.user.email;
       showApp();
