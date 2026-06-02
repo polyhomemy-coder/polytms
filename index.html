@@ -1322,7 +1322,11 @@
         <div id="sbCityChips" class="flex flex-wrap gap-1 mt-1"></div>
       </div>
       <div>
-        <div class="sb-filter-label">Type</div>
+        <div class="sb-filter-label">Model</div>
+        <div id="sbModelChips" class="flex flex-wrap gap-1 mt-1"></div>
+      </div>
+      <div>
+        <div class="sb-filter-label">Unit Type</div>
         <div id="sbTypeChips" class="flex flex-wrap gap-1 mt-1"></div>
       </div>
       <div id="sbAdminFilterSection" class="hidden">
@@ -2005,7 +2009,8 @@ let state = {
   r2rYear: null,              // year shown in the R2R yearly matrix; null = follow state.year
   propSub: 'all',             // 'all' | 'vacancies' — Properties parent sub-pane
   propCityFilter: [],         // selected city values — empty = show all cities
-  propTypeFilter: [],         // selected types ('H2M'|'R2R') — empty = show both
+  propTypeFilter: [],         // selected unit types ('other_unit'|'own_unit') — empty = show both
+  propModelFilter: [],        // selected models ('H2M'|'R2R') — empty = show both
   propAdminFilter: [],        // selected admin user IDs (manager only) — empty = show all admins
   adminProfiles: [],          // [{id,email}] — all admin users, fetched on manager login
   tenantCityFilter: [],       // selected city values for tenant list — empty = show all
@@ -2225,11 +2230,13 @@ function confirmModal(msg, {confirmText='Confirm', cancelText='Cancel', danger=t
 function _propPassesGlobalFilter(p){
   if(!p) return true;
   const cityFil  = state.propCityFilter  || [];
-  const typeFil  = state.propTypeFilter  || [];
+  const typeFil  = state.propTypeFilter  || [];   // other_unit | own_unit
+  const modelFil = state.propModelFilter || [];   // H2M | R2R
   const adminFil = state.propAdminFilter || [];
   if(cityFil.length  && !cityFil.includes(p.city || '__none__')) return false;
-  if(typeFil.length  && !typeFil.includes(p.property_type || 'H2M')) return false;
-  if(adminFil.length && !adminFil.includes(p.created_by   || '__none__')) return false;
+  if(typeFil.length  && !typeFil.includes(p.unit_type || 'other_unit')) return false;
+  if(modelFil.length && !modelFil.includes(p.model || '__none__')) return false;
+  if(adminFil.length && !adminFil.includes(p.created_by || '__none__')) return false;
   return true;
 }
 
@@ -2243,6 +2250,7 @@ function renderSidebarFilters(){
 
   const cityFil  = state.propCityFilter  || [];
   const typeFil  = state.propTypeFilter  || [];
+  const modelFil = state.propModelFilter || [];
   const adminFil = state.propAdminFilter || [];
 
   // Distinct cities from loaded properties
@@ -2257,9 +2265,18 @@ function renderSidebarFilters(){
     ? cities.map(c=>mkChip(c, cityFil.includes(c), 'city', c)).join('')
     : '<span style="font-size:11px;color:#94a3b8">—</span>';
 
+  // Unit Type chips — controls balance forward behaviour
   typeChipsEl.innerHTML =
-    mkChip('Help Manage', typeFil.includes('H2M'), 'type', 'H2M') +
-    mkChip('Own Unit',    typeFil.includes('R2R'), 'type', 'R2R');
+    mkChip('Other Unit', typeFil.includes('other_unit'), 'type', 'other_unit') +
+    mkChip('Own Unit',   typeFil.includes('own_unit'),   'type', 'own_unit');
+
+  // Model chips — H2M vs R2R business model
+  const modelChipsEl = document.getElementById('sbModelChips');
+  if(modelChipsEl){
+    modelChipsEl.innerHTML =
+      mkChip('H2M', modelFil.includes('H2M'), 'model', 'H2M') +
+      mkChip('R2R', modelFil.includes('R2R'), 'model', 'R2R');
+  }
 
   // Admin filter chips — manager only
   if(adminSection && adminChipsEl){
@@ -2277,7 +2294,7 @@ function renderSidebarFilters(){
     }
   }
 
-  const totalActive = cityFil.length + typeFil.length + adminFil.length;
+  const totalActive = cityFil.length + typeFil.length + modelFil.length + adminFil.length;
   if(clearRow) clearRow.classList.toggle('hidden', totalActive === 0);
 }
 // ────────────────────────────────────────────────────────────────────────────
@@ -2760,11 +2777,11 @@ document.addEventListener('click', e=>{
 // These chips live in the sidebar and affect ALL tabs.
 document.addEventListener('click', e=>{
   // Sidebar chip toggle
-  const chip = e.target.closest('#sbCityChips .sb-fchip, #sbTypeChips .sb-fchip, #sbAdminChips .sb-fchip');
+  const chip = e.target.closest('#sbCityChips .sb-fchip, #sbTypeChips .sb-fchip, #sbModelChips .sb-fchip, #sbAdminChips .sb-fchip');
   if(chip){
     const group = chip.dataset.sbgroup;
     const value = chip.dataset.sbval;
-    const key = group==='city' ? 'propCityFilter' : group==='type' ? 'propTypeFilter' : 'propAdminFilter';
+    const key = group==='city' ? 'propCityFilter' : group==='type' ? 'propTypeFilter' : group==='model' ? 'propModelFilter' : 'propAdminFilter';
     const arr = state[key] = (state[key]||[]).slice();
     const idx = arr.indexOf(value);
     if(idx>=0) arr.splice(idx,1); else arr.push(value);
@@ -2775,6 +2792,7 @@ document.addEventListener('click', e=>{
   if(e.target.closest('#sbFilterClear')){
     state.propCityFilter  = [];
     state.propTypeFilter  = [];
+    state.propModelFilter = [];
     state.propAdminFilter = [];
     _applyGlobalFilterAndRender();
   }
@@ -3420,6 +3438,9 @@ async function ensureCleaningExpensesFor(propId, y, m){
 async function ensureBalanceForwardFor(propId, y, m){
   const p = (state.properties||[]).find(x=>x.id===propId);
   if(!p || p.active===false) return false;
+  // Skip Own Unit properties — their losses don't roll forward
+  const isOwnUnit = p.unit_type ? p.unit_type === 'own_unit' : String(p.property_type||'H2M').toUpperCase() === 'R2R';
+  if(isOwnUnit) return false;
   if(isReportLocked(propId, y, m)) return false;
   let py = y, pm = m - 1;
   if(pm < 1){ py = y - 1; pm = 12; }
@@ -3920,9 +3941,12 @@ async function ensureBalanceForward(){
   // "previous" is by definition pre-anchor). The first month that can carry
   // forward is anchor + 1.
   if(_bfIsBeforeAnchor(py, pm)) return false;
-  // Apply BF to ALL active properties regardless of type — losses on any
-  // property (H2M or R2R) roll forward until cleared.
-  const props = (state.properties||[]).filter(p=> p.active!==false);
+  // Apply BF only to "Other Unit" properties — Own Unit losses are not carried forward.
+  // unit_type='other_unit' (or legacy property_type='H2M') both get balance forward.
+  const props = (state.properties||[]).filter(p=>
+    p.active!==false &&
+    (p.unit_type ? p.unit_type === 'other_unit' : String(p.property_type||'H2M').toUpperCase() === 'H2M')
+  );
   if(!props.length) return false;
   const rowsToInsert = [];
   let updated = 0;
@@ -4556,7 +4580,7 @@ function renderRateDonut(o){
 // ============================================================
 function renderHelpManageDashboard(){
   const props = state.properties.filter(p=>
-    String(p.property_type||'H2M').toUpperCase() === 'H2M'
+    p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M'
   );
   const propIds = new Set(props.map(p=>p.id));
   const tenants = state.tenants.filter(t=>propIds.has(t.property_id) && t.active!==false);
@@ -4797,7 +4821,7 @@ function renderHelpManageDashboard(){
 // ============================================================
 async function renderOwnUnitDashboard(){
   const props = state.properties.filter(p=>
-    String(p.property_type||'H2M').toUpperCase() === 'R2R'
+    p.model ? p.model === 'R2R' : String(p.property_type||'H2M').toUpperCase() === 'R2R'
   );
   $('#r2rUnitCount').textContent = props.length;
 
@@ -4916,17 +4940,17 @@ function renderProperties(){
   // ---- Apply City + Type filters (multi-select, OR within a group, AND across groups) ----
   const cityFil = (state.propCityFilter||[]);
   const typeFil = (state.propTypeFilter||[]);
-  const filtered = state.properties.filter(p=>{
-    const cityOK = !cityFil.length || cityFil.includes(p.city || '__none__');
-    const ptype  = String(p.property_type||'H2M').toUpperCase();
-    const typeOK = !typeFil.length || typeFil.includes(ptype);
-    return cityOK && typeOK;
-  });
+  const filtered = state.properties.filter(p=>_propPassesGlobalFilter(p));
   const rows = filtered.map((p, i)=>{
-    const ptype = String(p.property_type||'H2M').toUpperCase();
-    const ptypeBadge = ptype==='H2M'
-      ? '<span class="px-1.5 py-0.5 rounded bg-[#E8F8FA] text-[color:var(--brand)] text-xs font-bold whitespace-nowrap">Help Manage</span>'
-      : '<span class="px-1.5 py-0.5 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-bold whitespace-nowrap">Own Unit</span>';
+    const modelVal = p.model || (String(p.property_type||'H2M').toUpperCase()==='R2R'?'R2R':'H2M');
+    const unitTypeVal = p.unit_type || (String(p.property_type||'H2M').toUpperCase()==='R2R'?'own_unit':'other_unit');
+    const modelBadge = modelVal === 'H2M'
+      ? '<span class="px-1.5 py-0.5 rounded bg-[#E8F8FA] text-[color:var(--brand)] text-xs font-bold whitespace-nowrap">H2M</span>'
+      : '<span class="px-1.5 py-0.5 rounded bg-[#EDE9FE] text-[#6D28D9] text-xs font-bold whitespace-nowrap">R2R</span>';
+    const unitBadge = unitTypeVal === 'own_unit'
+      ? '<span class="px-1.5 py-0.5 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-bold whitespace-nowrap">Own Unit</span>'
+      : '<span class="px-1.5 py-0.5 rounded bg-[#F0FDF4] text-[#15803D] text-xs font-bold whitespace-nowrap">Other Unit</span>';
+    const ptypeBadge = modelBadge + ' ' + unitBadge;
     const cityBadge = p.city
       ? `<span class="px-1.5 py-0.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-bold whitespace-nowrap">${esc(p.city)}</span>`
       : '<span class="text-xs text-slate-300">—</span>';
@@ -6527,7 +6551,8 @@ function buildSAFields(property){
     serviceFeeAmt:   '',   // left blank — owner fills in after net calc
     bankName:        p.bank_name     || '',
     bankAccount:     p.bank_account  || '',
-    propertyType:    String(p.property_type||'H2M').toUpperCase()==='R2R' ? 'Own Unit' : 'Help Manage',
+    propertyType:    (p.unit_type==='own_unit' || (!p.unit_type && String(p.property_type||'').toUpperCase()==='R2R')) ? 'Own Unit' : 'Other Unit',
+    propertyModel:   p.model || (String(p.property_type||'H2M').toUpperCase()==='R2R'?'R2R':'H2M'),
   };
 }
 
@@ -8045,12 +8070,20 @@ function openPropertyModal(id){
       <div><label class="label">Period (months)</label><input type="number" id="f_period" class="input" value="${p.period_months??''}"></div>
       <div><label class="label">Agreement Date</label><input type="date" id="f_agreement" class="input" value="${p.agreement_date||''}"></div>
       <div><label class="label">Service Fee %</label><input type="number" step="0.01" id="f_fee" class="input" value="${p.service_percent??10}"></div>
-      <div><label class="label">Property Type</label>
-        <select id="f_ptype" class="input">
-          <option value="H2M" ${String(p.property_type||'H2M').toUpperCase()==='H2M'?'selected':''}>Help Manage (operator manages on behalf of owner)</option>
-          <option value="R2R" ${String(p.property_type||'').toUpperCase()==='R2R'?'selected':''}>Own Unit (operator-owned)</option>
+      <div><label class="label">Model</label>
+        <select id="f_model" class="input">
+          <option value="">— Not set —</option>
+          <option value="H2M" ${(p.model||'')==='H2M'?'selected':''}>H2M — Help to Manage (manage on behalf of owner)</option>
+          <option value="R2R" ${(p.model||'')==='R2R'?'selected':''}>R2R — Rent to Rent (operator-leased)</option>
         </select>
-        <p class="help mt-1">Negative nett rolls forward as a "Balance Forward" expense in the next month. The chain starts from the current calendar month — months before today never produce a Balance Forward, so default cleaning expenses on past months don't artificially carry losses into the present.</p>
+        <p class="help mt-1">Used for dashboard performance comparison between H2M and R2R portfolios.</p>
+      </div>
+      <div><label class="label">Unit Type</label>
+        <select id="f_ptype" class="input">
+          <option value="other_unit" ${(p.unit_type||'other_unit')==='other_unit'?'selected':''}>Other Unit — negative nett rolls forward as Balance Forward</option>
+          <option value="own_unit"   ${(p.unit_type||'')==='own_unit'?'selected':''}>Own Unit — negative nett is not carried forward</option>
+        </select>
+        <p class="help mt-1">Determines whether a loss month generates a Balance Forward expense in the following month.</p>
       </div>
       <div class="md:col-span-2 pt-1">
         <div class="text-xs font-bold uppercase tracking-wide text-[color:var(--brand)] border-t border-[color:var(--line)] pt-3 mt-1">🧽 Cleaning Schedule</div>
@@ -8079,7 +8112,10 @@ function openPropertyModal(id){
         agreement_date:$('#f_agreement').value||null, service_percent:Number($('#f_fee').value)||0,
         property_type: ($('#f_ptype')?.value || 'H2M').toUpperCase(),
         cleaning_times_per_month: $('#f_clean_times').value===''? null : Number($('#f_clean_times').value),
-        cleaning_charge_per_time: $('#f_clean_charge').value===''? null : Number($('#f_clean_charge').value)
+        cleaning_charge_per_time: $('#f_clean_charge').value===''? null : Number($('#f_clean_charge').value),
+        model: $('#f_model')?.value || null,
+        unit_type: ($('#f_ptype')?.value || 'other_unit'),
+        property_type: ($('#f_ptype')?.value === 'own_unit' ? 'R2R' : 'H2M'), // legacy compat
       };
       if(!payload.condo||!payload.unit) throw new Error('Condo and Unit are required');
       // Stamp creator — only on new properties (not edits)
