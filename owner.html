@@ -1013,6 +1013,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--ink);min-height:10
     <button class="tab-btn" data-tab="tenants">👥 My Tenants</button>
     <button class="tab-btn" data-tab="yearly">📈 Yearly Overview</button>
     <button class="tab-btn" data-tab="aircon">❄️ Aircon &amp; Electricity</button>
+    <button class="tab-btn" data-tab="notices" id="tabNotices">📢 Notices</button>
   </div>
 
   <!-- Content panes -->
@@ -1021,6 +1022,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--ink);min-height:10
     <div id="paneTenants" style="display:none"></div>
     <div id="paneYearly" style="display:none"></div>
     <div id="paneAircon" style="display:none"></div>
+    <div id="paneNotices" style="display:none"></div>
   </div>
 </div>
 
@@ -1141,7 +1143,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     state.activeTab=btn.dataset.tab;
-    ['report','tenants','yearly','aircon'].forEach(t=>{
+    ['report','tenants','yearly','aircon','notices'].forEach(t=>{
       const el=$('pane'+t.charAt(0).toUpperCase()+t.slice(1));
       if(el) el.style.display=(t===state.activeTab)?'':'none';
     });
@@ -1153,6 +1155,7 @@ function renderActiveTab(){
   if(state.activeTab==='tenants')  renderTenants();
   if(state.activeTab==='yearly')   renderYearly();
   if(state.activeTab==='aircon')   renderAircon();
+  if(state.activeTab==='notices')  renderNotices();
 }
 
 // ════════════════════════════════════════════════════════
@@ -1762,8 +1765,24 @@ function renderTenants(){
   const totalRental=active.reduce((s,t)=>s+(Number(t.rental||0)+Number(t.carpark_rental||0)),0);
   const occupancyPct=rooms.length?Math.round((active.length/rooms.length)*100):0;
 
+  // Lease expiry alert banner
+  const expiryAlerts = active
+    .map(t=>{ const e=t.end_date?new Date(t.end_date):null; return e?{t,days:Math.round((e-new Date())/86400000)}:null; })
+    .filter(x=>x&&x.days>=0&&x.days<=60)
+    .sort((a,b)=>a.days-b.days);
+  const expiryBanner = expiryAlerts.length ? `
+    <div style="background:#FFF4E0;border:1.5px solid #F8C893;border-radius:12px;padding:12px 16px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:700;color:#C85900;margin-bottom:6px">⏰ Upcoming Lease Expiries</div>
+      ${expiryAlerts.map(({t,days})=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #F8D9AC;font-size:12px;color:var(--ink)">
+          <span><b>${esc(t.room_code||'?')}</b> — ${esc(t.name||'Tenant')}</span>
+          <span style="font-weight:700;color:${days<=14?'#C0392B':'#C85900'}">${days===0?'Today':days+'d left'} (${t.end_date||''})</span>
+        </div>`).join('')}
+    </div>` : '';
+
   // Stats
   const statsHtml=`
+    ${expiryBanner}
     <div class="stat-grid" style="margin-bottom:20px">
       <div class="stat-card"><div class="stat-label">Total Rooms</div><div class="stat-val">${rooms.length}</div></div>
       <div class="stat-card"><div class="stat-label">Occupied</div><div class="stat-val">${active.length}</div></div>
@@ -1968,6 +1987,8 @@ function renderYearlyContent(){
   });
 
   const maxVal=Math.max(...monthly.map(x=>x.nett),market,1);
+  const totalIncome=monthly.reduce((s,x)=>s+x.income+x.extras,0);
+  const totalExp=monthly.reduce((s,x)=>s+x.exp,0);
   const totalNett=monthly.reduce((s,x)=>s+x.nett,0);
   const avgNett=totalNett/12;
 
@@ -1996,9 +2017,22 @@ function renderYearlyContent(){
       <div class="bar-wrap">${bars}</div>
     </div>
 
+    <div style="background:linear-gradient(135deg,#004C56,#007B8A);border-radius:14px;padding:16px;margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <div style="text-align:center">
+        <div style="font-size:11px;color:rgba(255,255,255,.7);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Income</div>
+        <div style="font-size:18px;font-weight:800;color:#fff;margin-top:4px">RM ${fmt(totalIncome)}</div>
+      </div>
+      <div style="text-align:center;border-left:1px solid rgba(255,255,255,.2);border-right:1px solid rgba(255,255,255,.2)">
+        <div style="font-size:11px;color:rgba(255,255,255,.7);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Expenses</div>
+        <div style="font-size:18px;font-weight:800;color:#FFD8A8;margin-top:4px">RM ${fmt(totalExp)}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:11px;color:rgba(255,255,255,.7);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Net Payout ${y}</div>
+        <div style="font-size:18px;font-weight:800;color:#7FFFD4;margin-top:4px">RM ${fmt(totalNett)}</div>
+      </div>
+    </div>
     <div class="stat-grid">
-      <div class="stat-card"><div class="stat-label">Total Nett ${y}</div><div class="stat-val orange">RM ${fmt(totalNett)}</div></div>
-      <div class="stat-card"><div class="stat-label">Avg Monthly</div><div class="stat-val">RM ${fmt(avgNett)}</div></div>
+      <div class="stat-card"><div class="stat-label">Avg Monthly Nett</div><div class="stat-val orange">RM ${fmt(avgNett)}</div></div>
       ${market?`<div class="stat-card"><div class="stat-label">Market/mo</div><div class="stat-val" style="color:var(--muted)">RM ${fmt(market)}</div></div>
       <div class="stat-card"><div class="stat-label">vs Market (avg)</div><div class="stat-val" style="color:${avgNett>=market?'#059669':'#C85900'}">${avgNett>=market?'▲':'▼'} RM ${fmt(Math.abs(avgNett-market))}</div></div>`:''}
     </div>
@@ -2220,6 +2254,74 @@ async function saveElecBills(){
   hideLoading();showApp();
   await loadAllData();
 })();
+
+// ════════════════════════════════════════════════════════
+// TAB 5: NOTICES (Announcements from manager)
+// ════════════════════════════════════════════════════════
+async function renderNotices(){
+  const el=$('paneNotices'); if(!el) return;
+  el.innerHTML=`<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Loading notices…</div>`;
+
+  let notices=[];
+  try{
+    const{data,error}=await sb.from('announcements')
+      .select('id,title,body,video_url,created_at')
+      .order('created_at',{ascending:false});
+    if(error) throw error;
+    notices=data||[];
+  } catch(e){
+    el.innerHTML=`<div style="padding:24px;color:#C0392B;font-size:13px">Could not load notices: ${esc(e.message)}</div>`;
+    return;
+  }
+
+  // Badge on tab if there are notices
+  const tabBtn=document.getElementById('tabNotices');
+  if(tabBtn) tabBtn.textContent=`📢 Notices${notices.length?` (${notices.length})`:''}`;
+
+  if(!notices.length){
+    el.innerHTML=`<div style="padding:40px;text-align:center">
+      <div style="font-size:40px;margin-bottom:10px">📭</div>
+      <div style="font-size:15px;font-weight:700;color:var(--ink)">No notices yet</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:6px">Your property manager will post updates and announcements here.</div>
+    </div>`;
+    return;
+  }
+
+  // Helper: extract YouTube video ID from URL
+  const ytId=url=>{
+    try{
+      const u=new URL(url);
+      if(u.hostname.includes('youtu.be')) return u.pathname.slice(1);
+      if(u.hostname.includes('youtube.com')) return u.searchParams.get('v');
+    }catch(_){}
+    return null;
+  };
+
+  const cards=notices.map(n=>{
+    const dt=n.created_at?new Date(n.created_at).toLocaleDateString('en-MY',{day:'numeric',month:'short',year:'numeric'}):'';
+    const vid=n.video_url?ytId(n.video_url):null;
+    const mediaHtml=n.video_url?(vid
+      ?`<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:10px;margin-top:12px">
+          <iframe src="https://www.youtube.com/embed/${vid}" frameborder="0" allowfullscreen
+            style="position:absolute;top:0;left:0;width:100%;height:100%;border-radius:10px"></iframe>
+        </div>`
+      :`<a href="${esc(n.video_url)}" target="_blank" rel="noopener"
+          style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:13px;font-weight:600;color:#007B8A;text-decoration:none;background:#E8F8FA;padding:8px 14px;border-radius:8px;border:1px solid #B3E3EA">
+          🔗 View link
+        </a>`)
+    :'';
+    return `<div style="background:var(--card-bg);border:1.5px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="font-size:15px;font-weight:800;color:var(--ink)">${esc(n.title)}</div>
+        <div style="font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0">${dt}</div>
+      </div>
+      ${n.body?`<div style="font-size:13px;color:var(--ink);line-height:1.6;margin-top:8px;white-space:pre-wrap">${esc(n.body)}</div>`:''}
+      ${mediaHtml}
+    </div>`;
+  }).join('');
+
+  el.innerHTML=`<div style="padding:0 2px">${cards}</div>`;
+}
 
 // ── Login wiring ──────────────────────────────────────────────
 (function(){

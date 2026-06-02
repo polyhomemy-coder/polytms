@@ -4413,12 +4413,18 @@ function renderAdminDashboard(){
   </div>
 
   ${(state.role === 'manager' || state.role === 'admin') ? `<div id="userMgmtPanel" style="margin-top:8px"></div>` : ''}
+  ${state.role === 'manager' ? `<div id="announcementsPanel" style="margin-top:8px"></div>` : ''}
   `;
 
   // Render user management panel for manager and admin
   if(state.role === 'manager' || state.role === 'admin'){
     const panel = document.getElementById('userMgmtPanel');
     if(panel) renderUserManagementPanel(panel);
+  }
+  // Render announcements panel for manager
+  if(state.role === 'manager'){
+    const panel = document.getElementById('announcementsPanel');
+    if(panel) renderAnnouncementsPanel(panel);
   }
 }
 
@@ -11234,6 +11240,128 @@ function openInviteUserModal(){
       if(container) await renderUserManagementPanel(container);
     } catch(e){ toast('Failed: '+e.message,'bad'); }
   }, 'Send Invite');
+}
+
+// ════════════════════════════════════════════════════════════════
+// ANNOUNCEMENTS MANAGEMENT (manager only)
+// ════════════════════════════════════════════════════════════════
+async function renderAnnouncementsPanel(container){
+  container.innerHTML=`<div class="text-sm text-slate-400 py-4">Loading announcements…</div>`;
+  let notices=[];
+  try{
+    const{data,error}=await sb.from('announcements')
+      .select('id,title,body,video_url,created_at')
+      .order('created_at',{ascending:false});
+    if(error) throw error;
+    notices=data||[];
+  } catch(e){
+    container.innerHTML=`<div style="color:#C0392B;font-size:13px;padding:8px">Could not load announcements: ${esc(e.message)}</div>`;
+    return;
+  }
+
+  const rows=notices.map(n=>{
+    const dt=n.created_at?new Date(n.created_at).toLocaleDateString('en-MY',{day:'numeric',month:'short',year:'numeric'}):'';
+    return `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:var(--ink)">${esc(n.title)}</div>
+        ${n.body?`<div style="font-size:12px;color:var(--muted);margin-top:3px;white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(n.body)}</div>`:''}
+        ${n.video_url?`<div style="font-size:11px;color:#007B8A;margin-top:3px">🔗 ${esc(n.video_url.slice(0,60))}${n.video_url.length>60?'…':''}</div>`:''}
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">${dt}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button onclick="openEditAnnouncementModal('${n.id}','${esc(n.title||'')}',${JSON.stringify(n.body||'')},${JSON.stringify(n.video_url||'')})"
+          style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">Edit</button>
+        <button onclick="deleteAnnouncement('${n.id}')"
+          style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:8px;background:#FFF0F0;color:#C0392B;border:1px solid #FCCACA;cursor:pointer">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  container.innerHTML=`
+    <div style="background:var(--card);border-radius:16px;border:1px solid var(--line);overflow:hidden;margin-bottom:24px">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--ink)">📢 Announcements</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">Visible to all owners in their portal Notices tab</div>
+        </div>
+        <button id="btnAddAnnouncement" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#F4811F,#FF9A45);color:#fff;border:none;cursor:pointer">+ New Notice</button>
+      </div>
+      <div style="padding:0 18px">
+        ${rows||`<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No announcements yet. Create one to notify all owners.</div>`}
+      </div>
+    </div>`;
+
+  document.getElementById('btnAddAnnouncement').onclick=openCreateAnnouncementModal;
+}
+
+function openCreateAnnouncementModal(){
+  const body=`<div style="display:flex;flex-direction:column;gap:14px">
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">TITLE *</label>
+      <input id="annTitle" class="input" placeholder="e.g. New service package available" style="width:100%;box-sizing:border-box">
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">MESSAGE</label>
+      <textarea id="annBody" class="input" rows="4" placeholder="Type your message here…" style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">VIDEO / LINK URL (optional)</label>
+      <input id="annVideo" class="input" placeholder="https://youtube.com/watch?v=… or any URL" style="width:100%;box-sizing:border-box">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">YouTube links will be embedded automatically. Other URLs show as a clickable link.</div>
+    </div>
+  </div>`;
+  openModal('New Announcement', body, async()=>{
+    const title=(document.getElementById('annTitle')?.value||'').trim();
+    const annBody=(document.getElementById('annBody')?.value||'').trim();
+    const video=(document.getElementById('annVideo')?.value||'').trim();
+    if(!title){toast('Title is required','bad');return;}
+    const{error}=await sb.from('announcements').insert({
+      title, body:annBody||null, video_url:video||null, created_by:state.currentUserId
+    });
+    if(error){toast('Failed: '+error.message,'bad');return;}
+    toast('📢 Announcement posted','ok');
+    const panel=document.getElementById('announcementsPanel');
+    if(panel) await renderAnnouncementsPanel(panel);
+  },'Post Announcement');
+}
+
+function openEditAnnouncementModal(id,title,body,videoUrl){
+  const html=`<div style="display:flex;flex-direction:column;gap:14px">
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">TITLE *</label>
+      <input id="annTitle" class="input" value="${esc(title)}" style="width:100%;box-sizing:border-box">
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">MESSAGE</label>
+      <textarea id="annBody" class="input" rows="4" style="width:100%;box-sizing:border-box;resize:vertical">${esc(body)}</textarea>
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">VIDEO / LINK URL (optional)</label>
+      <input id="annVideo" class="input" value="${esc(videoUrl)}" style="width:100%;box-sizing:border-box">
+    </div>
+  </div>`;
+  openModal('Edit Announcement', html, async()=>{
+    const newTitle=(document.getElementById('annTitle')?.value||'').trim();
+    const newBody=(document.getElementById('annBody')?.value||'').trim();
+    const newVideo=(document.getElementById('annVideo')?.value||'').trim();
+    if(!newTitle){toast('Title is required','bad');return;}
+    const{error}=await sb.from('announcements').update({
+      title:newTitle, body:newBody||null, video_url:newVideo||null
+    }).eq('id',id);
+    if(error){toast('Failed: '+error.message,'bad');return;}
+    toast('✓ Updated','ok');
+    const panel=document.getElementById('announcementsPanel');
+    if(panel) await renderAnnouncementsPanel(panel);
+  },'Save Changes');
+}
+
+async function deleteAnnouncement(id){
+  if(!await confirmModal('Delete this announcement?\n\nOwners will no longer see it.',{confirmText:'Delete',danger:true})) return;
+  const{error}=await sb.from('announcements').delete().eq('id',id);
+  if(error){toast('Failed: '+error.message,'bad');return;}
+  toast('Deleted','ok');
+  const panel=document.getElementById('announcementsPanel');
+  if(panel) await renderAnnouncementsPanel(panel);
 }
 
 // ── Edit User Modal ───────────────────────────────────────────
