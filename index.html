@@ -8108,6 +8108,15 @@ function openPropertyModal(id){
       <div><label class="label">Period (months)</label><input type="number" id="f_period" class="input" value="${p.period_months??''}"></div>
       <div><label class="label">Agreement Date</label><input type="date" id="f_agreement" class="input" value="${p.agreement_date||''}"></div>
       <div><label class="label">Service Fee %</label><input type="number" step="0.01" id="f_fee" class="input" value="${p.service_percent??10}"></div>
+      ${state.role === 'manager' ? `
+      <div class="md:col-span-2">
+        <label class="label">Assigned Admin</label>
+        <select id="f_assigned_admin" class="input">
+          <option value="">— Unassigned —</option>
+          ${(state.adminProfiles||[]).map(a=>`<option value="${a.id}" ${(p.created_by||'')=== a.id?'selected':''}>${esc(a.email)}</option>`).join('')}
+        </select>
+        <p class="help mt-1">Re-assign this property to a different admin. The admin will see it in their property list.</p>
+      </div>` : ''}
       <div><label class="label">Model</label>
         <select id="f_model" class="input">
           <option value="">— Not set —</option>
@@ -8156,8 +8165,10 @@ function openPropertyModal(id){
         property_type: ($('#f_ptype')?.value === 'own_unit' ? 'R2R' : 'H2M'), // legacy compat
       };
       if(!payload.condo||!payload.unit) throw new Error('Condo and Unit are required');
-      // Stamp creator — only on new properties (not edits)
+      // Stamp creator — new properties get current user; manager can reassign any property
       if(!id && state.currentUserId) payload.created_by = state.currentUserId;
+      const reassignEl = $('#f_assigned_admin');
+      if(reassignEl && reassignEl.value) payload.created_by = reassignEl.value;
       // ── Multi-user safety ──────────────────────────────────────────────
       // Stamp updated_at so we can detect concurrent edits.
       payload.updated_at = new Date().toISOString();
