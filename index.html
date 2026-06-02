@@ -4242,13 +4242,8 @@ function renderAdminDashboard(){
       </div>
     </div>`;
 
-  // ── Panel wrapper — sticky header + scrollable body window ───────────────
-  // header: secHead HTML (stays visible), body: table/content, maxH: window height
-  const panel=(header,body,maxH='280px')=>`
-    <div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;">
-      <div style="padding:14px 16px 10px;border-bottom:1px solid var(--line);flex-shrink:0">${header}</div>
-      <div style="overflow-y:auto;overflow-x:auto;max-height:${maxH};padding:10px 16px 12px;flex:1">${body}</div>
-    </div>`;
+  // ── Panel wrapper ─────────────────────────────────────────────────────────
+  const panel=content=>`<div class="card" style="overflow-x:auto">${content}</div>`;
 
   // ── Mini table ────────────────────────────────────────────────────────────
   const tbl=(head,body)=>`<table style="width:100%;border-collapse:collapse;font-size:12px">${head}<tbody>${body}</tbody></table>`;
@@ -4272,11 +4267,11 @@ function renderAdminDashboard(){
     <!-- ── LEFT ── -->
     <div style="display:flex;flex-direction:column;gap:16px">
 
-      ${panel(
-        secHead('⏰','Lease Alerts',leaseAlerts.length,'background:#FEF3C7;color:#92400E'),
-        leaseAlerts.length===0 ? emptyMsg('No leases expiring within 90 days ✓') : tbl(
+      ${panel(`
+        ${secHead('⏰','Lease Alerts',leaseAlerts.length,'background:#FEF3C7;color:#92400E')}
+        ${leaseAlerts.length===0 ? emptyMsg('No leases expiring within 90 days ✓') : tbl(
           miniTh({label:'Tenant'},{label:'Property · Room'},{label:'End Date',right:true},{label:'Days Left',right:true}),
-          leaseAlerts.slice(0,50).map(({t,d})=>{
+          leaseAlerts.slice(0,20).map(({t,d})=>{
             const p=state.properties.find(x=>x.id===t.property_id);
             const bg=d<=14?'rgba(254,226,226,.5)':d<=30?'rgba(254,243,199,.5)':'';
             const col=d<=14?'#B91C1C':d<=30?'#92400E':'#047857';
@@ -4287,24 +4282,24 @@ function renderAdminDashboard(){
               ${td(`<b>${d===0?'TODAY!':d+'d'}</b>`,{right:true,color:col})}
             </tr>`;
           }).join('')
-        )
-      )}
+        )}
+      `)}
 
-      ${panel(
-        secHead('🏠','Vacant Rooms',vacants.length,'background:#FEE2E2;color:#B91C1C'),
-        vacants.length===0 ? emptyMsg('All rooms occupied ✓') : tbl(
+      ${panel(`
+        ${secHead('🏠','Vacant Rooms',vacants.length,'background:#FEE2E2;color:#B91C1C')}
+        ${vacants.length===0 ? emptyMsg('All rooms occupied ✓') : tbl(
           miniTh({label:'Property'},{label:'City'},{label:'Room',right:true}),
           vacants.map(v=>`<tr>
             ${td(esc(v.prop.condo+' '+v.prop.unit),{bold:true})}
             ${td(esc(v.prop.city||'—'),{muted:true})}
             ${td(`<span style="font-weight:800;color:var(--accent)">${esc(v.room)}</span>`,{right:true})}
           </tr>`).join('')
-        )
-      )}
+        )}
+      `)}
 
-      ${panel(
-        secHead('📦','Movements This Month',moveIns.length+moveOuts.length),
-        moveIns.length===0&&moveOuts.length===0 ? emptyMsg('No move-ins or move-outs recorded this month') : `
+      ${panel(`
+        ${secHead('📦','Movements This Month',moveIns.length+moveOuts.length)}
+        ${moveIns.length===0&&moveOuts.length===0 ? emptyMsg('No move-ins or move-outs recorded this month') : `
           ${moveIns.length?`<div style="font-size:11px;font-weight:800;color:#065F46;margin-bottom:6px">🆕 MOVE-INS (${moveIns.length})</div>
             ${tbl(miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Start',right:true}),
               moveIns.map(t=>{const p=state.properties.find(x=>x.id===t.property_id);return`<tr>
@@ -4319,19 +4314,19 @@ function renderAdminDashboard(){
                 ${td(p?esc(p.condo+' '+p.unit+' · Rm '+t.room_code):'—',{muted:true})}
                 ${td(t.agreement_end?fmtDate(t.agreement_end):'—',{right:true,color:'#B91C1C'})}
               </tr>`}).join(''))}` : ''}
-        `
-      )}
+        `}
+      `)}
 
     </div><!-- end left -->
 
     <!-- ── RIGHT ── -->
     <div style="display:flex;flex-direction:column;gap:16px">
 
-      ${panel(
-        secHead('💸','Unpaid / Unmatch — '+MONTHS[m-1]+' '+y,unpaidRows.length,'background:#FEE2E2;color:#B91C1C'),
-        unpaidRows.length===0 ? emptyMsg('All tenants paid this month ✓') : tbl(
+      ${panel(`
+        ${secHead('💸','Unpaid / Unmatch — '+MONTHS[m-1]+' '+y,unpaidRows.length,'background:#FEE2E2;color:#B91C1C')}
+        ${unpaidRows.length===0 ? emptyMsg('All tenants paid this month ✓') : tbl(
           miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Expected',right:true},{label:'Status',right:true}),
-          unpaidRows.map(r=>{
+          unpaidRows.slice(0,25).map(r=>{
             const badge=r.status==='unpaid'
               ? `<span style="background:#FEE2E2;color:#B91C1C;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">✕ Unpaid</span>`
               : `<span style="background:#FEF3C7;color:#92400E;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">⚠ Unmatch</span>`;
@@ -4342,12 +4337,12 @@ function renderAdminDashboard(){
               ${td(badge,{right:true})}
             </tr>`;
           }).join('')
-        )
-      )}
+        )}
+      `)}
 
-      ${panel(
-        secHead('🚗','Carpark Assignments',carparkList.length),
-        carparkList.length===0 ? emptyMsg('No carpark assignments found') : tbl(
+      ${panel(`
+        ${secHead('🚗','Carpark Assignments',carparkList.length)}
+        ${carparkList.length===0 ? emptyMsg('No carpark assignments found') : tbl(
           miniTh({label:'Tenant'},{label:'Property'},{label:'Lot'},{label:'Rental/mo',right:true}),
           carparkList.map(({t,prop})=>`<tr>
             ${td(esc(t.name||'—'),{bold:true})}
@@ -4355,13 +4350,13 @@ function renderAdminDashboard(){
             ${td(`<span style="font-weight:800;color:var(--brand)">${esc(t.carpark)}</span>`)}
             ${td(t.carpark_rental?'RM '+fmt(t.carpark_rental):'—',{right:true})}
           </tr>`).join('')
-        )
-      )}
+        )}
+      `)}
 
-      ${panel(
-        secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E'),
-        reportPending.length===0 ? emptyMsg('All reports launched this month ✓') :
-          reportPending.map(p=>{
+      ${panel(`
+        ${secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E')}
+        ${reportPending.length===0 ? emptyMsg('All reports launched this month ✓') :
+          reportPending.slice(0,15).map(p=>{
             const rs=(state.reportStatus||[]).find(r=>r.property_id===p.id&&r.year===y&&r.month===m);
             const adminDone=rs&&rs.admin_checked_at, mgrDone=rs&&rs.manager_verified_at;
             const pill=(label,done)=>`<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${done?'rgba(16,185,129,.15)':'var(--th-bg)'};color:${done?'#059669':'var(--muted)'};">${done?'✓':' ○'} ${label}</span>`;
@@ -4370,7 +4365,8 @@ function renderAdminDashboard(){
               <div style="display:flex;gap:5px">${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
             </div>`;
           }).join('')
-      )}
+        }
+      `)}
 
     </div><!-- end right -->
 
@@ -7991,7 +7987,9 @@ function openPropertyModal(id){
       <div class="md:col-span-2"><label class="label">Carpark Lots</label><input id="f_carpark" class="input" value="${esc(p.carpark_lots||'')}"></div>
       <div><label class="label">Owner Name</label><input id="f_owner" class="input" value="${esc(p.owner_name||'')}"></div>
       <div><label class="label">Owner IC</label><input id="f_ic" class="input" value="${esc(p.owner_ic||'')}"></div>
-      <div><label class="label">Owner Email</label><input id="f_email" class="input" value="${esc(p.owner_email||'')}"></div>
+      <div><label class="label">Owner Email</label><input id="f_email" class="input" value="${esc(p.owner_email||'')}">
+        ${!id?`<p class="help mt-1">📧 A login link will be sent automatically when you save.</p>`:''}
+      </div>
       <div><label class="label">Owner Contact</label><input id="f_contact" class="input" value="${esc(p.owner_contact||'')}"></div>
       <div><label class="label">Bank Name</label><input id="f_bank" class="input" value="${esc(p.bank_name||'')}"></div>
       <div><label class="label">Bank Account</label><input id="f_acct" class="input" value="${esc(p.bank_account||'')}"></div>
@@ -8049,8 +8047,10 @@ function openPropertyModal(id){
           );
         }
       }
-      const q = id ? sb.from('properties').update(payload).eq('id',id) : sb.from('properties').insert(payload);
-      const {error}=await q; if(error) throw error;
+      const q = id
+        ? sb.from('properties').update(payload).eq('id',id)
+        : sb.from('properties').insert(payload).select('id').single();
+      const {data:savedProp, error}=await q; if(error) throw error;
       await loadProperties(); fillPropertySelectors();
       // If the saved property has a cleaning schedule, materialize this month's
       // cleaning expense so it appears in the Expenses tab right away.
@@ -8058,6 +8058,26 @@ function openPropertyModal(id){
       // For H2M properties, roll forward any previous-month loss
       await ensureBalanceForward();
       renderTab('properties');
+
+      // ── Auto-create owner portal account ──────────────────────────────
+      // Only for NEW properties (not edits) where owner_email was supplied.
+      // inviteUser() handles both cases: existing user → re-links the property,
+      // new user → sends a magic-link login email automatically.
+      const ownerEmail = payload.owner_email;
+      if(!id && ownerEmail){
+        const newPropId = savedProp?.id;
+        try{
+          const result = await inviteUser(ownerEmail, 'owner', newPropId);
+          if(result?.restored){
+            toast(`🏠 Owner account linked — ${ownerEmail} can now log in to the owner portal`,'ok');
+          } else {
+            toast(`📧 Owner login link sent to ${ownerEmail}`,'ok');
+          }
+        } catch(inviteErr){
+          // Property was saved successfully — don't block on invite failure
+          toast(`Property saved. Owner invite failed: ${inviteErr.message} — you can retry from User Management.`,'warn');
+        }
+      }
   });
 }
 async function delProperty(id){ if(!await confirmModal('Delete this property and all its tenants/records?\n\nThis cannot be undone.',{confirmText:'Delete',danger:true}))return; const {error}=await sb.from('properties').delete().eq('id',id); if(error)return toast(error.message,'bad'); await loadProperties(); renderTab('properties'); fillPropertySelectors(); toast('Deleted'); }
