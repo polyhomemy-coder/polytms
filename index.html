@@ -1474,6 +1474,7 @@
         </div>
         <div class="divider"></div>
         <div id="dashTable"></div>
+        <div id="propAssignPanel" style="margin-top:12px"></div>
       </div>
     </div>
 
@@ -4814,6 +4815,12 @@ function renderHelpManageDashboard(){
   $('#dashTable').innerHTML = `<table class="data">
     <thead><tr><th>Condo</th><th>Unit</th><th>Owner</th><th>Occupancy</th><th class="num">Rental</th><th class="num">Air-Cond</th><th class="num">Extra</th><th class="num">Expenses</th><th class="num">Nett</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="9" class="text-center text-slate-400 py-10">No Help Manage properties yet.</td></tr>'}</tbody></table>`;
+
+  // Property assignment panel — manager only
+  if(state.role === 'manager'){
+    const panel = document.getElementById('propAssignPanel');
+    if(panel) renderPropAssignPanel(panel);
+  }
 }
 
 // ============================================================
@@ -8108,15 +8115,6 @@ function openPropertyModal(id){
       <div><label class="label">Period (months)</label><input type="number" id="f_period" class="input" value="${p.period_months??''}"></div>
       <div><label class="label">Agreement Date</label><input type="date" id="f_agreement" class="input" value="${p.agreement_date||''}"></div>
       <div><label class="label">Service Fee %</label><input type="number" step="0.01" id="f_fee" class="input" value="${p.service_percent??10}"></div>
-      ${state.role === 'manager' ? `
-      <div class="md:col-span-2">
-        <label class="label">Assigned Admin</label>
-        <select id="f_assigned_admin" class="input">
-          <option value="">— Unassigned —</option>
-          ${(state.adminProfiles||[]).map(a=>`<option value="${a.id}" ${(p.created_by||'')=== a.id?'selected':''}>${esc(a.email)}</option>`).join('')}
-        </select>
-        <p class="help mt-1">Re-assign this property to a different admin. The admin will see it in their property list.</p>
-      </div>` : ''}
       <div><label class="label">Model</label>
         <select id="f_model" class="input">
           <option value="">— Not set —</option>
@@ -8167,8 +8165,6 @@ function openPropertyModal(id){
       if(!payload.condo||!payload.unit) throw new Error('Condo and Unit are required');
       // Stamp creator — new properties get current user; manager can reassign any property
       if(!id && state.currentUserId) payload.created_by = state.currentUserId;
-      const reassignEl = $('#f_assigned_admin');
-      if(reassignEl && reassignEl.value) payload.created_by = reassignEl.value;
       // ── Multi-user safety ──────────────────────────────────────────────
       // Stamp updated_at so we can detect concurrent edits.
       payload.updated_at = new Date().toISOString();
@@ -11344,6 +11340,66 @@ function openInviteUserModal(){
 // ════════════════════════════════════════════════════════════════
 // ANNOUNCEMENTS MANAGEMENT (manager only)
 // ════════════════════════════════════════════════════════════════
+function renderPropAssignPanel(container){
+  const admins = state.adminProfiles || [];
+  const props  = [...state.properties].sort((a,b)=>(a.condo+' '+a.unit).localeCompare(b.condo+' '+b.unit));
+
+  const adminName = id => {
+    const a = admins.find(x=>x.id===id);
+    return a ? a.email : '<span style="color:var(--muted);font-style:italic">Unassigned</span>';
+  };
+
+  const rows = props.map(p=>{
+    const tenantCount = state.tenants.filter(t=>t.property_id===p.id && t.active!==false).length;
+    const opts = `<option value="">— Unassigned —</option>`
+      + admins.map(a=>`<option value="${a.id}" ${p.created_by===a.id?'selected':''}>${a.email}</option>`).join('');
+    return `<tr>
+      <td class="font-semibold">${esc(p.condo)}</td>
+      <td class="whitespace-nowrap">${esc(p.unit)}</td>
+      <td><span style="font-size:11px;padding:2px 7px;border-radius:6px;background:${p.city==='JB'?'#EEF7F8':'#F3F4F6'};color:var(--ink)">${esc(p.city||'—')}</span></td>
+      <td class="text-center text-slate-500">${tenantCount}</td>
+      <td style="min-width:220px">
+        <select class="input !py-1 !text-xs" onchange="reassignProperty('${p.id}', this.value, this)">${opts}</select>
+      </td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="card p-4" style="margin-top:0">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="font-extrabold text-[color:var(--brand)]">🏢 Property Assignment</div>
+          <div class="help mt-0.5">Assign or re-assign any property to an admin. All tenants and data follow automatically.</div>
+        </div>
+        <div class="help">${props.length} properties · ${admins.length} admins</div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="data" style="font-size:12px">
+          <thead><tr>
+            <th>Condo</th><th>Unit</th><th>City</th><th class="text-center">Tenants</th><th>Assigned Admin</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" class="text-center text-slate-400 py-6">No properties yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function reassignProperty(propId, adminId, selectEl){
+  const prop = state.properties.find(p=>p.id===propId);
+  const adminName = (state.adminProfiles||[]).find(a=>a.id===adminId)?.email || 'Unassigned';
+  const label = prop ? `${prop.condo} · ${prop.unit}` : propId;
+  if(!await confirmModal(`Re-assign <b>${label}</b> to <b>${adminName}</b>?<br><span style="font-size:12px;color:var(--muted)">All tenants and data will move to this admin.</span>`, {confirmText:'Re-assign'})){
+    // revert dropdown
+    selectEl.value = prop?.created_by || '';
+    return;
+  }
+  const {error} = await sb.from('properties').update({created_by: adminId||null, updated_at: new Date().toISOString()}).eq('id', propId);
+  if(error){ toast(error.message,'bad'); selectEl.value = prop?.created_by||''; return; }
+  // Update local state
+  if(prop) prop.created_by = adminId || null;
+  toast(`✓ ${label} re-assigned to ${adminName}`,'ok');
+}
+
 async function renderAnnouncementsPanel(container){
   container.innerHTML=`<div class="text-sm text-slate-400 py-4">Loading announcements…</div>`;
   let notices=[];
