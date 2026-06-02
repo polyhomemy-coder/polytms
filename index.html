@@ -5144,11 +5144,11 @@ function renderTenants(){
         <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
         <td class="font-semibold">${p ? esc(p.unit) : ''}</td>
         <td class="text-center font-bold">${esc(t.room_code||'')}</td>
-        <td class="font-semibold">${esc(t.name)}</td>
         <td class="num">${fmt(t.room_rental)}</td>
         <td>${esc(t.carpark||'')}</td>
         <td>${fmtDate(t.agreement_start)} →<br>${fmtDate(t.agreement_end)}</td>
         <td class="text-center font-bold text-[#991B1B]">${moDate}</td>
+        <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" class="font-semibold">${esc(t.name)}</td>
         <td>${esc(t.contact||'')}</td>
         <td class="text-right whitespace-nowrap">
           <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantView('${t.id}')" title="View">${ICON.view}</button>
@@ -5161,12 +5161,12 @@ function renderTenants(){
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
       <td class="font-semibold">${p ? esc(p.unit) : ''}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
-      <td class="font-semibold">${esc(t.name)}${endingChip}</td>
       <td class="num">${fmt(t.room_rental)}</td>
       <td>${esc(t.carpark||'')}</td>
       <td class="num">${fmt(t.carpark_rental)}</td>
       <td>${fmtDate(t.agreement_start)} →<br>${fmtDate(t.agreement_end)}</td>
       <td class="text-center font-semibold">${mo!=null ? (mo+' mo') : '<span class="text-slate-400">—</span>'}</td>
+      <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" class="font-semibold">${esc(t.name)}${endingChip}</td>
       <td>${esc(t.contact||'')}</td>
       <td class="text-right whitespace-nowrap">
         <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantView('${t.id}')" title="View details">${ICON.view}</button>
@@ -5199,13 +5199,13 @@ function renderTenants(){
         <tr class="bg-amber-50/40">
           <td class="text-slate-500 font-semibold">${esc(prop.condo)}</td>
           <td class="font-semibold">${esc(prop.unit)}</td>
-          <td class="text-slate-500 italic">— Vacant —</td>
           <td class="text-center font-bold text-[#92400E]">${esc(r)}</td>
           <td class="num text-slate-300">—</td>
           <td class="text-slate-300">—</td>
           <td class="num text-slate-300">—</td>
           <td class="text-slate-300">—</td>
           <td class="text-center text-slate-300">—</td>
+          <td class="text-slate-500 italic">— Vacant —</td>
           <td class="text-slate-300">—</td>
           <td class="text-right whitespace-nowrap">
             <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantModal(null, {property_id:'${filt}', room_code:'${esc(r)}'})" title="Add tenant to room ${esc(r)}">+ Add tenant</button>
@@ -5222,11 +5222,11 @@ function renderTenants(){
   }
   if(isMovedOut){
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Condo</th><th>Unit</th><th>Room</th><th>Name</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Contact</th><th></th>
+      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Name</th><th>Contact</th><th></th>
     </tr></thead><tbody>${rows || `<tr><td colspan="10" class="text-center text-slate-400 py-10">No moved-out tenants on record.</td></tr>`}</tbody>`;
   } else {
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Condo</th><th>Unit</th><th>Room</th><th>Name</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Contact</th><th></th>
+      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Name</th><th>Contact</th><th></th>
     </tr></thead><tbody>${allRows || `<tr><td colspan="11" class="text-center text-slate-400 py-10">${q?'No tenants match your search.':'No tenants yet.'}</td></tr>`}</tbody>`;
   }
 }
