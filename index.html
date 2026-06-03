@@ -7615,9 +7615,9 @@ function renderRentStatus(pid){
   const filter = state.rentStatusFilter || 'all';
   const rows = filter==='all' ? allRows : allRows.filter(r=>r.status===filter);
   const badge = s=>{
-    if(s==='paid')    return '<span class="chip badge-ok">✓ Paid</span>';
+    if(s==='paid')    return '<span class="chip badge-ok">Paid</span>';
     if(s==='unmatch') return '<span class="chip badge-warn">⚠ Unmatch</span>';
-    return '<span class="chip badge-bad">✕ Unpaid</span>';
+    return '<span class="chip badge-bad">Unpaid</span>';
   };
   const counts = allRows.reduce((a,r)=>{a[r.status]=(a[r.status]||0)+1;return a;},{});
   const sumEl = $('#rentStatusSummary');
