@@ -4597,6 +4597,40 @@ function renderAdminDashboard(){
                 ${td(p?esc(p.condo+' '+p.unit+' · Rm '+t.room_code):'—',{muted:true})}
                 ${td(t.agreement_end?fmtDate(t.agreement_end):'—',{right:true,color:'#B91C1C'})}
               </tr>`}).join(''))}` : ''}
+          ${(()=>{
+            const proRows = moveIns.filter(t=>t.agreement_start && t.rental);
+            if(!proRows.length) return '';
+            return `<div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--border)">
+              <div style="font-size:11px;font-weight:800;color:#0891b2;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                🧾 PRO-RATE NOTICE — MOVE-INS (${proRows.length})
+                <span style="font-size:10px;font-weight:500;color:var(--muted);text-transform:none;letter-spacing:0">Send to tenant before end of month</span>
+              </div>
+              ${tbl(
+                miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Move-in'},{label:'Rental/mo',right:true},{label:'Formula',right:true},{label:'Pro-Rate',right:true}),
+                proRows.map(t=>{
+                  const p = state.properties.find(x=>x.id===t.property_id);
+                  const d = new Date(t.agreement_start);
+                  const moveInDay = d.getDate();
+                  const daysInMonth = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+                  const daysRemaining = daysInMonth - moveInDay + 1;
+                  const rent = parseFloat(t.rental)||0;
+                  const proRate = (rent / daysInMonth * daysRemaining);
+                  const formula = `${rent%1===0?rent:rent.toFixed(2)}/${daysInMonth}×${daysRemaining}`;
+                  return `<tr style="background:rgba(8,145,178,0.04)">
+                    ${td(esc(t.name||'—'),{bold:true})}
+                    ${td(p?esc(p.condo+' '+p.unit+' · Rm '+t.room_code):'—',{muted:true})}
+                    ${td(fmtDate(t.agreement_start),{color:'#065F46'})}
+                    ${td('RM '+fmt(rent),{right:true})}
+                    ${td(`<span style="font-family:monospace;font-size:10.5px;color:#0891b2;background:rgba(8,145,178,0.08);padding:2px 6px;border-radius:4px">${esc(formula)}</span>`,{right:true})}
+                    ${td(`<b style="color:#0891b2">RM ${fmt(proRate)}</b>`,{right:true})}
+                  </tr>`;
+                }).join('')
+              )}
+              <div style="margin-top:8px;font-size:10.5px;color:var(--muted);line-height:1.6">
+                💡 Formula: <span style="font-family:monospace">Monthly Rent ÷ Days in Month × Days Remaining (from move-in date, inclusive)</span>
+              </div>
+            </div>`;
+          })()}
         `}
       `)}
 
