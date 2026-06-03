@@ -475,39 +475,68 @@
     align-items: center;
     justify-content: center;
     flex-direction: column;
-    gap: 14px;
-    background: rgba(248,250,252,0.55);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    gap: 0;
+    background: rgba(248,250,252,0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
   }
   html[data-theme="dark"] #tmsLoadOverlay {
-    background: rgba(6,12,28,0.60);
+    background: rgba(6,12,28,0.78);
   }
   #tmsLoadOverlay.active { display: flex; }
 
   /* Key SVG container */
-  #tmsKeyIcon { display: block; overflow: visible; }
-
-    15%  { opacity: 1; }
-    85%  { opacity: 1; }
-    100% { transform: translate(-90px,  90px); opacity: 0; }
+  #tmsKeyIcon {
+    display: block;
+    overflow: visible;
+    animation: key-float 2.4s ease-in-out infinite, key-glow-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes key-float {
+    0%, 100% { transform: translateY(0px); }
+    50%       { transform: translateY(-12px); }
+  }
+  @keyframes key-glow-pulse {
+    0%, 100% { filter: drop-shadow(0 0 6px rgba(6,182,212,0.3)); }
+    50%       { filter: drop-shadow(0 0 22px rgba(6,182,212,0.9)); }
   }
 
-    50%       { opacity: 0.45; }
+  /* Blinking dots row */
+  #tmsLoadDots {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  #tmsLoadDots span {
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: white;
+    opacity: 0;
+    animation: tms-dot-blink 1.2s ease-in-out infinite;
+  }
+  #tmsLoadDots span:nth-child(1) { animation-delay: 0s; }
+  #tmsLoadDots span:nth-child(2) { animation-delay: 0.2s; }
+  #tmsLoadDots span:nth-child(3) { animation-delay: 0.4s; }
+  #tmsLoadDots span:nth-child(4) { animation-delay: 0.6s; }
+  #tmsLoadDots span:nth-child(5) { animation-delay: 0.8s; }
+  @keyframes tms-dot-blink {
+    0%, 100% { opacity: 0.15; transform: scale(0.8); }
+    50%       { opacity: 1;    transform: scale(1.2); }
   }
 
-  /* Loading label */
-  #tmsLoadLabel {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #0891b2;
-    animation: tms-label-fade 1.4s ease-in-out infinite;
+  /* Tagline */
+  #tmsLoadTagline {
+    margin-top: 16px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-align: center;
+    animation: tagline-flash 1.6s ease-in-out infinite;
   }
-  @keyframes tms-label-fade {
-    0%, 100% { opacity: 0.5; }
-    50%       { opacity: 1; }
+  @keyframes tagline-flash {
+    0%, 100% { color: #F97316; }
+    50%       { color: #FDBA74; }
   }
 
   </style>
@@ -1353,42 +1382,27 @@
 
 <!-- ========== APP SHELL ========== -->
 <div id="tmsLoadOverlay">
-  <div style="display:flex;flex-direction:column;align-items:center;gap:14px">
+  <div style="display:flex;flex-direction:column;align-items:center">
+    <!-- Key icon — solid, no shimmer -->
     <svg id="tmsKeyIcon" width="96" height="96" viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <!-- Key shape mask -->
-        <mask id="tmsKM">
-          <rect width="96" height="96" fill="black"/>
-          <g transform="rotate(-45 48 48)">
-            <circle cx="66" cy="48" r="19.5" fill="none" stroke="white" stroke-width="13.5"/>
-            <rect x="12" y="42" width="39" height="12.5" rx="6" fill="white"/>
-            <rect x="12" y="29.5" width="10" height="12.5" rx="3" fill="white"/>
-            <rect x="27" y="29.5" width="10" height="10" rx="3" fill="white"/>
-          </g>
-        </mask>
-        <!-- Diagonal shimmer gradient (sweeps from top-right → bottom-left, along key axis) -->
-        <linearGradient id="tmsShimmer" x1="0" y1="96" x2="96" y2="0" gradientUnits="userSpaceOnUse">
-          <stop offset="0%"    stop-color="white" stop-opacity="0"/>
-          <stop offset="43%"   stop-color="white" stop-opacity="0"/>
-          <stop offset="43.1%" stop-color="white" stop-opacity="1"/>
-          <stop offset="57%"   stop-color="white" stop-opacity="1"/>
-          <stop offset="57.1%" stop-color="white" stop-opacity="0"/>
-          <stop offset="100%"  stop-color="white" stop-opacity="0"/>
-          <animateTransform attributeName="gradientTransform" type="translate"
-            values="96,-96; -96,96" dur="0.75s" repeatCount="indefinite" calcMode="linear"/>
-        </linearGradient>
-      </defs>
-      <!-- Everything masked to key shape in ONE group so shimmer stays inside -->
-      <g mask="url(#tmsKM)">
-        <!-- Base key: deep cyan -->
-        <rect width="96" height="96" fill="#0e7490" opacity="0.9"/>
-        <!-- Mid highlight -->
-        <rect width="96" height="96" fill="#06b6d4" opacity="0.55"/>
-        <!-- Running shimmer — fills rect, gradient sweeps through -->
-        <rect width="96" height="96" fill="url(#tmsShimmer)"/>
+      <g transform="rotate(-45 48 48)">
+        <circle cx="66" cy="48" r="19.5" fill="none" stroke="#0891b2" stroke-width="13.5"/>
+        <circle cx="66" cy="48" r="6.6" fill="#0891b2"/>
+        <rect x="12" y="42" width="39" height="12.5" rx="6" fill="#0891b2"/>
+        <rect x="12" y="29.5" width="10" height="12.5" rx="3" fill="#0891b2"/>
+        <rect x="27" y="29.5" width="10" height="10" rx="3" fill="#0891b2"/>
       </g>
     </svg>
-    <span id="tmsLoadLabel">Loading</span>
+    <!-- Blinking dots below key -->
+    <div id="tmsLoadDots">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <!-- Loading % label -->
+    <div id="tmsLoadPct" style="margin-top:12px;font-size:13px;font-weight:700;letter-spacing:0.08em;color:#0891b2;text-transform:uppercase">
+      Loading <span id="tmsLoadPctNum">1%</span>
+    </div>
+    <!-- Tagline -->
+    <div id="tmsLoadTagline">3 seconds wait is perfect for your eye spa</div>
   </div>
 </div>
 <div id="app">
@@ -2998,15 +3012,32 @@ document.addEventListener('click', e=>{
 // --- month change -------------------------------------------
 // monthPick select removed — now using calendar picker (pickMonth → selectMonth)
 
-function showLoading(msg='Loading'){
+let _loadPctTimer = null;
+function showLoading(){
   const o = document.getElementById('tmsLoadOverlay');
-  const l = document.getElementById('tmsLoadLabel');
-  if(l) l.textContent = msg;
+  const n = document.getElementById('tmsLoadPctNum');
   if(o) o.classList.add('active');
+  // Animate 1% → 92% over ~3s, slowing near end (never reaches 100 until done)
+  if(n){
+    n.textContent = '1%';
+    let pct = 1;
+    clearInterval(_loadPctTimer);
+    _loadPctTimer = setInterval(()=>{
+      if(pct < 92){
+        // Faster at start, slower near end
+        pct += pct < 60 ? 3 : pct < 80 ? 1.5 : 0.5;
+        if(pct > 92) pct = 92;
+        n.textContent = Math.round(pct) + '%';
+      }
+    }, 80);
+  }
 }
 function hideLoading(){
   const o = document.getElementById('tmsLoadOverlay');
-  if(o) o.classList.remove('active');
+  const n = document.getElementById('tmsLoadPctNum');
+  clearInterval(_loadPctTimer);
+  if(n) n.textContent = '100%';
+  setTimeout(()=>{ if(o) o.classList.remove('active'); }, 300);
 }
 async function refreshMonthData(){
   if(!sb) return;
