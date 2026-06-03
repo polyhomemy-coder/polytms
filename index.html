@@ -4598,7 +4598,7 @@ function renderAdminDashboard(){
                 ${td(t.agreement_end?fmtDate(t.agreement_end):'—',{right:true,color:'#B91C1C'})}
               </tr>`}).join(''))}` : ''}
           ${(()=>{
-            const proRows = moveIns.filter(t=>t.agreement_start && t.rental);
+            const proRows = moveIns.filter(t=>t.agreement_start && t.room_rental);
             if(!proRows.length) return '';
             return `<div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--border)">
               <div style="font-size:11px;font-weight:800;color:#0891b2;margin-bottom:8px;display:flex;align-items:center;gap:6px">
@@ -4613,7 +4613,7 @@ function renderAdminDashboard(){
                   const moveInDay = d.getDate();
                   const daysInMonth = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
                   const daysRemaining = daysInMonth - moveInDay + 1;
-                  const rent = parseFloat(t.rental)||0;
+                  const rent = parseFloat(t.room_rental)||0;
                   const proRate = (rent / daysInMonth * daysRemaining);
                   const formula = `${rent%1===0?rent:rent.toFixed(2)}/${daysInMonth}×${daysRemaining}`;
                   return `<tr style="background:rgba(8,145,178,0.04)">
