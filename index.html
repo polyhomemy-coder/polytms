@@ -3021,9 +3021,6 @@ function hideLoading(){
   const o = document.getElementById('tmsLoadOverlay');
   if(o) o.classList.remove('active');
 }
-  if(pill)    pill.classList.remove('active');
-  if(overlay) overlay.classList.remove('active');
-}
 async function refreshMonthData(){
   if(!sb) return;
   showLoading();
