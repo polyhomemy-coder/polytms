@@ -1341,8 +1341,23 @@
 
     <!-- Bottom block — month picker, demo badge, settings cog -->
     <div id="sbBottom">
-      <div class="sb-label">Month</div>
-      <select id="monthPick" class="input"></select>
+      <div class="sb-label">MONTH</div>
+      <div id="monthPickerWrap" style="position:relative">
+        <button id="monthPickBtn" onclick="toggleMonthPicker()" style="width:100%;text-align:left;padding:7px 10px;border-radius:9px;border:1px solid var(--line);background:var(--card-bg);color:var(--ink);font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:space-between">
+          <span id="monthPickLabel">—</span>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div id="monthPickerPanel" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:999;background:var(--card-bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:10px;min-width:200px">
+          <!-- Year row -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <button onclick="shiftPickerYear(-1)" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--brand);padding:2px 6px">‹</button>
+            <span id="pickerYear" style="font-weight:800;font-size:13px;color:var(--ink)"></span>
+            <button onclick="shiftPickerYear(1)" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--brand);padding:2px 6px">›</button>
+          </div>
+          <!-- Month grid -->
+          <div id="pickerMonthGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px"></div>
+        </div>
+      </div>
       <span id="demoBadge" class="chip hidden" style="background:#FFF0E6;color:#F4811F">🎮 DEMO MODE</span>
       <!-- Light / Dark mode toggle -->
       <div id="themeToggle">
@@ -2324,19 +2339,87 @@ const ICON = {
 const iconBtn = (svg, label='') =>
   `<span class="icon-wrap">${svg}${label?`<span>${label}</span>`:''}</span>`;
 
-// month picker options (current year ±2)
+// ── Calendar-style month picker ──────────────────────────────
+const MONTH_ABB = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+let _pickerYear = new Date().getFullYear();
+
 function buildMonthOptions(sel){
-  const now=new Date(); const thisY=now.getFullYear(); const thisM=now.getMonth()+1;
-  let html='';
-  for(let y=thisY-2;y<=thisY+1;y++){
-    for(let m=1;m<=12;m++){
-      const v=y+'-'+String(m).padStart(2,'0');
-      const label=MONTHS_FULL[m-1]+' '+y;
-      const selected=(y===state.year && m===state.month)?'selected':'';
-      html+=`<option value="${v}" ${selected}>${label}</option>`;
+  if(sel){
+    // Legacy <select> path — used for rptMonth in Income Report
+    const now=new Date(); const thisY=now.getFullYear();
+    let html='';
+    for(let y=thisY-2;y<=thisY+1;y++){
+      for(let m=1;m<=12;m++){
+        const v=y+'-'+String(m).padStart(2,'0');
+        const selected=(y===state.year && m===state.month)?'selected':'';
+        html+=`<option value="${v}" ${selected}>${MONTHS_FULL[m-1]+' '+y}</option>`;
+      }
     }
+    sel.innerHTML=html;
+    return;
   }
-  sel.innerHTML=html;
+  // Calendar picker path — sidebar
+  const lbl = $('#monthPickLabel');
+  if(lbl) lbl.textContent = MONTHS_FULL[state.month-1] + ' ' + state.year;
+  _pickerYear = state.year;
+  renderPickerGrid();
+}
+
+function renderPickerGrid(){
+  const yr = $('#pickerYear');
+  const grid = $('#pickerMonthGrid');
+  if(!yr || !grid) return;
+  yr.textContent = _pickerYear;
+  grid.innerHTML = MONTH_ABB.map((mo, i) => {
+    const m = i + 1;
+    const isCur = (_pickerYear === state.year && m === state.month);
+    const now = new Date();
+    const isFuture = _pickerYear > now.getFullYear() || (_pickerYear === now.getFullYear() && m > now.getMonth()+1);
+    return `<button onclick="pickMonth(${_pickerYear},${m})" style="
+      padding:5px 2px;border-radius:7px;border:${isCur?'2px solid var(--brand)':'1px solid transparent'};
+      background:${isCur?'var(--brand)':'transparent'};
+      color:${isCur?'#fff':isFuture?'var(--muted)':'var(--ink)'};
+      font-size:11.5px;font-weight:${isCur?'800':'600'};cursor:pointer;
+      transition:background .1s"
+      onmouseover="if(!${isCur})this.style.background='var(--th-bg)'"
+      onmouseout="if(!${isCur})this.style.background='transparent'"
+    >${mo}</button>`;
+  }).join('');
+}
+
+function shiftPickerYear(dir){
+  _pickerYear += dir;
+  renderPickerGrid();
+}
+
+function pickMonth(y, m){
+  closeMonthPicker();
+  state.year = y; state.month = m;
+  const lbl = $('#monthPickLabel');
+  if(lbl) lbl.textContent = MONTHS_FULL[m-1]+' '+y;
+  refreshMonthData();
+}
+
+function toggleMonthPicker(){
+  const p = $('#monthPickerPanel');
+  if(!p) return;
+  const isOpen = p.style.display !== 'none';
+  if(isOpen){ closeMonthPicker(); return; }
+  _pickerYear = state.year;
+  renderPickerGrid();
+  p.style.display = 'block';
+  setTimeout(()=>document.addEventListener('click', _pickerOutside, {once:true}), 10);
+}
+
+function closeMonthPicker(){
+  const p = $('#monthPickerPanel');
+  if(p) p.style.display = 'none';
+}
+
+function _pickerOutside(e){
+  const wrap = $('#monthPickerWrap');
+  if(wrap && !wrap.contains(e.target)) closeMonthPicker();
+  else if(wrap && wrap.contains(e.target)) setTimeout(()=>document.addEventListener('click',_pickerOutside,{once:true}),10);
 }
 
 // --- setup / connection -------------------------------------
@@ -2821,11 +2904,7 @@ document.addEventListener('click', e=>{
 });
 
 // --- month change -------------------------------------------
-$('#monthPick').onchange = e=>{
-  const [y,m]=e.target.value.split('-').map(Number);
-  state.year=y; state.month=m;
-  refreshMonthData();
-};
+// monthPick select removed — now using calendar picker (pickMonth → selectMonth)
 
 async function refreshMonthData(){
   if(!sb) return;
@@ -4012,7 +4091,7 @@ async function ensureBalanceForward(){
 
 // --- bootstrapping -------------------------------------------
 async function bootApp(){
-  buildMonthOptions($('#monthPick'));
+  buildMonthOptions();
   // Hydrate IndexedDB-backed TA template into in-memory cache so the
   // synchronous read path (`_getStoredTATemplate()`) always returns the
   // current value. Migrates from legacy localStorage key on first run.
