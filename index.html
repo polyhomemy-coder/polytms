@@ -465,32 +465,47 @@
     position: absolute;
     inset: 0;
     z-index: 200;
-    background: rgba(255,255,255,0.65);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
+    background: rgba(255,255,255,0.45);
+    backdrop-filter: blur(1.5px);
+    -webkit-backdrop-filter: blur(1.5px);
     align-items: center;
     justify-content: center;
-    flex-direction: column;
-    gap: 12px;
     pointer-events: all;
   }
   .dark #loadingOverlay {
-    background: rgba(15,23,42,0.65);
+    background: rgba(15,23,42,0.35);
   }
   #loadingOverlay.active { display: flex; }
   @keyframes tms-spin { to { transform: rotate(360deg); } }
+  .tms-loading-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #fff;
+    border: 1px solid rgba(8,145,178,0.25);
+    border-radius: 999px;
+    padding: 10px 20px 10px 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+  }
+  .dark .tms-loading-pill {
+    background: #1e293b;
+    border-color: rgba(8,145,178,0.35);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
   .tms-spinner {
-    width: 36px; height: 36px;
-    border: 3px solid rgba(8,145,178,0.2);
+    width: 22px; height: 22px;
+    border: 2.5px solid rgba(8,145,178,0.2);
     border-top-color: #0891b2;
     border-radius: 50%;
     animation: tms-spin 0.7s linear infinite;
+    flex-shrink: 0;
   }
   .tms-loading-text {
     font-size: 13px;
     font-weight: 600;
     color: #0891b2;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
   }
 
   </style>
@@ -1419,7 +1434,7 @@
 
   <!-- MAIN CONTENT AREA -->
   <div id="mainArea" style="position:relative">
-  <div id="loadingOverlay"><div class="tms-spinner"></div><span class="tms-loading-text">Loading…</span></div>
+  <div id="loadingOverlay"><div class="tms-loading-pill"><div class="tms-spinner"></div><span class="tms-loading-text">Loading…</span></div></div>
 
   <!-- DASHBOARD ============================================== -->
   <section class="tab-pane" data-pane="dashboard">
@@ -2949,6 +2964,8 @@ function showLoading(msg='Loading…'){
   const t = o.querySelector('.tms-loading-text');
   if(t) t.textContent = msg;
   o.classList.add('active');
+  // Force a repaint so the overlay appears before async work blocks the thread
+  o.getBoundingClientRect();
 }
 function hideLoading(){
   const o = document.getElementById('loadingOverlay');
