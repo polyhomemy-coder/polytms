@@ -7674,7 +7674,7 @@ function renderRentStatus(pid){
     }
     return `<tr class="${grpCls}">
       <td class="font-semibold">${r.prop ? esc(r.prop.condo) : '—'}</td>
-      <td class="font-semibold">${r.prop ? esc(r.prop.unit) : ''}</td>
+      <td class="font-semibold whitespace-nowrap">${r.prop ? esc(r.prop.unit) : ''}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
       <td class="font-semibold"><button class="text-left hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.name||'')}</button>${proChips}</td>
       <td class="num">${fmt(r.expectedRoom)}</td>
