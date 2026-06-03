@@ -7195,14 +7195,15 @@ function renderPayments(){
   // Inline quick-add row (Excel-style) — Room only. The type selector is
   // gone; the code field sets a room code, and the amount can include the
   // tenant's carpark portion (auto-split happens in the income report).
-  const propOpts = state.properties.map(p=>{
-    const sel = (p.id===pid) ? ' selected' : '';
-    return `<option value="${p.id}"${sel}>${esc(p.condo)} · ${esc(p.unit)}</option>`;
-  }).join('');
+  const _payCndOpts = _condoOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'');
+  const _payUntOpts = _unitOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'', pid);
   const dateDefault = `${state.year}-${String(state.month).padStart(2,'0')}-01`;
   const addRow = `<tr class="add-row pay-add-row">
-    <td colspan="2"><select class="pay-add-prop input !text-xs !py-1 !px-2 !w-full">
-      <option value="">— pick unit —</option>${propOpts}
+    <td><select class="pay-add-condo input !text-xs !py-1 !px-2 !w-full" onchange="onInlineCondoChange(this,'pay-add-prop')">
+      <option value="">— condo —</option>${_payCndOpts}
+    </select></td>
+    <td><select class="pay-add-prop input !text-xs !py-1 !px-2 !w-full">
+      <option value="">— unit —</option>${_payUntOpts}
     </select></td>
     <td>
       <div class="flex gap-1 items-center">
@@ -7584,7 +7585,6 @@ function renderPendingIsewaBanner(){
 function openAssignIsewa(pendingId){
   const p = (state.pendingIsewa||[]).find(x=>x.id===pendingId);
   if(!p) return;
-  const propOpts = state.properties.map(pp=>`<option value="${pp.id}">${esc(pp.condo)} · ${esc(pp.unit)}</option>`).join('');
   const rawDate  = (p.time_stamp_raw||p.received_at||'').slice(0,10);
   const defYear  = rawDate ? Number(rawDate.slice(0,4)) : state.year;
   const defMonth = rawDate ? Number(rawDate.slice(5,7)) : state.month;
@@ -7598,7 +7598,7 @@ function openAssignIsewa(pendingId){
       ${p.property_name_raw ? `<div><span class="font-semibold">iSewa property:</span> ${esc(p.property_name_raw)}</div>` : ''}
     </div>
     <div class="grid md:grid-cols-2 gap-3">
-      <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
+      <div class="md:col-span-2"><label class="label">Property *</label>${propPickerHTML(state.properties, '')}</div>
       <div><label class="label">Room Code *</label><input id="f_room" class="input uppercase" placeholder="e.g. A, M, 101" value="${esc(p.room_name_raw||'')}"></div>
       <div><label class="label">Amount (RM) — net received</label><input type="number" step="0.01" id="f_amt" class="input" value="${p.tran_received||p.tran_amount||''}"></div>
       <div><label class="label">Topped Up On</label><input type="date" id="f_date" class="input" value="${rawDate}"></div>
@@ -7678,15 +7678,17 @@ function renderAircon(){
   const tot = list.reduce((s,x)=>s+Number(x.amount||0),0);
 
   // Inline quick-add row (Excel-style)
-  const propOpts = state.properties.map(p=>{
-    const sel = (p.id===pid) ? ' selected' : '';
-    return `<option value="${p.id}"${sel}>${esc(p.condo)} · ${esc(p.unit)}</option>`;
-  }).join('');
+  const _airCndOpts = _condoOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'');
+  const _airUntOpts = _unitOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'', pid);
   const dateDefault = `${state.year}-${String(state.month).padStart(2,'0')}-01`;
   const addRow = `<tr class="add-row air-add-row">
-    <td><select class="air-add-prop input !text-xs !py-1 !px-2 !w-full">
-      <option value="">— pick unit —</option>${propOpts}
-    </select></td>
+    <td><div style="display:flex;gap:4px">
+      <select class="air-add-condo input !text-xs !py-1 !px-2" style="min-width:90px" onchange="onInlineCondoChange(this,'air-add-prop')">
+        <option value="">— condo —</option>${_airCndOpts}
+      </select>
+      <select class="air-add-prop input !text-xs !py-1 !px-2 flex-1">
+        <option value="">— unit —</option>${_airUntOpts}
+      </select></div></td>
     <td><input class="air-add-room input !text-xs !py-1 !px-2 !w-full uppercase" placeholder="e.g. M, A1"></td>
     <td class="num"><input type="number" step="0.01" class="air-add-amt input !text-xs !py-1 !px-2 !w-full !text-right" placeholder="0.00"></td>
     <td><input type="date" class="air-add-date input !text-xs !py-1 !px-2 !w-full" value="${dateDefault}"></td>
@@ -7794,25 +7796,20 @@ function buildExpenseSection(items, opts){
   const tot = items.reduce((s,x)=>s+Number(x.amount||0),0);
 
   // Build the inline quick-add row (Excel-style entry at the bottom)
-  const propOpts = state.properties.map(p=>{
-    const sel = (p.id===defaultPid) ? ' selected' : '';
-    return `<option value="${p.id}"${sel}>${esc(p.condo)} · ${esc(p.unit)}</option>`;
-  }).join('');
+  const _expCndOpts = _condoOpts(state.properties, state.properties.find(p=>p.id===defaultPid)?.condo||'');
+  const _expUntOpts = _unitOpts(state.properties, state.properties.find(p=>p.id===defaultPid)?.condo||'', defaultPid);
   const dateDefault = `${state.year}-${String(state.month).padStart(2,'0')}-01`;
-  // For every category except "other" we know what the description should be
-  // already (Cleaning, Management Fee, etc.), so prefill it. The user can
-  // still edit it before pressing Enter. "Other" stays blank because every
-  // entry there is unique and needs an explicit description.
   const isOther    = cat === 'other';
   const descPrefill = (cat && !isOther) ? esc(EXP_CAT_LABELS[cat] || '') : '';
   const descPlaceholder = isOther
     ? 'Description (required)…'
     : 'Description (Enter to add)';
-  // Distinct amber tint + left accent so the input row is unmistakable as
-  // "fill me in" rather than another saved expense.
   const addRow = cat ? `<tr class="add-row exp-add-row" data-cat="${esc(cat)}">
-    <td colspan="2"><select class="exp-add-prop input !text-xs !py-1 !px-2 !w-full" title="Property">
-      <option value="">— pick unit —</option>${propOpts}
+    <td><select class="exp-add-condo input !text-xs !py-1 !px-2 !w-full" onchange="onInlineCondoChange(this,'exp-add-prop')">
+      <option value="">— condo —</option>${_expCndOpts}
+    </select></td>
+    <td><select class="exp-add-prop input !text-xs !py-1 !px-2 !w-full">
+      <option value="">— unit —</option>${_expUntOpts}
     </select></td>
     <td><input class="exp-add-desc input !text-xs !py-1 !px-2 !w-full" placeholder="${descPlaceholder}" value="${descPrefill}"></td>
     <td class="num"><input type="number" step="0.01" class="exp-add-amt input !text-xs !py-1 !px-2 !w-full !text-right" placeholder="0.00"></td>
@@ -8029,13 +8026,14 @@ function renderExtras(){
   const tot = list.reduce((s,x)=>s+Number(x.amount||0),0);
 
   // Inline quick-add row (Excel-style)
-  const propOpts = state.properties.map(p=>{
-    const sel = (p.id===pid) ? ' selected' : '';
-    return `<option value="${p.id}"${sel}>${esc(p.condo)} · ${esc(p.unit)}</option>`;
-  }).join('');
+  const _extCndOpts = _condoOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'');
+  const _extUntOpts = _unitOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'', pid);
   const addRow = `<tr class="add-row ext-add-row">
-    <td colspan="2"><select class="ext-add-prop input !text-xs !py-1 !px-2 !w-full">
-      <option value="">— pick unit —</option>${propOpts}
+    <td><select class="ext-add-condo input !text-xs !py-1 !px-2 !w-full" onchange="onInlineCondoChange(this,'ext-add-prop')">
+      <option value="">— condo —</option>${_extCndOpts}
+    </select></td>
+    <td><select class="ext-add-prop input !text-xs !py-1 !px-2 !w-full">
+      <option value="">— unit —</option>${_extUntOpts}
     </select></td>
     <td><input class="ext-add-desc input !text-xs !py-1 !px-2 !w-full" placeholder="Description (required)…"></td>
     <td class="num"><input type="number" step="0.01" class="ext-add-amt input !text-xs !py-1 !px-2 !w-full !text-right" placeholder="0.00"></td>
@@ -8661,7 +8659,7 @@ function fillTenantFormFromPaste(){
 
   // Property auto-match — warn clearly if not found so user selects manually
   if(d.property_id){
-    set('f_prop', d.property_id);
+    setPropPicker(d.property_id);
   } else {
     const detected = [d._condo, d._unit].filter(Boolean).join(' · ');
     toast(`⚠ Property not matched${detected ? ' ("'+detected+'" not found)' : ''} — please select manually`, 'warn');
@@ -8744,7 +8742,7 @@ function openTenantModal(id, prefill){
   // `prefill` lets callers pre-select a property + room when adding a new
   // tenant — e.g. clicking a Vacant row in the Active tenant list.
   const t = id ? state.tenants.find(x=>x.id===id) : (prefill || {});
-  const propOpts = state.properties.map(p=>`<option value="${p.id}" ${t.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('');
+  // propOpts replaced by propPickerHTML
   openModal(id?'Edit Tenant':'Add Tenant', `
     ${!id ? `<div id="taPastePanel" class="mb-4 rounded-xl border border-sky-200 bg-sky-50 overflow-hidden">
       <div class="flex items-center justify-between px-3 py-2 bg-sky-100 border-b border-sky-200">
@@ -8760,7 +8758,7 @@ function openTenantModal(id, prefill){
       </div>
     </div>` : ''}
     <div class="grid md:grid-cols-2 gap-3">
-      <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
+      <div class="md:col-span-2"><label class="label">Property *</label>${propPickerHTML(state.properties, t.property_id)}</div>
       <div><label class="label">Name *</label><input id="f_name" class="input" value="${esc(t.name||'')}"></div>
       <div><label class="label">IC / Passport</label><input id="f_ic" class="input" value="${esc(t.ic||'')}"></div>
       <div>
@@ -9089,13 +9087,56 @@ function openTenantModal(id, prefill){
 }
 async function delTenant(id){ if(!await confirmModal('Delete this tenant?\n\nThis cannot be undone.',{confirmText:'Delete',danger:true}))return; const {error}=await sb.from('tenants').delete().eq('id',id); if(error)return toast(error.message,'bad'); await loadTenants(); renderTab('tenants'); toast('Deleted'); }
 
+
+// ── Condo / Unit two-step picker helpers ─────────────────────────────────────
+function _condoOpts(props, selCondo){
+  return [...new Set(props.map(p=>p.condo))].sort()
+    .map(c=>`<option value="${esc(c)}"${c===selCondo?' selected':''}>${esc(c)}</option>`).join('');
+}
+function _unitOpts(props, condo, selId){
+  return props.filter(p=>p.condo===condo)
+    .map(p=>`<option value="${p.id}"${p.id===selId?' selected':''}>${esc(p.unit)}</option>`).join('');
+}
+function propPickerHTML(props, selId){
+  const sel = props.find(p=>p.id===selId);
+  const sc  = sel ? sel.condo : '';
+  return `<div style="display:flex;gap:6px">` +
+    `<select id="f_prop_condo" class="input prop-condo-sel" onchange="onPropCondoChange(this)">` +
+    `<option value="">— condo —</option>${_condoOpts(props,sc)}</select>` +
+    `<select id="f_prop" class="input prop-unit-sel">` +
+    `<option value="">— unit —</option>${_unitOpts(props,sc,selId)}</select></div>`;
+}
+function onPropCondoChange(sel){
+  const us = sel.parentElement.querySelector('.prop-unit-sel');
+  if(!us) return;
+  const units = sel.value ? state.properties.filter(p=>p.condo===sel.value) : [];
+  us.innerHTML = '<option value="">— unit —</option>' +
+    units.map(p=>`<option value="${p.id}">${esc(p.unit)}</option>`).join('');
+}
+function onInlineCondoChange(sel, unitCls){
+  const us = sel.closest('tr').querySelector('.'+unitCls);
+  if(!us) return;
+  const units = sel.value ? state.properties.filter(p=>p.condo===sel.value) : [];
+  us.innerHTML = '<option value="">— unit —</option>' +
+    units.map(p=>`<option value="${p.id}">${esc(p.unit)}</option>`).join('');
+}
+function setPropPicker(propId){
+  const prop = propId ? state.properties.find(p=>p.id===propId) : null;
+  const ce = document.getElementById('f_prop_condo');
+  const ue = document.getElementById('f_prop');
+  if(!ce||!ue) return;
+  if(prop){ ce.value=prop.condo; onPropCondoChange(ce); ue.value=propId; }
+  else { ce.value=''; ue.innerHTML='<option value="">— unit —</option>'; }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // -- Payment modal --
 function openPaymentModal(id){
   const r = id ? state.payments.find(x=>x.id===id) : {};
-  const propOpts = state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('');
+  // propOpts replaced by propPickerHTML
   openModal(id?'Edit Payment':'Add Rental Payment', `
     <div class="grid md:grid-cols-2 gap-3">
-      <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
+      <div class="md:col-span-2"><label class="label">Property *</label>${propPickerHTML(state.properties, r.property_id)}</div>
       <div><label class="label">Item Type</label>
         <select id="f_type" class="input">
           <option value="room" ${(r.item_type||'room')==='room'?'selected':''}>Room</option>
@@ -9167,10 +9208,10 @@ async function prefillPayments(){
 // -- Aircon modal --
 function openAirModal(id){
   const r = id ? state.aircon.find(x=>x.id===id) : {};
-  const propOpts = state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('');
+  // propOpts replaced by propPickerHTML
   openModal(id?'Edit Aircon Top-up':'Add Aircon Top-up', `
     <div class="grid md:grid-cols-2 gap-3">
-      <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
+      <div class="md:col-span-2"><label class="label">Property *</label>${propPickerHTML(state.properties, r.property_id)}</div>
       <div><label class="label">Room Code *</label><input id="f_room" class="input" value="${esc(r.room_code||'')}"></div>
       <div><label class="label">Amount (RM) *</label><input type="number" step="0.01" id="f_amt" class="input" value="${r.amount??''}"></div>
       <div><label class="label">Topped Up On</label><input type="date" id="f_date" class="input" value="${r.topped_up_on||''}"></div>
@@ -9196,12 +9237,12 @@ async function delAircon(id){
 // -- Expense modal --
 function openExpenseModal(id){
   const r = id ? state.expenses.find(x=>x.id===id) : {};
-  const propOpts = state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('');
+  // propOpts replaced by propPickerHTML
   const cats=['management_fee','rent_commission','cleaning','maintenance','other'];
   const catOpts = cats.map(c=>`<option value="${c}" ${r.category===c?'selected':''}>${c.replace('_',' ')}</option>`).join('');
   openModal(id?'Edit Expense':'Add Expense', `
     <div class="grid md:grid-cols-2 gap-3">
-      <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
+      <div class="md:col-span-2"><label class="label">Property *</label>${propPickerHTML(state.properties, r.property_id)}</div>
       <div><label class="label">Category</label><select id="f_cat" class="input">${catOpts}</select></div>
       <div><label class="label">Amount (RM) *</label><input type="number" step="0.01" id="f_amt" class="input" value="${r.amount??''}"></div>
       <div class="md:col-span-2"><label class="label">Description</label><input id="f_desc" class="input" value="${esc(r.description||'')}"></div>
@@ -9239,10 +9280,10 @@ async function delExpense(id){
 // -- Extra income modal --
 function openExtraModal(id){
   const r = id ? state.extras.find(x=>x.id===id) : {};
-  const propOpts = state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('');
+  // propOpts replaced by propPickerHTML
   openModal(id?'Edit Extra Income':'Add Extra Income', `
     <div class="grid md:grid-cols-2 gap-3">
-      <div class="md:col-span-2"><label class="label">Property *</label><select id="f_prop" class="input">${propOpts}</select></div>
+      <div class="md:col-span-2"><label class="label">Property *</label>${propPickerHTML(state.properties, r.property_id)}</div>
       <div><label class="label">Amount (RM) *</label><input type="number" step="0.01" id="f_amt" class="input" value="${r.amount??''}"></div>
       <div class="md:col-span-2"><label class="label">Description</label><input id="f_desc" class="input" value="${esc(r.description||'')}"></div>
     </div>`, async()=>{
@@ -10748,7 +10789,7 @@ async function processReceiptFiles(files){
 }
 
 function renderRecvTable(){
-  const propOpts = state.properties.map(p=>`<option value="${p.id}">${esc(p.condo)} · ${esc(p.unit)}</option>`).join('');
+  // propOpts replaced by propPickerHTML
   const activeRows = _recvRows.filter(r=>!r.skip);
   const matched = activeRows.filter(r=>r.property_id && r.dup!=='same' && !(r.dup==='split' && !r.confirmed)).length;
   const unmatched = activeRows.filter(r=>!r.property_id).length;
