@@ -5404,7 +5404,7 @@ function renderTenants(){
     // Group separator: add top border on first row of each new property group
     const isNewGrp = t.property_id !== _lastPropId;
     if(isNewGrp){ _lastPropId = t.property_id; _propGrp++; }
-    const grpCls = (isNewGrp && _propGrp > 0) ? 'grp-first-row' : '';
+    const grpCls = [(_propGrp % 2 === 1) ? 'prop-grp-alt' : '', (isNewGrp && _propGrp > 0) ? 'grp-first-row' : ''].filter(Boolean).join(' ');
     // Highlight rows whose contract ends within 60 days (only on the Active list)
     const cls = isMovedOut ? '' : (endingSoonClass(t)||'');
     const dte = daysToEnd(t);
