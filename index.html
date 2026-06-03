@@ -360,8 +360,22 @@
   #propTable td,#propTable th{padding:8px 8px}
   #propTable td:last-child{padding-right:6px}
   table.data tr.prop-grp-alt td{background:#F1F9FD}
-  /* Tenant tab: group separator line between properties */
-  #tenantTable tr.grp-first-row td{border-top:2px solid #CBD5E1 !important}
+  /* Unit group separator — tenants, collection, payment ledger */
+  .unit-grp-sep td {
+    border-top: 2px solid #CBD5E1 !important;
+    padding-top: 10px !important;
+  }
+  html[data-theme="dark"] .unit-grp-sep td {
+    border-top: 2px solid rgba(148,163,184,.28) !important;
+  }
+  /* keep backward compat for tenantTable existing class */
+  #tenantTable tr.grp-first-row td {
+    border-top: 2px solid #CBD5E1 !important;
+    padding-top: 10px !important;
+  }
+  html[data-theme="dark"] #tenantTable tr.grp-first-row td {
+    border-top: 2px solid rgba(148,163,184,.28) !important;
+  }
   /* ── Custom fast tooltip ── */
   #ttpTip{
     position:fixed;z-index:9999;pointer-events:none;
@@ -4832,9 +4846,10 @@ function renderRateDonut(o){
 //  Top-line monthly money + 3 owner-side metrics + bar/donut + table.
 // ============================================================
 function renderHelpManageDashboard(){
-  const props = state.properties.filter(p=>
-    p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M'
-  );
+  const props = state.properties.filter(p=>{
+    const isH2M = p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M';
+    return isH2M && _propPassesGlobalFilter(p);
+  });
   const propIds = new Set(props.map(p=>p.id));
   const tenants = state.tenants.filter(t=>propIds.has(t.property_id) && t.active!==false);
   const payments = state.payments.filter(p=>propIds.has(p.property_id));
@@ -5079,9 +5094,10 @@ function renderHelpManageDashboard(){
 //  = total per row. Bottom row = total per column.
 // ============================================================
 async function renderOwnUnitDashboard(){
-  const props = state.properties.filter(p=>
-    p.model ? p.model === 'R2R' : String(p.property_type||'H2M').toUpperCase() === 'R2R'
-  );
+  const props = state.properties.filter(p=>{
+    const isR2R = p.model ? p.model === 'R2R' : String(p.property_type||'H2M').toUpperCase() === 'R2R';
+    return isR2R && _propPassesGlobalFilter(p);
+  });
   $('#r2rUnitCount').textContent = props.length;
 
   // Year tabs — show 3 years: prev / current / next (anchored on state.year)
@@ -5388,7 +5404,7 @@ function renderTenants(){
     // Group separator: add top border on first row of each new property group
     const isNewGrp = t.property_id !== _lastPropId;
     if(isNewGrp){ _lastPropId = t.property_id; _propGrp++; }
-    const grpCls = isNewGrp ? 'grp-first-row' : '';
+    const grpCls = (isNewGrp && _propGrp > 0) ? 'grp-first-row' : '';
     // Highlight rows whose contract ends within 60 days (only on the Active list)
     const cls = isMovedOut ? '' : (endingSoonClass(t)||'');
     const dte = daysToEnd(t);
@@ -7322,8 +7338,9 @@ function renderPayments(){
   let _payLastPid = null, _payGrp = -1;
   const rows = list.map(r=>{
     const p = state.properties.find(x=>x.id===r.property_id);
-    if(r.property_id !== _payLastPid){ _payLastPid = r.property_id; _payGrp++; }
-    const grpCls = (_payGrp % 2 === 1) ? 'prop-grp-alt' : '';
+    const isPayNewGrp = r.property_id !== _payLastPid;
+    if(isPayNewGrp){ _payLastPid = r.property_id; _payGrp++; }
+    const grpCls = [(_payGrp % 2 === 1) ? 'prop-grp-alt' : '', isPayNewGrp && _payGrp > 0 ? 'unit-grp-sep' : ''].filter(Boolean).join(' ');
     // Look up the tenant for this (property, room) so we can show a
     // little chip indicating that this consolidated amount matches their
     // room+carpark expected total — gives the user instant visual feedback.
@@ -7646,8 +7663,9 @@ function renderRentStatus(pid){
   let _rsLastPid = null, _rsGrp = -1;
   const html = rows.map(r=>{
     const t=r.tenant;
-    if((r.prop?.id||'') !== _rsLastPid){ _rsLastPid = r.prop?.id||''; _rsGrp++; }
-    const grpCls = (_rsGrp % 2 === 1) ? 'prop-grp-alt' : '';
+    const isRsNewGrp = (r.prop?.id||'') !== _rsLastPid;
+    if(isRsNewGrp){ _rsLastPid = r.prop?.id||''; _rsGrp++; }
+    const grpCls = [(_rsGrp % 2 === 1) ? 'prop-grp-alt' : '', isRsNewGrp && _rsGrp > 0 ? 'unit-grp-sep' : ''].filter(Boolean).join(' ');
     // ----- Pro-rate notice chips -----
     // 🆕  First-month pro-rate: tenant moved in this month — recognize the
     //     pro-rated portion as income; expect their cash next month.
@@ -7719,13 +7737,18 @@ function renderPendingIsewaBanner(){
   if(!list.length){ host.innerHTML=''; return; }
 
   const rows = list.map(p=>{
-    const d    = p.time_stamp_raw ? fmtDate(p.time_stamp_raw.slice(0,10)) : fmtDate((p.received_at||'').slice(0,10));
-    const amt  = fmt(p.tran_amount||0);
+    const d       = p.time_stamp_raw ? fmtDate(p.time_stamp_raw.slice(0,10)) : fmtDate((p.received_at||'').slice(0,10));
+    const gross   = Number(p.tran_amount||0);
+    const fee     = Number(p.tran_charged||0);
+    const net     = Number(p.tran_received||0) || (gross - fee) || gross;
+    const amtHtml = fee > 0
+      ? `<span class="text-slate-400 line-through text-xs">${fmt(gross)}</span><br><span class="font-bold">${fmt(net)}</span><br><span class="text-slate-400 text-[10px]">fee -${fmt(fee)}</span>`
+      : `<span class="font-bold">${fmt(net)}</span>`;
     const from = [p.tenant_name_raw, p.property_name_raw, p.room_name_raw].filter(Boolean).join(' · ') || '—';
     const tid  = p.tran_id ? `<span class="text-slate-400 text-[10px] font-mono">${esc(p.tran_id)}</span>` : '';
     return `<tr>
       <td>${d}</td>
-      <td class="num font-bold">${amt}</td>
+      <td class="num">${amtHtml}</td>
       <td>${esc(from)}${tid?'<br>':''} ${tid}</td>
       <td class="text-right whitespace-nowrap">
         <button class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm transition"
