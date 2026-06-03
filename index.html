@@ -459,52 +459,81 @@
     #btnLogin { font-size: 14px !important; padding: 13px !important; }
   }
 
-  /* ── Loading overlay ─────────────────────────────────────────────────── */
-  #loadingOverlay {
-    display: none;
-    position: absolute;
-    inset: 0;
-    z-index: 200;
-    background: rgba(255,255,255,0.45);
-    backdrop-filter: blur(1.5px);
-    -webkit-backdrop-filter: blur(1.5px);
-    align-items: center;
-    justify-content: center;
-    pointer-events: all;
+
+  
+  /* ── Month-switch loading bar ───────────────────────────────────────────── */
+  #tmsLoadBar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
   }
-  .dark #loadingOverlay {
-    background: rgba(15,23,42,0.35);
+  #tmsLoadBar.active { opacity: 1; }
+  #tmsLoadBarFill {
+    height: 100%;
+    background: linear-gradient(90deg, #0891b2, #06b6d4, #0891b2);
+    background-size: 200% 100%;
+    width: 0%;
+    transition: width 0.3s ease-out;
+    animation: none;
   }
-  #loadingOverlay.active { display: flex; }
-  @keyframes tms-spin { to { transform: rotate(360deg); } }
-  .tms-loading-pill {
+  #tmsLoadBar.active #tmsLoadBarFill {
+    animation: tms-bar-slide 1.2s ease-in-out infinite;
+    width: 85%;
+  }
+  #tmsLoadBar.done #tmsLoadBarFill {
+    animation: none;
+    width: 100%;
+    transition: width 0.15s ease-out;
+  }
+  @keyframes tms-bar-slide {
+    0%   { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+  }
+  /* Loading pill shown below the bar */
+  #tmsLoadPill {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-60px);
+    z-index: 9998;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     background: #fff;
-    border: 1px solid rgba(8,145,178,0.25);
+    border: 1px solid #e2e8f0;
     border-radius: 999px;
-    padding: 10px 20px 10px 14px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    padding: 7px 16px 7px 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+    transition: transform 0.2s cubic-bezier(.34,1.56,.64,1), opacity 0.2s;
+    opacity: 0;
+    pointer-events: none;
   }
-  .dark .tms-loading-pill {
+  html[data-theme="dark"] #tmsLoadPill {
     background: #1e293b;
-    border-color: rgba(8,145,178,0.35);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    border-color: #334155;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
   }
+  #tmsLoadPill.active {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+  @keyframes tms-spin { to { transform: rotate(360deg); } }
   .tms-spinner {
-    width: 22px; height: 22px;
-    border: 2.5px solid rgba(8,145,178,0.2);
+    width: 16px; height: 16px;
+    border: 2px solid rgba(8,145,178,0.25);
     border-top-color: #0891b2;
     border-radius: 50%;
-    animation: tms-spin 0.7s linear infinite;
+    animation: tms-spin 0.65s linear infinite;
     flex-shrink: 0;
   }
-  .tms-loading-text {
-    font-size: 13px;
+  .tms-load-lbl {
+    font-size: 12px;
     font-weight: 600;
     color: #0891b2;
-    letter-spacing: 0.01em;
     white-space: nowrap;
   }
 
@@ -1350,6 +1379,8 @@
 </div>
 
 <!-- ========== APP SHELL ========== -->
+<div id="tmsLoadBar"><div id="tmsLoadBarFill"></div></div>
+<div id="tmsLoadPill"><div class="tms-spinner"></div><span class="tms-load-lbl">Loading…</span></div>
 <div id="app">
 
   <!-- LEFT SIDEBAR — logo + vertical tab nav -->
@@ -1433,8 +1464,7 @@
   </aside>
 
   <!-- MAIN CONTENT AREA -->
-  <div id="mainArea" style="position:relative">
-  <div id="loadingOverlay"><div class="tms-loading-pill"><div class="tms-spinner"></div><span class="tms-loading-text">Loading…</span></div></div>
+  <div id="mainArea">
 
   <!-- DASHBOARD ============================================== -->
   <section class="tab-pane" data-pane="dashboard">
@@ -2449,7 +2479,7 @@ function pickMonth(y, m){
   const lbl = $('#monthPickLabel');
   if(lbl) lbl.textContent = MONTHS_FULL[m-1]+' '+y;
   showLoading();
-  refreshMonthData();
+  requestAnimationFrame(()=>requestAnimationFrame(()=>refreshMonthData()));
 }
 
 function toggleMonthPicker(){
@@ -2959,17 +2989,19 @@ document.addEventListener('click', e=>{
 // monthPick select removed — now using calendar picker (pickMonth → selectMonth)
 
 function showLoading(msg='Loading…'){
-  const o = document.getElementById('loadingOverlay');
-  if(!o) return;
-  const t = o.querySelector('.tms-loading-text');
-  if(t) t.textContent = msg;
-  o.classList.add('active');
-  // Force a repaint so the overlay appears before async work blocks the thread
-  o.getBoundingClientRect();
+  const bar  = document.getElementById('tmsLoadBar');
+  const pill = document.getElementById('tmsLoadPill');
+  const lbl  = pill && pill.querySelector('.tms-load-lbl');
+  if(lbl) lbl.textContent = msg;
+  if(bar)  { bar.classList.remove('done'); bar.classList.add('active'); }
+  if(pill) pill.classList.add('active');
 }
 function hideLoading(){
-  const o = document.getElementById('loadingOverlay');
-  if(o) o.classList.remove('active');
+  const bar  = document.getElementById('tmsLoadBar');
+  const pill = document.getElementById('tmsLoadPill');
+  if(bar){ bar.classList.remove('active'); bar.classList.add('done');
+    setTimeout(()=>{ bar.classList.remove('done'); }, 300); }
+  if(pill) pill.classList.remove('active');
 }
 async function refreshMonthData(){
   if(!sb) return;
