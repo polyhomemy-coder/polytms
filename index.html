@@ -458,7 +458,42 @@
     #loginRight h2 { font-size: 22px !important; }
     #btnLogin { font-size: 14px !important; padding: 13px !important; }
   }
-</style>
+
+  /* ── Loading overlay ─────────────────────────────────────────────────── */
+  #loadingOverlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 200;
+    background: rgba(255,255,255,0.65);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: all;
+  }
+  .dark #loadingOverlay {
+    background: rgba(15,23,42,0.65);
+  }
+  #loadingOverlay.active { display: flex; }
+  @keyframes tms-spin { to { transform: rotate(360deg); } }
+  .tms-spinner {
+    width: 36px; height: 36px;
+    border: 3px solid rgba(8,145,178,0.2);
+    border-top-color: #0891b2;
+    border-radius: 50%;
+    animation: tms-spin 0.7s linear infinite;
+  }
+  .tms-loading-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: #0891b2;
+    letter-spacing: 0.02em;
+  }
+
+  </style>
 </head>
 <body class="min-h-screen">
 <div id="ttpTip"></div>
@@ -1383,7 +1418,8 @@
   </aside>
 
   <!-- MAIN CONTENT AREA -->
-  <div id="mainArea">
+  <div id="mainArea" style="position:relative">
+  <div id="loadingOverlay"><div class="tms-spinner"></div><span class="tms-loading-text">Loading…</span></div>
 
   <!-- DASHBOARD ============================================== -->
   <section class="tab-pane" data-pane="dashboard">
@@ -2397,6 +2433,7 @@ function pickMonth(y, m){
   state.year = y; state.month = m;
   const lbl = $('#monthPickLabel');
   if(lbl) lbl.textContent = MONTHS_FULL[m-1]+' '+y;
+  showLoading();
   refreshMonthData();
 }
 
@@ -2906,8 +2943,21 @@ document.addEventListener('click', e=>{
 // --- month change -------------------------------------------
 // monthPick select removed — now using calendar picker (pickMonth → selectMonth)
 
+function showLoading(msg='Loading…'){
+  const o = document.getElementById('loadingOverlay');
+  if(!o) return;
+  const t = o.querySelector('.tms-loading-text');
+  if(t) t.textContent = msg;
+  o.classList.add('active');
+}
+function hideLoading(){
+  const o = document.getElementById('loadingOverlay');
+  if(o) o.classList.remove('active');
+}
 async function refreshMonthData(){
   if(!sb) return;
+  showLoading();
+  try{
   await Promise.all([loadPayments(), loadAircon(), loadExpenses(), loadExtras(), loadPendingIsewa()]);
   // Materialize cleaning rows for this month so they appear in both the
   // Expenses tab AND the Income Report consistently, regardless of which
@@ -2927,6 +2977,7 @@ async function refreshMonthData(){
   await ensureBalanceForward();
   const active=document.querySelector('.tab-btn.active')?.dataset.tab;
   renderTab(active);
+  } finally { hideLoading(); }
 }
 
 // --- loaders -------------------------------------------------
