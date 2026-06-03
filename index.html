@@ -7683,7 +7683,7 @@ function renderAircon(){
   const dateDefault = `${state.year}-${String(state.month).padStart(2,'0')}-01`;
   const addRow = `<tr class="add-row air-add-row">
     <td><div style="display:flex;gap:4px;width:100%">
-      <select class="air-add-condo input !text-xs !py-1 !px-2" style="min-width:90px" onchange="onInlineCondoChange(this,'air-add-prop')">
+      <select class="air-add-condo input !text-xs !py-1 !px-2" style="flex:1;min-width:0" onchange="onInlineCondoChange(this,'air-add-prop')">
         <option value="">— condo —</option>${_airCndOpts}
       </select>
       <select class="air-add-prop input !text-xs !py-1 !px-2" style="flex:1;min-width:0">
