@@ -5224,7 +5224,7 @@ function renderProperties(){
       <td>${esc(p.bank_account||'')}</td>
       <td>${p.service_percent??''}%</td>
       <td>${ptypeBadge}</td>
-      <td>${esc(p.carpark_lots||'')}</td>
+      <td>${(p.carpark_lots||'').split(',').map(s=>s.trim()).filter(Boolean).map(s=>`<div style="font-weight:600;line-height:1.7">${esc(s)}</div>`).join('')||'—'}</td>
       <td class="text-right whitespace-nowrap">
         <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)]" onclick="openPropertyView('${p.id}')" title="View details">${ICON.view}</button>
         <button class="p-1.5 rounded bg-[#E8F4FD] text-[#1E5BB8]" onclick="openGenerateSAModal('${p.id}')" title="Generate Service Agreement">${ICON.doc}</button>
@@ -5239,7 +5239,7 @@ function renderProperties(){
         ? 'No properties match the current filter — click a chip again or “Clear” to reset.'
         : '');
   $('#propTable').innerHTML=`<colgroup>
-    <col style="width:36px"><col style="width:13%"><col style="width:9%"><col style="width:44px"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:12%"><col style="width:56px"><col style="width:90px"><col style="width:9%"><col style="width:108px">
+    <col style="width:36px"><col style="width:9%"><col style="width:9%"><col style="width:44px"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:12%"><col style="width:56px"><col style="width:90px"><col style="width:7%"><col style="width:108px">
   </colgroup><thead><tr>
     <th class="text-center !text-[10px]">No</th><th>Condo</th><th>Unit</th><th>City</th><th>Owner</th><th>Contact</th><th>Bank</th><th>Account</th><th class="!text-[10px]">Fee%</th><th>Type</th><th>Carpark</th><th></th>
   </tr></thead><tbody>${rows || `<tr><td colspan="12" class="text-center text-slate-400 py-10">${esc(emptyMsg)}</td></tr>`}</tbody>`;
