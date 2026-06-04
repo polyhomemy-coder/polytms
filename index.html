@@ -271,9 +271,13 @@
   #sidebar.sb-collapsed #sbBottom #btnSettings{padding:10px 6px;font-size:18px}
   #sidebar.sb-collapsed #sbBottom #demoBadge{display:none!important}
   /* Toggle button */
-  #sbToggleBtn{position:absolute;top:50%;right:-13px;transform:translateY(-50%);width:26px;height:26px;border-radius:50%;background:#fff;border:1.5px solid var(--line);box-shadow:0 2px 6px rgba(0,123,138,.15);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--brand);z-index:10;transition:transform .25s ease}
-  #sidebar.sb-collapsed #sbToggleBtn{right:-13px}
+  #sbToggleBtn{position:absolute;top:50%;right:-14px;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;background:#fff;border:1.5px solid var(--line);box-shadow:0 2px 8px rgba(0,123,138,.18);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--brand);z-index:10;transition:background .2s,box-shadow .2s;line-height:1}
+  #sbToggleBtn:hover{background:#E8F8FA;box-shadow:0 3px 12px rgba(0,123,138,.3)}
+  /* When collapsed — make the button more prominent */
+  #sidebar.sb-collapsed #sbToggleBtn{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 2px 10px rgba(0,123,138,.4);right:-14px}
+  #sidebar.sb-collapsed #sbToggleBtn:hover{background:#007B8A;box-shadow:0 3px 14px rgba(0,123,138,.5)}
   html[data-theme="dark"] #sbToggleBtn{background:var(--sb-bg);border-color:var(--line);color:var(--brand2)}
+  html[data-theme="dark"] #sidebar.sb-collapsed #sbToggleBtn{background:var(--brand2);color:#fff;border-color:var(--brand2)}
   /* Sidebar bottom block — month picker, demo badge and settings cog
      pinned to the bottom of the left sidebar so the entire top of the
      main area is free for the income report and dashboards. */
@@ -2542,21 +2546,27 @@ function toggleSidebar(){
   const btn = document.getElementById('sbToggleBtn');
   if(!sb) return;
   const collapsed = sb.classList.toggle('sb-collapsed');
-  if(btn){ btn.textContent = collapsed ? '›' : '‹'; btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar'; }
-  // Persist preference
+  _applySidebarBtn(btn, collapsed);
   try{ localStorage.setItem('tms_sb_collapsed', collapsed ? '1' : '0'); } catch(_){}
 }
-// Restore sidebar state on load
-(function(){
+function _applySidebarBtn(btn, collapsed){
+  if(!btn) return;
+  btn.innerHTML = collapsed ? '›' : '‹';
+  btn.title     = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+}
+// Restore sidebar collapsed state — runs after DOM ready
+document.addEventListener('DOMContentLoaded', function(){
   try{
+    const sb  = document.getElementById('sidebar');
+    const btn = document.getElementById('sbToggleBtn');
     if(localStorage.getItem('tms_sb_collapsed')==='1'){
-      const sb  = document.getElementById('sidebar');
-      const btn = document.getElementById('sbToggleBtn');
-      if(sb){ sb.classList.add('sb-collapsed'); }
-      if(btn){ btn.textContent='›'; btn.title='Expand sidebar'; }
+      if(sb) sb.classList.add('sb-collapsed');
+      _applySidebarBtn(btn, true);
+    } else {
+      _applySidebarBtn(btn, false);
     }
   } catch(_){}
-})();
+});
 
 function toggleMonthPicker(){
   const p = $('#monthPickerPanel');
