@@ -3083,6 +3083,14 @@ document.addEventListener('click', e=>{
   const btn = e.target.closest('#tenantSubtabs .subtab-btn');
   if(btn){
     state.tenantSub = btn.dataset.tsub;
+    // Lazy-load moved-out tenants on first click of that tab
+    if(btn.dataset.tsub === 'movedout'){
+      const alreadyLoaded = (state.tenants||[]).some(t=>t.active===false);
+      if(!alreadyLoaded){
+        loadTenants({ includeMovedOut: true }).then(()=> renderTenants());
+        return;
+      }
+    }
     renderTenants();
     return;
   }
@@ -3124,22 +3132,8 @@ async function refreshMonthData(){
   showLoading();
   try{
   await Promise.all([loadPayments(), loadAircon(), loadExpenses(), loadExtras(), loadPendingIsewa()]);
-  // Materialize cleaning rows for this month so they appear in both the
-  // Expenses tab AND the Income Report consistently, regardless of which
-  // tab the user visits first.
-  await ensureCleaningExpenses();
-  // Backfill pro-rate payment rows for EVERY tenant whose move-in (or
-  // move-out) month is this month — covers all existing tenants, not just
-  // ones newly created via the modal. Must run BEFORE management fee so
-  // the fee captures the pro-rate income too.
-  await ensureFirstMonthProRateExpenses();
-  await ensureLastMonthProRateExpenses();
-  // Auto-post rent commission for new tenants (their agreement_start month)
-  await ensureRentCommissionExpenses();
-  // Auto-post / sync management fee from rental income × service%
-  await ensureManagementFeeExpenses();
-  // Roll H2M losses from the previous month into this month's Expenses
-  await ensureBalanceForward();
+  // Materialise auto-rows for this month (skips instantly if already done)
+  await _ensureMonthInit();
   const active=document.querySelector('.tab-btn.active')?.dataset.tab;
   renderTab(active);
   } finally { hideLoading(); }
@@ -3156,10 +3150,20 @@ async function loadProperties(){
   if(error){toast(error.message,'bad');return;}
   state.properties=data||[];
 }
-async function loadTenants(){
-  const {data,error}=await sb.from('tenants').select('*').order('name');
+async function loadTenants({ includeMovedOut = false } = {}){
+  // At boot we only fetch active tenants — cuts payload significantly.
+  // Moved-out tenants are lazy-loaded when the user opens the Moved Out sub-tab.
+  let q = sb.from('tenants').select('*').order('name');
+  if(!includeMovedOut) q = q.eq('active', true);
+  const {data,error}=await q;
   if(error){toast(error.message,'bad');return;}
-  state.tenants=data||[];
+  if(includeMovedOut){
+    state.tenants = data||[];
+  } else {
+    // Merge: keep any already-loaded moved-out rows, replace active ones
+    const movedOut = (state.tenants||[]).filter(t=>t.active===false);
+    state.tenants = [...(data||[]), ...movedOut];
+  }
 }
 async function loadPayments(){
   const {data,error}=await sb.from('rental_payments').select('*').eq('year',state.year).eq('month',state.month);
@@ -4335,19 +4339,32 @@ async function bootApp(){
     loadPendingIsewa(),
   ]);
 
-  // Post-load: materialise auto-rows (needs state from above queries)
-  await ensureCleaningExpenses();
-  await ensureFirstMonthProRateExpenses();
-  await ensureLastMonthProRateExpenses();
-  await ensureRentCommissionExpenses();
-  await ensureManagementFeeExpenses();
-  await ensureBalanceForward();
+  // Post-load: materialise auto-rows — but SKIP if already done for this month.
+  // These 5 functions loop over all properties with individual DB queries.
+  // On first visit of the month they run once and stamp a localStorage flag.
+  // Every subsequent page load for the same month skips them entirely = fast boot.
+  await _ensureMonthInit();
 
   fillPropertySelectors();
   renderSidebarFilters();
   renderTab('dashboard');
   hideLoading();
   _initLiveSync();
+}
+
+function _monthInitKey(){ return `tms_month_init_${state.year}_${String(state.month).padStart(2,'0')}`; }
+function _monthInitDone(){ try{ return localStorage.getItem(_monthInitKey())==='1'; } catch(_){ return false; } }
+function _markMonthInit(){ try{ localStorage.setItem(_monthInitKey(),'1'); } catch(_){} }
+
+async function _ensureMonthInit(){
+  if(_monthInitDone()) return; // Already initialised this month — skip all 5 ensure calls
+  await ensureCleaningExpenses();
+  await ensureFirstMonthProRateExpenses();
+  await ensureLastMonthProRateExpenses();
+  await ensureRentCommissionExpenses();
+  await ensureManagementFeeExpenses();
+  await ensureBalanceForward();
+  _markMonthInit();
 }
 
 // ARIA auto-mirror: any button (or other interactive element) with a title
