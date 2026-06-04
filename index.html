@@ -4771,6 +4771,7 @@ function renderAdminDashboard(){
 
   ${(state.role === 'manager' || state.role === 'admin') ? `<div id="userMgmtPanel" style="margin-top:8px"></div>` : ''}
   ${state.role === 'manager' ? `<div id="announcementsPanel" style="margin-top:8px"></div>` : ''}
+  ${state.role === 'manager' ? `<div id="backupPanel" style="margin-top:8px"></div>` : ''}
   `;
 
   // Render user management panel for manager and admin
@@ -4782,6 +4783,181 @@ function renderAdminDashboard(){
   if(state.role === 'manager'){
     const panel = document.getElementById('announcementsPanel');
     if(panel) renderAnnouncementsPanel(panel);
+  }
+  // Render backup/restore panel for manager
+  if(state.role === 'manager'){
+    const panel = document.getElementById('backupPanel');
+    if(panel) renderBackupPanel(panel);
+  }
+}
+
+// ============================================================
+//  BACKUP & RESTORE
+// ============================================================
+const BACKUP_TABLES = [
+  'properties','tenants','rental_payments','aircon_topups',
+  'expenses','extra_incomes','report_status',
+  'pending_isewa_payments','announcements'
+];
+
+function renderBackupPanel(container){
+  container.innerHTML = `
+    <div style="background:var(--card);border-radius:16px;border:1px solid var(--line);overflow:hidden;margin-bottom:24px">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--ink)">🗄️ Data Backup & Restore</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">Export all data to JSON · Restore from a backup file</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="btnDoBackup" onclick="doBackup()"
+            style="font-size:13px;font-weight:700;padding:9px 18px;border-radius:10px;background:linear-gradient(135deg,#065F46,#059669);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;gap:6px">
+            ⬇️ Export Backup
+          </button>
+          <label id="btnRestoreLabel"
+            style="font-size:13px;font-weight:700;padding:9px 18px;border-radius:10px;background:linear-gradient(135deg,#7C3AED,#9333EA);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;gap:6px">
+            ⬆️ Restore from File
+            <input type="file" id="restoreFileInput" accept=".json" style="display:none" onchange="doRestore(this)">
+          </label>
+        </div>
+      </div>
+      <div style="padding:14px 18px">
+        <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px">
+          <b>Tables included in backup:</b>
+          <span style="font-family:monospace;font-size:11px;color:var(--brand)"> ${BACKUP_TABLES.join(' · ')}</span>
+        </div>
+        <div id="backupLog" style="font-size:12px;color:var(--muted);font-family:monospace;background:var(--th-bg);border-radius:10px;padding:10px 12px;min-height:36px;line-height:1.8;display:none"></div>
+        <div id="backupHistory" style="margin-top:12px"></div>
+      </div>
+    </div>`;
+  renderBackupHistory();
+}
+
+function renderBackupHistory(){
+  const el = document.getElementById('backupHistory');
+  if(!el) return;
+  let history = [];
+  try{ history = JSON.parse(localStorage.getItem('tms_backup_history')||'[]'); } catch(_){}
+  if(!history.length){ el.innerHTML=''; return; }
+  el.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Recent Exports</div>
+    <div style="display:flex;flex-direction:column;gap:4px">
+    ${history.slice(-5).reverse().map(h=>`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:8px;background:var(--th-bg);font-size:12px">
+        <span style="color:var(--ink);font-weight:600">📦 ${esc(h.filename)}</span>
+        <span style="color:var(--muted)">${esc(h.date)} · ${h.rows} rows</span>
+      </div>`).join('')}
+    </div>`;
+}
+
+async function doBackup(){
+  const logEl = document.getElementById('backupLog');
+  const btn   = document.getElementById('btnDoBackup');
+  if(logEl){ logEl.style.display='block'; logEl.innerHTML='Starting backup…'; }
+  if(btn) btn.disabled = true;
+
+  try{
+    const backup = { version:'2.0', exported_at: new Date().toISOString(), tables:{} };
+    let totalRows = 0;
+
+    for(const tbl of BACKUP_TABLES){
+      if(logEl) logEl.innerHTML += `<br>Fetching <b>${tbl}</b>…`;
+      // Fetch in pages of 1000 to handle large tables
+      let all = [], from = 0, pageSize = 1000, done = false;
+      while(!done){
+        const {data, error} = await sb.from(tbl).select('*').range(from, from+pageSize-1);
+        if(error) throw new Error(`${tbl}: ${error.message}`);
+        all = all.concat(data||[]);
+        done = (data||[]).length < pageSize;
+        from += pageSize;
+      }
+      backup.tables[tbl] = all;
+      totalRows += all.length;
+      if(logEl) logEl.innerHTML += ` ✓ ${all.length} rows`;
+    }
+
+    // Download
+    const ts       = new Date().toISOString().slice(0,19).replace(/[T:]/g,'-');
+    const filename = `polytms-backup-${ts}.json`;
+    const blob     = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+    const url      = URL.createObjectURL(blob);
+    const a        = document.createElement('a');
+    a.href=url; a.download=filename; a.click();
+    URL.revokeObjectURL(url);
+
+    // Save to history
+    let history = [];
+    try{ history = JSON.parse(localStorage.getItem('tms_backup_history')||'[]'); } catch(_){}
+    history.push({ filename, date: new Date().toLocaleDateString(), rows: totalRows });
+    localStorage.setItem('tms_backup_history', JSON.stringify(history.slice(-20)));
+
+    if(logEl) logEl.innerHTML += `<br><b style="color:#059669">✅ Backup complete! ${totalRows} total rows exported → ${filename}</b>`;
+    renderBackupHistory();
+    toast(`✅ Backup exported: ${filename}`,'ok');
+
+  } catch(e){
+    if(logEl) logEl.innerHTML += `<br><span style="color:#B91C1C">❌ Error: ${esc(e.message)}</span>`;
+    toast('Backup failed: '+e.message,'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function doRestore(input){
+  const file = input?.files?.[0];
+  if(!file) return;
+  input.value = ''; // reset so same file can be re-selected
+
+  const logEl = document.getElementById('backupLog');
+  if(logEl){ logEl.style.display='block'; logEl.innerHTML='Reading file…'; }
+
+  try{
+    const text = await file.text();
+    let backup;
+    try{ backup = JSON.parse(text); } catch(_){ throw new Error('Invalid JSON file'); }
+    if(!backup.tables) throw new Error('Not a valid polyTMS backup file (missing "tables" key)');
+
+    const tableNames = Object.keys(backup.tables);
+    const totalRows  = tableNames.reduce((s,t)=>s+(backup.tables[t]||[]).length,0);
+    const exportedAt = backup.exported_at ? new Date(backup.exported_at).toLocaleString() : 'unknown';
+
+    const ok = await confirmModal(
+      `<b>⚠️ Restore from backup?</b><br><br>
+       File: <b>${esc(file.name)}</b><br>
+       Exported: <b>${esc(exportedAt)}</b><br>
+       Tables: <b>${tableNames.join(', ')}</b><br>
+       Total rows: <b>${totalRows}</b><br><br>
+       <span style="color:#B91C1C">This will <b>upsert</b> all records — existing rows with matching IDs will be overwritten. New rows will be inserted. No rows will be deleted.</span>`,
+      { confirmText:'Restore', confirmClass:'bg-rose-600 text-white' }
+    );
+    if(!ok){ if(logEl) logEl.innerHTML='Restore cancelled.'; return; }
+
+    if(logEl) logEl.innerHTML = 'Starting restore…';
+    let restored = 0;
+
+    for(const tbl of tableNames){
+      const rows = backup.tables[tbl]||[];
+      if(!rows.length){ if(logEl) logEl.innerHTML+=`<br><b>${tbl}</b>: 0 rows (skipped)`; continue; }
+      if(logEl) logEl.innerHTML+=`<br>Restoring <b>${tbl}</b> (${rows.length} rows)…`;
+
+      // Upsert in chunks of 200
+      const chunkSize = 200;
+      for(let i=0; i<rows.length; i+=chunkSize){
+        const chunk = rows.slice(i, i+chunkSize);
+        const {error} = await sb.from(tbl).upsert(chunk, {onConflict:'id', ignoreDuplicates:false});
+        if(error) throw new Error(`${tbl}: ${error.message}`);
+        restored += chunk.length;
+      }
+      if(logEl) logEl.innerHTML+=` ✓`;
+    }
+
+    if(logEl) logEl.innerHTML+=`<br><b style="color:#059669">✅ Restore complete! ${restored} rows restored.</b>`;
+    toast(`✅ Restore complete — ${restored} rows`,'ok');
+
+    // Reload all data into state
+    await refreshMonthData();
+
+  } catch(e){
+    if(logEl) logEl.innerHTML+=`<br><span style="color:#B91C1C">❌ Error: ${esc(e.message)}</span>`;
+    toast('Restore failed: '+e.message,'bad');
   }
 }
 
