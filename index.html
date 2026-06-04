@@ -4685,8 +4685,80 @@ function renderAdminDashboard(){
 
   // ── Pane builders ─────────────────────────────────────────────────────────
 
+  // ── Overview charts ────────────────────────────────────────────────────────
+  // 3-segment donut helper (no external deps, pure SVG)
+  const multiDonut = (segments, cx, cy, R, r) => {
+    const total = segments.reduce((s,x)=>s+x.n,0);
+    if(!total) return `<circle cx="${cx}" cy="${cy}" r="${(R+r)/2}" fill="none" stroke="var(--line)" stroke-width="${R-r}"/>`;
+    let a = -Math.PI/2; // start at 12 o'clock
+    return segments.map(seg=>{
+      const sweep = (seg.n/total)*Math.PI*2;
+      const a2 = a + sweep;
+      const x0o=cx+R*Math.cos(a), y0o=cy+R*Math.sin(a);
+      const x1o=cx+R*Math.cos(a2),y1o=cy+R*Math.sin(a2);
+      const x0i=cx+r*Math.cos(a), y0i=cy+r*Math.sin(a);
+      const x1i=cx+r*Math.cos(a2),y1i=cy+r*Math.sin(a2);
+      const large=sweep>Math.PI?1:0;
+      const path=`M${x0o},${y0o} A${R},${R} 0 ${large} 1 ${x1o},${y1o} L${x1i},${y1i} A${r},${r} 0 ${large} 0 ${x0i},${y0i} Z`;
+      a = a2;
+      return `<path d="${path}" fill="${seg.color}"/>`;
+    }).join('');
+  };
+  const legend = (segs, total) => segs.map(s=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0">
+      <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink)">
+        <span style="width:10px;height:10px;border-radius:2px;background:${s.color};display:inline-block"></span>${esc(s.label)}
+      </span>
+      <span style="font-size:12px;font-weight:700;color:var(--ink)">${s.n} <span style="color:var(--muted);font-weight:400">(${total?Math.round(s.n/total*100):0}%)</span></span>
+    </div>`).join('');
+
+  // Payment status chart
+  const totalTenants = rentRows.length;
+  const nPaid    = rentRows.filter(r=>r.status==='paid').length;
+  const nUnmatch = rentRows.filter(r=>r.status==='unmatch').length;
+  const nUnpaid  = rentRows.filter(r=>r.status==='unpaid').length;
+  const paySegs  = [{n:nPaid,color:'#10B981',label:'Paid'},{n:nUnmatch,color:'#F59E0B',label:'Unmatch'},{n:nUnpaid,color:'#EF4444',label:'Unpaid'}];
+
+  // Room occupancy chart
+  const totalRooms    = props.reduce((s,p)=>s+parseRoomCodes(p.room_codes).length,0);
+  const occupiedRooms = totalRooms - vacants.length;
+  const roomSegs = [{n:occupiedRooms,color:'#0891b2',label:'Occupied'},{n:vacants.length,color:'#F87171',label:'Vacant'}];
+
+  // Lease expiry — next 6 months bar chart
+  const now = new Date(); now.setDate(1);
+  const expiryMonths = Array.from({length:6},(_,i)=>{
+    const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
+    return { y:d.getFullYear(), m:d.getMonth()+1, label:MONTHS[d.getMonth()]+' '+(d.getFullYear()!==now.getFullYear()?d.getFullYear():'') };
+  });
+  const expiryCounts = expiryMonths.map(em=>({
+    ...em,
+    n: allActive.filter(t=>{
+      if(!t.agreement_end) return false;
+      const [ey,em2] = t.agreement_end.split('-').map(Number);
+      return ey===em.y && em2===em.m;
+    }).length
+  }));
+  const maxExpiry = Math.max(1, ...expiryCounts.map(x=>x.n));
+  const expiryBars = expiryCounts.map(em=>{
+    const pct = em.n/maxExpiry*100;
+    const isCur = em.y===y && em.m===m;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
+      <div style="font-size:11px;font-weight:700;color:var(--ink)">${em.n||''}</div>
+      <div style="width:100%;background:var(--line);border-radius:4px;height:80px;display:flex;align-items:flex-end">
+        <div style="width:100%;height:${Math.max(4,pct)}%;background:${isCur?'var(--brand)':'#93C5FD'};border-radius:4px;transition:height .3s"></div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);text-align:center;line-height:1.2;font-weight:${isCur?700:400}">${esc(em.label.trim())}</div>
+    </div>`;
+  }).join('');
+
+  // Top properties by unpaid count
+  const unpaidByProp = {};
+  unpaidRows.forEach(r=>{ const k=r.prop?r.prop.condo+' '+r.prop.unit:'Unknown'; unpaidByProp[k]=(unpaidByProp[k]||0)+1; });
+  const topUnpaid = Object.entries(unpaidByProp).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
   const paneOverview = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px">
+    <!-- Stat tiles -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px">
       ${tile('👥','Active Tenants',allActive.length,'var(--brand)')}
       ${tile('🏠','Vacant Rooms',vacants.length,vacants.length?'#C85900':'var(--brand)')}
       ${tile('💸','Unpaid / Unmatch',unpaidRows.length,unpaidRows.length?'#B3261E':'var(--brand)')}
@@ -4696,7 +4768,60 @@ function renderAdminDashboard(){
       ${tile('📦','Movements',moveIns.length+moveOuts.length,'var(--brand)')}
       ${tile('📋','Sign-off Pending',reportPending.length,reportPending.length?'#92400E':'var(--brand)')}
     </div>
-    <p style="font-size:12px;color:var(--muted)">Click a tab above to see the full list for each section.</p>`;
+
+    <!-- Charts row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;align-items:start">
+
+      <!-- Payment Status donut -->
+      <div class="card" style="text-align:center">
+        <div style="font-size:12px;font-weight:800;color:var(--ink);margin-bottom:10px">💸 Payment Status — ${MONTHS[m-1]} ${y}</div>
+        <svg viewBox="0 0 200 200" width="140" height="140" xmlns="http://www.w3.org/2000/svg">
+          ${multiDonut(paySegs,100,100,80,52)}
+          <text x="100" y="96" text-anchor="middle" font-size="26" font-weight="800" fill="${document.documentElement.dataset.theme==='dark'?'#C4E0E6':'#0F2A36'}" font-family="Inter,sans-serif">${totalTenants?Math.round(nPaid/totalTenants*100):0}%</text>
+          <text x="100" y="116" text-anchor="middle" font-size="10" fill="#64748B" font-family="Inter,sans-serif">PAID</text>
+        </svg>
+        <div style="margin-top:8px;text-align:left">${legend(paySegs,totalTenants)}</div>
+      </div>
+
+      <!-- Room Occupancy donut -->
+      <div class="card" style="text-align:center">
+        <div style="font-size:12px;font-weight:800;color:var(--ink);margin-bottom:10px">🏠 Room Occupancy</div>
+        <svg viewBox="0 0 200 200" width="140" height="140" xmlns="http://www.w3.org/2000/svg">
+          ${multiDonut(roomSegs,100,100,80,52)}
+          <text x="100" y="96" text-anchor="middle" font-size="26" font-weight="800" fill="${document.documentElement.dataset.theme==='dark'?'#C4E0E6':'#0F2A36'}" font-family="Inter,sans-serif">${totalRooms?Math.round(occupiedRooms/totalRooms*100):0}%</text>
+          <text x="100" y="116" text-anchor="middle" font-size="10" fill="#64748B" font-family="Inter,sans-serif">OCCUPIED</text>
+        </svg>
+        <div style="margin-top:8px;text-align:left">${legend(roomSegs,totalRooms)}</div>
+      </div>
+
+      <!-- Lease expiry bar chart -->
+      <div class="card">
+        <div style="font-size:12px;font-weight:800;color:var(--ink);margin-bottom:12px">⏰ Lease Expiry — Next 6 Months</div>
+        <div style="display:flex;gap:6px;align-items:flex-end;height:110px;padding-bottom:4px">
+          ${expiryBars}
+        </div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:6px">Cyan bar = current month</div>
+      </div>
+
+    </div>
+
+    <!-- Top unpaid properties -->
+    ${topUnpaid.length ? `
+    <div class="card">
+      <div style="font-size:12px;font-weight:800;color:var(--ink);margin-bottom:10px">🔴 Top Properties with Unpaid Tenants</div>
+      ${topUnpaid.map(([prop,n],i)=>{
+        const pct = Math.round(n/Math.max(1,topUnpaid[0][1])*100);
+        return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <span style="font-size:11px;font-weight:700;color:var(--muted);width:14px">${i+1}</span>
+          <span style="font-size:12px;font-weight:700;color:var(--ink);min-width:130px">${esc(prop)}</span>
+          <div style="flex:1;background:var(--line);border-radius:4px;height:8px">
+            <div style="width:${pct}%;height:8px;background:#EF4444;border-radius:4px"></div>
+          </div>
+          <span style="font-size:12px;font-weight:700;color:#EF4444;min-width:20px;text-align:right">${n}</span>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
+  `;
 
   const paneUnpaid = panel(`
     ${secHead('💸','Unpaid / Unmatch — '+MONTHS[m-1]+' '+y,unpaidRows.length,'background:#FEE2E2;color:#B91C1C')}
