@@ -11586,7 +11586,10 @@ async function renderUserManagementPanel(container){
           <div style="font-size:15px;font-weight:700;color:var(--ink)">👥 User Management</div>
           <div style="font-size:12px;color:var(--muted);margin-top:2px">${subtitle}</div>
         </div>
-        <button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Add Owner</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${isManager ? `<button id="btnAddAdmin" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#1E3A8A,#1E5BB8);color:#fff;border:none;cursor:pointer">🗂️ + Add Admin</button>` : ''}
+          <button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Add Owner</button>
+        </div>
       </div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse">
@@ -11605,6 +11608,8 @@ async function renderUserManagementPanel(container){
     </div>`;
 
   document.getElementById('btnInviteUser').onclick = openInviteUserModal;
+  const btnAdmin = document.getElementById('btnAddAdmin');
+  if(btnAdmin) btnAdmin.onclick = openAddAdminModal;
 }
 
 // Called from the "Send Invitation" / "Resend" button in the User Management table.
@@ -11648,6 +11653,53 @@ function openInviteUserModal(){
       if(container) await renderUserManagementPanel(container);
     } catch(e){ toast('Failed: '+e.message,'bad'); }
   }, 'Send Invite');
+}
+
+// ── Add Admin Modal ───────────────────────────────────────────
+function openAddAdminModal(){
+  const bodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">EMAIL ADDRESS</label>
+      <input id="addAdminEmail" type="email" class="input" placeholder="admin@example.com" style="width:100%;box-sizing:border-box">
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">DISPLAY NAME <span style="font-weight:400;font-style:italic">(optional)</span></label>
+      <input id="addAdminName" type="text" class="input" placeholder="e.g. Irene Lu" style="width:100%;box-sizing:border-box">
+    </div>
+    <div style="font-size:12px;color:var(--muted);background:var(--th-bg);border-radius:10px;padding:10px 12px;line-height:1.7">
+      🗂️ A login link will be sent to their email.<br>
+      They'll have <strong>Admin</strong> role — able to manage tenants, income and expenses for assigned properties.<br>
+      <span style="color:#1E5BB8">Assign properties via the <strong>Property Assignment</strong> panel below.</span>
+    </div>
+  </div>`;
+
+  openModal('Add New Admin', bodyHtml, async ()=>{
+    const email = (document.getElementById('addAdminEmail')?.value||'').trim().toLowerCase();
+    const name  = (document.getElementById('addAdminName')?.value||'').trim();
+    if(!email) throw new Error('Enter an email address');
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address');
+
+    // Use existing invite flow with role='admin'
+    const result = await inviteUser(email, 'admin');
+
+    // Optionally stamp display name if provided
+    if(name){
+      await sb.from('profiles').update({ name }).eq('email', email);
+    }
+
+    if(result.restored){
+      toast(`✅ Admin access restored for ${email}`,'ok');
+    } else {
+      toast(`📧 Admin invite sent to ${email}`,'ok');
+    }
+
+    // Refresh admin list in sidebar + user management panel
+    const {data:admins} = await sb.from('profiles').select('id,email').eq('role','admin').order('email');
+    state.adminProfiles = admins || [];
+    renderSidebarFilters();
+    const container = document.getElementById('userMgmtPanel');
+    if(container) await renderUserManagementPanel(container);
+  }, 'Create Admin');
 }
 
 // ════════════════════════════════════════════════════════════════
