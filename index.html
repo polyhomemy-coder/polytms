@@ -2462,7 +2462,7 @@ function renderSidebarFilters(){
       const admins = state.adminProfiles || [];
       adminChipsEl.innerHTML = admins.length
         ? admins.map(a=>{
-            const label = a.email ? a.email.split('@')[0] : a.id.slice(0,8);
+            const label = a.name || (a.email ? a.email.split('@')[0] : a.id.slice(0,8));
             return mkChip(label, adminFil.includes(a.id), 'admin', a.id);
           }).join('')
         : '<span style="font-size:11px;color:#94a3b8">No admins</span>';
@@ -4322,7 +4322,7 @@ async function bootApp(){
   // Manager: fetch list of admin users so the Admin sidebar filter can show their names
   if(state.role === 'manager'){
     try{
-      const {data:admins} = await sb.from('profiles').select('id,email').eq('role','admin').order('email');
+      const {data:admins} = await sb.from('profiles').select('id,email,name').eq('role','admin').order('email');
       state.adminProfiles = admins || [];
     } catch(_){}
   }
@@ -11807,7 +11807,11 @@ async function renderUserManagementPanel(container){
       : '';
 
     const actionCell = isMe
-      ? `<span style="font-size:11px;color:var(--muted);font-style:italic">You</span>`
+      ? `<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">
+           <span style="font-size:11px;color:var(--muted);font-style:italic">You</span>
+           <button onclick="openEditMyName('${p.id}','${esc(p.email||'')}','${p.role}','${esc(p.name||'')}')"
+             style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">✏️ My Name</button>
+         </div>`
       : canEdit
         ? `<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;flex-wrap:wrap">
              ${inviteBtn}
@@ -11952,7 +11956,7 @@ function openAddAdminModal(){
     }
 
     // Refresh admin list in sidebar + user management panel
-    const {data:admins} = await sb.from('profiles').select('id,email').eq('role','admin').order('email');
+    const {data:admins} = await sb.from('profiles').select('id,email,name').eq('role','admin').order('email');
     state.adminProfiles = admins || [];
     renderSidebarFilters();
     const container = document.getElementById('userMgmtPanel');
@@ -11971,13 +11975,13 @@ function renderPropAssignPanel(container){
 
   const adminName = id => {
     const a = admins.find(x=>x.id===id);
-    return a ? a.email : '<span style="color:var(--muted);font-style:italic">Unassigned</span>';
+    return a ? (a.name || a.email) : '<span style="color:var(--muted);font-style:italic">Unassigned</span>';
   };
 
   const rows = props.map(p=>{
     const tenantCount = state.tenants.filter(t=>t.property_id===p.id && t.active!==false).length;
     const opts = `<option value="">— Unassigned —</option>`
-      + admins.map(a=>`<option value="${a.id}" ${p.created_by===a.id?'selected':''}>${a.email}</option>`).join('');
+      + admins.map(a=>`<option value="${a.id}" ${p.created_by===a.id?'selected':''}>${esc(a.name||a.email)}</option>`).join('');
     return `<tr>
       <td class="font-semibold">${esc(p.condo)}</td>
       <td class="whitespace-nowrap">${esc(p.unit)}</td>
@@ -12011,7 +12015,8 @@ function renderPropAssignPanel(container){
 
 async function reassignProperty(propId, adminId, selectEl){
   const prop = state.properties.find(p=>p.id===propId);
-  const adminName = (state.adminProfiles||[]).find(a=>a.id===adminId)?.email || 'Unassigned';
+  const _ap = (state.adminProfiles||[]).find(a=>a.id===adminId);
+  const adminName = _ap ? (_ap.name||_ap.email) : 'Unassigned';
   const label = prop ? `${prop.condo} · ${prop.unit}` : propId;
   if(!await confirmModal(`Re-assign <b>${label}</b> to <b>${adminName}</b>?<br><span style="font-size:12px;color:var(--muted)">All tenants and data will move to this admin.</span>`, {confirmText:'Re-assign'})){
     // revert dropdown
@@ -12229,6 +12234,26 @@ function openEditUserModal(uid, email, currentRole, currentPropId, currentName='
     };
   }, 50);
 }
+function openEditMyName(uid, email, role, currentName){
+  openModal('Edit My Display Name', `
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:12px;color:var(--muted)">${esc(email)} · <b>${esc(role)}</b></div>
+      <div>
+        <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">YOUR DISPLAY NAME</label>
+        <input id="myNameInput" class="input" placeholder="e.g. Aaron Ng" value="${esc(currentName)}" style="width:100%;box-sizing:border-box" autofocus>
+      </div>
+    </div>`, async ()=>{
+    const newName = (document.getElementById('myNameInput')?.value||'').trim();
+    const {error} = await sb.from('profiles').update({name: newName||null}).eq('id', uid);
+    if(error) throw new Error(error.message);
+    state.currentUserName = newName;
+    showUserBox(email);
+    toast('✓ Name updated', 'ok');
+    const container = document.getElementById('userMgmtPanel');
+    if(container) await renderUserManagementPanel(container);
+  }, 'Save Name');
+}
+
 async function signOutAndReturnToLogin(){
   try { await sb.auth.signOut(); } catch(_){}
   // Hard reload so all in-memory state (tenants, payments, etc) clears.
