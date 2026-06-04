@@ -4307,33 +4307,46 @@ async function ensureBalanceForward(){
 
 // --- bootstrapping -------------------------------------------
 async function bootApp(){
+  showLoading();
   buildMonthOptions();
-  // Hydrate IndexedDB-backed TA template into in-memory cache so the
-  // synchronous read path (`_getStoredTATemplate()`) always returns the
-  // current value. Migrates from legacy localStorage key on first run.
   _hydrateTATemplate().catch(e=> console.warn('[polyTMS] TA template hydrate failed:', e));
   _loadSATemplateCache().catch(e=> console.warn('[polyTMS] SA template hydrate failed:', e));
-  // Accessibility: auto-mirror `title="..."` → `aria-label` on every button
-  // that doesn't already have one. Covers icon-only buttons (Edit/Delete/View
-  // etc.) so screen readers announce them. Cheap one-time MutationObserver
-  // setup that catches all future renders.
   _installAriaAutoMirror();
-  await loadProperties();
-  // Manager: fetch list of admin users so the Admin sidebar filter can show their names
-  if(state.role === 'manager'){
-    try{
-      const {data:admins} = await sb.from('profiles').select('id,email,name').eq('role','admin').order('email');
-      state.adminProfiles = admins || [];
-    } catch(_){}
-  }
-  await loadTenants();
-  await loadReportStatus();
-  await refreshMonthData();
+
+  // ── Parallel boot: fire ALL initial queries at once ──────────────────────
+  // Previously sequential (3 round-trips before first render).
+  // Now everything races in parallel — boot is as fast as the slowest single query.
+  const adminProfilesPromise = state.role === 'manager'
+    ? sb.from('profiles').select('id,email,name').eq('role','admin').order('email')
+        .then(({data}) => { state.adminProfiles = data || []; })
+        .catch(() => {})
+    : Promise.resolve();
+
+  await Promise.all([
+    loadProperties(),
+    loadTenants(),
+    loadReportStatus(),
+    adminProfilesPromise,
+    // Month-specific data also starts immediately
+    loadPayments(),
+    loadAircon(),
+    loadExpenses(),
+    loadExtras(),
+    loadPendingIsewa(),
+  ]);
+
+  // Post-load: materialise auto-rows (needs state from above queries)
+  await ensureCleaningExpenses();
+  await ensureFirstMonthProRateExpenses();
+  await ensureLastMonthProRateExpenses();
+  await ensureRentCommissionExpenses();
+  await ensureManagementFeeExpenses();
+  await ensureBalanceForward();
+
   fillPropertySelectors();
   renderSidebarFilters();
   renderTab('dashboard');
-  // Start live sync — Supabase Realtime + visibility API.
-  // Runs after initial load so the first render is never delayed.
+  hideLoading();
   _initLiveSync();
 }
 
