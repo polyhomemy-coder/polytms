@@ -4563,6 +4563,9 @@ function renderAdminDashboard(){
   if(!el) return;
   const y=state.year, m=state.month;
   const mStr=`${y}-${String(m).padStart(2,'0')}`;
+  // Ensure moved-out tenants are loaded (needed for move-out pro-rate in Movements)
+  const hasMovedOut = (state.tenants||[]).some(t=>t.active===false);
+  if(!hasMovedOut){ loadTenants({includeMovedOut:true}).then(()=>renderAdminDashboard()); return; }
 
   // Filtered props / tenants
   const props   = (state.properties||[]).filter(_propPassesGlobalFilter);
@@ -4602,8 +4605,15 @@ function renderAdminDashboard(){
     });
 
   // Move-ins and move-outs this month
+  // Move-ins: active tenants whose agreement_start is this month
   const moveIns  = allActive.filter(t=>t.agreement_start&&t.agreement_start.startsWith(mStr));
-  const moveOuts = (state.tenants||[]).filter(t=>t.active===false&&propIds.has(t.property_id)&&t.agreement_end&&t.agreement_end.startsWith(mStr));
+  // Move-outs: tenants (active OR inactive) whose agreement_end OR move_out_date is this month
+  // This covers both formally moved-out tenants AND those whose contract simply ends this month
+  const moveOuts = (state.tenants||[]).filter(t=>{
+    if(!propIds.has(t.property_id)) return false;
+    const endDate = t.move_out_date || t.agreement_end || '';
+    return endDate.startsWith(mStr);
+  });
 
   // Pending iSewa
   const iSewaCount=(state.pendingIsewa||[]).length;
@@ -4643,193 +4653,164 @@ function renderAdminDashboard(){
   const tbl=(head,body)=>`<table style="width:100%;border-collapse:collapse;font-size:12px">${head}<tbody>${body}</tbody></table>`;
   const td=(val,opts={})=>`<td style="padding:6px 8px 6px 0;border-bottom:1px solid var(--line);${opts.bold?'font-weight:700;':''}${opts.muted?'color:var(--muted);':''}${opts.right?'text-align:right;':''}${opts.color?'color:'+opts.color+';':''}white-space:${opts.wrap?'normal':'nowrap'}">${val}</td>`;
 
+  // ── View button helper ────────────────────────────────────────────────────
+  const viewBtn = id => `<button class="p-1 rounded bg-[#EEF7F8] text-[color:var(--brand)]" onclick="openTenantView('${id}')" title="View tenant">${ICON.view}</button>`;
+
+  // ── Sub-tab helpers ───────────────────────────────────────────────────────
+  const sub = state.adminSub || 'overview';
+  const badge = (n, warn) => n ? `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:999px;background:${warn?'#FEE2E2':'#E8F8FA'};color:${warn?'#B91C1C':'var(--brand)'};margin-left:4px">${n}</span>` : '';
+  const tabs = [
+    {id:'overview',  label:'📊 Overview'},
+    {id:'unpaid',    label:'💸 Unpaid'+badge(unpaidRows.length, true)},
+    {id:'leases',    label:'⏰ Leases'+badge(leaseAlerts.length, leaseAlerts.some(x=>x.d<=30))},
+    {id:'movements', label:'📦 Movements'+badge(moveIns.length+moveOuts.length, false)},
+    {id:'vacant',    label:'🏠 Vacant'+badge(vacants.length, vacants.length>0)},
+    {id:'carpark',   label:'🚗 Carpark'+badge(carparkList.length, false)},
+    {id:'signoff',   label:'📋 Sign-off'+badge(reportPending.length, reportPending.length>0)},
+  ];
+
+  const tabBar = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
+    ${tabs.map(t=>`<button onclick="state.adminSub='${t.id}';renderAdminDashboard()"
+      style="padding:7px 14px;border-radius:10px;font-size:12px;font-weight:700;border:none;cursor:pointer;transition:background .15s;
+      background:${sub===t.id?'var(--brand)':'var(--th-bg)'};color:${sub===t.id?'#fff':'var(--ink)'}">
+      ${t.label}</button>`).join('')}
+  </div>`;
+
+  // ── Pane builders ─────────────────────────────────────────────────────────
+
+  const paneOverview = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px">
+      ${tile('👥','Active Tenants',allActive.length,'var(--brand)')}
+      ${tile('🏠','Vacant Rooms',vacants.length,vacants.length?'#C85900':'var(--brand)')}
+      ${tile('💸','Unpaid / Unmatch',unpaidRows.length,unpaidRows.length?'#B3261E':'var(--brand)')}
+      ${tile('⏰','Expiring ≤90d',leaseAlerts.length,leaseAlerts.length?'#92400E':'var(--brand)')}
+      ${tile('🚗','Carpark',carparkList.length,'var(--brand)')}
+      ${tile('📱','iSewa Pending',iSewaCount,iSewaCount?'#0E7490':'var(--brand)')}
+      ${tile('📦','Movements',moveIns.length+moveOuts.length,'var(--brand)')}
+      ${tile('📋','Sign-off Pending',reportPending.length,reportPending.length?'#92400E':'var(--brand)')}
+    </div>
+    <p style="font-size:12px;color:var(--muted)">Click a tab above to see the full list for each section.</p>`;
+
+  const paneUnpaid = panel(`
+    ${secHead('💸','Unpaid / Unmatch — '+MONTHS[m-1]+' '+y,unpaidRows.length,'background:#FEE2E2;color:#B91C1C')}
+    ${unpaidRows.length===0 ? emptyMsg('All tenants paid this month ✓') : tbl(
+      miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Expected',right:true},{label:'Status',right:true},{label:'',right:true}),
+      unpaidRows.map(r=>{
+        const badge2=r.status==='unpaid'
+          ? `<span style="background:#FEE2E2;color:#B91C1C;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">✕ Unpaid</span>`
+          : `<span style="background:#FEF3C7;color:#92400E;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">⚠ Unmatch</span>`;
+        return `<tr>
+          ${td(esc(r.tenant.name||'—'),{bold:true})}
+          ${td((r.prop?esc(r.prop.condo+' '+r.prop.unit):'—')+' · <b>'+esc(r.tenant.room_code||'?')+'</b>',{muted:true})}
+          ${td('RM '+fmt(r.expected),{right:true})}
+          ${td(badge2,{right:true})}
+          ${td(viewBtn(r.tenant.id),{right:true})}
+        </tr>`;
+      }).join('')
+    )}`);
+
+  const paneLeases = panel(`
+    ${secHead('⏰','Lease Alerts — Expiring within 90 days',leaseAlerts.length,'background:#FEF3C7;color:#92400E')}
+    ${leaseAlerts.length===0 ? emptyMsg('No leases expiring within 90 days ✓') : tbl(
+      miniTh({label:'Tenant'},{label:'Property · Room'},{label:'End Date',right:true},{label:'Days Left',right:true},{label:'',right:true}),
+      leaseAlerts.map(({t,d})=>{
+        const p=state.properties.find(x=>x.id===t.property_id);
+        const bg=d<=14?'rgba(254,226,226,.5)':d<=30?'rgba(254,243,199,.5)':'';
+        const col=d<=14?'#B91C1C':d<=30?'#92400E':'#047857';
+        return `<tr style="background:${bg}">
+          ${td(esc(t.name||'—'),{bold:true})}
+          ${td((p?esc(p.condo+' '+p.unit):'—')+' · <b>'+esc(t.room_code||'?')+'</b>',{muted:true,wrap:true})}
+          ${td(t.agreement_end?fmtDate(t.agreement_end):'—',{right:true})}
+          ${td(`<b>${d===0?'TODAY!':d+'d'}</b>`,{right:true,color:col})}
+          ${td(viewBtn(t.id),{right:true})}
+        </tr>`;
+      }).join('')
+    )}`);
+
+  const paneVacant = panel(`
+    ${secHead('🏠','Vacant Rooms',vacants.length,'background:#FEE2E2;color:#B91C1C')}
+    ${vacants.length===0 ? emptyMsg('All rooms occupied ✓') : tbl(
+      miniTh({label:'Property'},{label:'City'},{label:'Room',right:true}),
+      vacants.map(v=>`<tr>
+        ${td(esc(v.prop.condo+' '+v.prop.unit),{bold:true})}
+        ${td(esc(v.prop.city||'—'),{muted:true})}
+        ${td(`<span style="font-weight:800;color:var(--accent)">${esc(v.room)}</span>`,{right:true})}
+      </tr>`).join('')
+    )}`);
+
+  const paneCarpark = panel(`
+    ${secHead('🚗','Carpark Assignments',carparkList.length)}
+    ${carparkList.length===0 ? emptyMsg('No carpark assignments found') : tbl(
+      miniTh({label:'Tenant'},{label:'Property'},{label:'Lot'},{label:'Rental/mo',right:true},{label:'',right:true}),
+      carparkList.map(({t,prop})=>`<tr>
+        ${td(esc(t.name||'—'),{bold:true})}
+        ${td(prop?esc(prop.condo+' '+prop.unit):'—',{muted:true})}
+        ${td(`<span style="font-weight:800;color:var(--brand)">${esc(t.carpark)}</span>`)}
+        ${td(t.carpark_rental?'RM '+fmt(t.carpark_rental):'—',{right:true})}
+        ${td(viewBtn(t.id),{right:true})}
+      </tr>`).join('')
+    )}`);
+
+  const paneSignoff = panel(`
+    ${secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E')}
+    ${reportPending.length===0 ? emptyMsg('All reports launched this month ✓') :
+      reportPending.map(p=>{
+        const rs=(state.reportStatus||[]).find(r=>r.property_id===p.id&&r.year===y&&r.month===m);
+        const adminDone=rs&&rs.admin_checked_at, mgrDone=rs&&rs.manager_verified_at;
+        const pill=(label,done)=>`<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${done?'rgba(16,185,129,.15)':'var(--th-bg)'};color:${done?'#059669':'var(--muted)'};">${done?'✓':' ○'} ${label}</span>`;
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:10px;background:var(--th-bg);margin-bottom:5px">
+          <span style="font-size:12px;font-weight:700;color:var(--ink)">${esc(p.condo+' '+p.unit)}</span>
+          <div style="display:flex;gap:5px">${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
+        </div>`;
+      }).join('')
+    }`);
+
+  const buildProRow = (t, isIn) => {
+    const p = state.properties.find(x=>x.id===t.property_id);
+    const dateStr = isIn ? t.agreement_start : (t.move_out_date || t.agreement_end);
+    const hasRental = dateStr && t.room_rental;
+    let rentalCell=td('—',{right:true,muted:true}), formulaCell=td('—',{right:true,muted:true}), proRateCell=td('—',{right:true,muted:true});
+    if(hasRental){
+      const d=new Date(dateStr); const dim=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+      const days=isIn?(dim-d.getDate()+1):d.getDate();
+      const rent=parseFloat(t.room_rental)||0; const pr=rent/dim*days;
+      const col=isIn?'#0891b2':'#B91C1C';
+      const formula=`${rent%1===0?rent:rent.toFixed(2)}/${dim}×${days}`;
+      rentalCell=td('RM '+fmt(rent),{right:true});
+      formulaCell=td(`<span style="font-family:monospace;font-size:10.5px;color:${col};background:${isIn?'rgba(8,145,178,0.08)':'rgba(185,28,28,0.06)'};padding:2px 6px;border-radius:4px">${esc(formula)}</span>`,{right:true});
+      proRateCell=td(`<b style="color:${col}">RM ${fmt(pr)}</b>`,{right:true});
+    }
+    return `<tr>
+      ${td(esc(t.name||'—'),{bold:true})}
+      ${td(p?esc(p.condo+' '+p.unit+' · Room '+t.room_code):'—',{muted:true})}
+      ${td(dateStr?fmtDate(dateStr):'—',{color:isIn?'#065F46':'#B91C1C'})}
+      ${rentalCell}${formulaCell}${proRateCell}
+      ${td(viewBtn(t.id),{right:true})}
+    </tr>`;
+  };
+  const moveTh = miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Date'},{label:'Rental/mo',right:true},{label:'Formula',right:true},{label:'Pro-Rate',right:true},{label:'',right:true});
+  const paneMovements = panel(`
+    ${secHead('📦','Movements This Month',moveIns.length+moveOuts.length)}
+    ${moveIns.length===0&&moveOuts.length===0 ? emptyMsg('No move-ins or move-outs recorded this month') : ''}
+    ${moveIns.length ? `
+      <div style="font-size:11px;font-weight:800;color:#065F46;margin-bottom:6px">🆕 MOVE-INS (${moveIns.length}) <span style="font-size:10px;font-weight:500;color:var(--muted)">— pro-rate for first partial month</span></div>
+      ${tbl(moveTh, moveIns.map(t=>buildProRow(t,true)).join(''))}
+      <div style="margin-top:5px;font-size:10.5px;color:var(--muted)">💡 Rent ÷ Days in Month × Days Remaining (from move-in, inclusive)</div>
+    ` : ''}
+    ${moveOuts.length ? `
+      <div style="font-size:11px;font-weight:800;color:#B91C1C;margin-top:${moveIns.length?16:0}px;margin-bottom:6px">📦 MOVE-OUTS (${moveOuts.length}) <span style="font-size:10px;font-weight:500;color:var(--muted)">— pro-rate for last partial month</span></div>
+      ${tbl(moveTh, moveOuts.map(t=>buildProRow(t,false)).join(''))}
+      <div style="margin-top:5px;font-size:10.5px;color:var(--muted)">💡 Rent ÷ Days in Month × Days Occupied (up to move-out day)</div>
+    ` : ''}`);
+
+  const paneMap = {overview:paneOverview, unpaid:paneUnpaid, leases:paneLeases, movements:paneMovements, vacant:paneVacant, carpark:paneCarpark, signoff:paneSignoff};
+
   // ─────────────────────────────────────────────────────────────────────────
   el.innerHTML = `
-  <!-- ── Stat tiles ── -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px">
-    ${tile('👥','Active Tenants',allActive.length,'var(--brand)')}
-    ${tile('🏠','Vacant Rooms',vacants.length,vacants.length?'#C85900':'var(--brand)')}
-    ${tile('💸','Unpaid / Unmatch',unpaidRows.length,unpaidRows.length?'#B3261E':'var(--brand)')}
-    ${tile('⏰','Expiring ≤90d',leaseAlerts.length,leaseAlerts.length?'#92400E':'var(--brand)')}
-    ${tile('🚗','Carparkids',carparkList.length,'var(--brand)')}
-    ${tile('📱','iSewa Pending',iSewaCount,iSewaCount?'#0E7490':'var(--brand)')}
-  </div>
+  ${tabBar}
+  ${paneMap[sub] || paneOverview}
 
-  <!-- ── 2-col grid ── -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
-
-    <!-- ── LEFT ── -->
-    <div style="display:flex;flex-direction:column;gap:16px">
-
-      ${panel(`
-        ${secHead('⏰','Lease Alerts',leaseAlerts.length,'background:#FEF3C7;color:#92400E')}
-        ${leaseAlerts.length===0 ? emptyMsg('No leases expiring within 90 days ✓') : tbl(
-          miniTh({label:'Tenant'},{label:'Property · Room'},{label:'End Date',right:true},{label:'Days Left',right:true},{label:'',right:true}),
-          leaseAlerts.slice(0,20).map(({t,d})=>{
-            const p=state.properties.find(x=>x.id===t.property_id);
-            const bg=d<=14?'rgba(254,226,226,.5)':d<=30?'rgba(254,243,199,.5)':'';
-            const col=d<=14?'#B91C1C':d<=30?'#92400E':'#047857';
-            return `<tr style="background:${bg}">
-              ${td(esc(t.name||'—'),{bold:true})}
-              ${td((p?esc(p.condo+' '+p.unit):'—')+' · <b>'+esc(t.room_code||'?')+'</b>',{muted:true,wrap:true})}
-              ${td(t.agreement_end?fmtDate(t.agreement_end):'—',{right:true})}
-              ${td(`<b>${d===0?'TODAY!':d+'d'}</b>`,{right:true,color:col})}
-              ${td(`<button class="p-1 rounded bg-[#EEF7F8] text-[color:var(--brand)]" onclick="openTenantView('${t.id}')">${ICON.view}</button>`,{right:true})}
-            </tr>`;
-          }).join('')
-        )}
-      `)}
-
-      ${panel(`
-        ${secHead('🏠','Vacant Rooms',vacants.length,'background:#FEE2E2;color:#B91C1C')}
-        ${vacants.length===0 ? emptyMsg('All rooms occupied ✓') : tbl(
-          miniTh({label:'Property'},{label:'City'},{label:'Room',right:true}),
-          vacants.map(v=>`<tr>
-            ${td(esc(v.prop.condo+' '+v.prop.unit),{bold:true})}
-            ${td(esc(v.prop.city||'—'),{muted:true})}
-            ${td(`<span style="font-weight:800;color:var(--accent)">${esc(v.room)}</span>`,{right:true})}
-          </tr>`).join('')
-        )}
-      `)}
-
-
-    </div><!-- end left -->
-
-    <!-- ── RIGHT ── -->
-    <div style="display:flex;flex-direction:column;gap:16px">
-
-      ${panel(`
-        ${secHead('💸','Unpaid / Unmatch — '+MONTHS[m-1]+' '+y,unpaidRows.length,'background:#FEE2E2;color:#B91C1C')}
-        ${unpaidRows.length===0 ? emptyMsg('All tenants paid this month ✓') : tbl(
-          miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Expected',right:true},{label:'Status',right:true},{label:'',right:true}),
-          unpaidRows.slice(0,25).map(r=>{
-            const badge=r.status==='unpaid'
-              ? `<span style="background:#FEE2E2;color:#B91C1C;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">✕ Unpaid</span>`
-              : `<span style="background:#FEF3C7;color:#92400E;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">⚠ Unmatch</span>`;
-            return `<tr>
-              ${td(esc(r.tenant.name||'—'),{bold:true})}
-              ${td((r.prop?esc(r.prop.condo+' '+r.prop.unit):'—')+' · <b>'+esc(r.tenant.room_code||'?')+'</b>',{muted:true})}
-              ${td('RM '+fmt(r.expected),{right:true})}
-              ${td(badge,{right:true})}
-              ${td(`<button class="p-1 rounded bg-[#EEF7F8] text-[color:var(--brand)]" onclick="openTenantView('${r.tenant.id}')">${ICON.view}</button>`,{right:true})}
-            </tr>`;
-          }).join('')
-        )}
-      `)}
-
-      ${panel(`
-        ${secHead('🚗','Carpark Assignments',carparkList.length)}
-        ${carparkList.length===0 ? emptyMsg('No carpark assignments found') : tbl(
-          miniTh({label:'Tenant'},{label:'Property'},{label:'Lot'},{label:'Rental/mo',right:true},{label:'',right:true}),
-          carparkList.map(({t,prop})=>`<tr>
-            ${td(esc(t.name||'—'),{bold:true})}
-            ${td(prop?esc(prop.condo+' '+prop.unit):'—',{muted:true})}
-            ${td(`<span style="font-weight:800;color:var(--brand)">${esc(t.carpark)}</span>`)}
-            ${td(t.carpark_rental?'RM '+fmt(t.carpark_rental):'—',{right:true})}
-            ${td(`<button class="p-1 rounded bg-[#EEF7F8] text-[color:var(--brand)]" onclick="openTenantView('${t.id}')">${ICON.view}</button>`,{right:true})}
-          </tr>`).join('')
-        )}
-      `)}
-
-      ${panel(`
-        ${secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E')}
-        ${reportPending.length===0 ? emptyMsg('All reports launched this month ✓') :
-          reportPending.slice(0,15).map(p=>{
-            const rs=(state.reportStatus||[]).find(r=>r.property_id===p.id&&r.year===y&&r.month===m);
-            const adminDone=rs&&rs.admin_checked_at, mgrDone=rs&&rs.manager_verified_at;
-            const pill=(label,done)=>`<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${done?'rgba(16,185,129,.15)':'var(--th-bg)'};color:${done?'#059669':'var(--muted)'};">${done?'✓':' ○'} ${label}</span>`;
-            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:10px;background:var(--th-bg);margin-bottom:5px">
-              <span style="font-size:12px;font-weight:700;color:var(--ink)">${esc(p.condo+' '+p.unit)}</span>
-              <div style="display:flex;gap:5px">${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
-            </div>`;
-          }).join('')
-        }
-      `)}
-
-    </div><!-- end right -->
-
-  </div>
-
-  <!-- ── Movements This Month — full width below 2-col grid ── -->
-  ${(()=>{
-    if(moveIns.length===0 && moveOuts.length===0) return '';
-    const viewBtn = id => `<button class="p-1 rounded bg-[#EEF7F8] text-[color:var(--brand)]" onclick="openTenantView('${id}')">${ICON.view}</button>`;
-
-    const moveInRows = moveIns.map(t=>{
-      const p = state.properties.find(x=>x.id===t.property_id);
-      const hasRental = t.agreement_start && t.room_rental;
-      let formulaCell = td('—',{right:true,muted:true});
-      let proRateCell = td('—',{right:true,muted:true});
-      let rentalCell  = td('—',{right:true,muted:true});
-      if(hasRental){
-        const d = new Date(t.agreement_start);
-        const moveInDay = d.getDate();
-        const dim = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
-        const dr  = dim - moveInDay + 1;
-        const rent = parseFloat(t.room_rental)||0;
-        const pr = rent/dim*dr;
-        const formula = `${rent%1===0?rent:rent.toFixed(2)}/${dim}×${dr}`;
-        rentalCell  = td('RM '+fmt(rent),{right:true});
-        formulaCell = td(`<span style="font-family:monospace;font-size:10.5px;color:#0891b2;background:rgba(8,145,178,0.08);padding:2px 6px;border-radius:4px">${esc(formula)}</span>`,{right:true});
-        proRateCell = td(`<b style="color:#0891b2">RM ${fmt(pr)}</b>`,{right:true});
-      }
-      return `<tr>
-        ${td(esc(t.name||'—'),{bold:true})}
-        ${td(p?esc(p.condo+' '+p.unit+' · Room '+t.room_code):'—',{muted:true})}
-        ${td(t.agreement_start?fmtDate(t.agreement_start):'—',{color:'#065F46'})}
-        ${rentalCell}${formulaCell}${proRateCell}
-        ${td(viewBtn(t.id),{right:true})}
-      </tr>`;
-    }).join('');
-
-    const moveOutRows = moveOuts.map(t=>{
-      const p = state.properties.find(x=>x.id===t.property_id);
-      const hasRental = t.agreement_end && t.room_rental;
-      let formulaCell = td('—',{right:true,muted:true});
-      let proRateCell = td('—',{right:true,muted:true});
-      let rentalCell  = td('—',{right:true,muted:true});
-      if(hasRental){
-        const d = new Date(t.agreement_end);
-        const moveOutDay = d.getDate();
-        const dim = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
-        const rent = parseFloat(t.room_rental)||0;
-        const pr = rent/dim*moveOutDay;
-        const formula = `${rent%1===0?rent:rent.toFixed(2)}/${dim}×${moveOutDay}`;
-        rentalCell  = td('RM '+fmt(rent),{right:true});
-        formulaCell = td(`<span style="font-family:monospace;font-size:10.5px;color:#B91C1C;background:rgba(185,28,28,0.06);padding:2px 6px;border-radius:4px">${esc(formula)}</span>`,{right:true});
-        proRateCell = td(`<b style="color:#B91C1C">RM ${fmt(pr)}</b>`,{right:true});
-      }
-      return `<tr>
-        ${td(esc(t.name||'—'),{bold:true})}
-        ${td(p?esc(p.condo+' '+p.unit+' · Room '+t.room_code):'—',{muted:true})}
-        ${td(t.agreement_end?fmtDate(t.agreement_end):'—',{color:'#B91C1C'})}
-        ${rentalCell}${formulaCell}${proRateCell}
-        ${td(viewBtn(t.id),{right:true})}
-      </tr>`;
-    }).join('');
-
-    return panel(`
-      ${secHead('📦','Movements This Month',moveIns.length+moveOuts.length)}
-      ${moveIns.length ? `
-        <div style="font-size:11px;font-weight:800;color:#065F46;margin-bottom:6px">🆕 MOVE-INS (${moveIns.length}) <span style="font-size:10px;font-weight:500;color:var(--muted)">— pro-rate rental for first partial month</span></div>
-        ${tbl(
-          miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Move-in Date'},{label:'Rental/mo',right:true},{label:'Formula',right:true},{label:'Pro-Rate',right:true},{label:'',right:true}),
-          moveInRows
-        )}
-        <div style="margin-top:6px;font-size:10.5px;color:var(--muted)">💡 Formula: Monthly Rent ÷ Days in Month × Days Remaining (inclusive of move-in day)</div>
-      ` : ''}
-      ${moveOuts.length ? `
-        <div style="font-size:11px;font-weight:800;color:#B91C1C;margin-top:${moveIns.length?14:0}px;margin-bottom:6px">📦 MOVE-OUTS (${moveOuts.length}) <span style="font-size:10px;font-weight:500;color:var(--muted)">— pro-rate rental for last partial month</span></div>
-        ${tbl(
-          miniTh({label:'Tenant'},{label:'Property · Room'},{label:'End Date'},{label:'Rental/mo',right:true},{label:'Formula',right:true},{label:'Pro-Rate',right:true},{label:'',right:true}),
-          moveOutRows
-        )}
-        <div style="margin-top:6px;font-size:10.5px;color:var(--muted)">💡 Formula: Monthly Rent ÷ Days in Month × Days Occupied (up to move-out date)</div>
-      ` : ''}
-    `);
-  })()}
-
-  ${(state.role === 'manager' || state.role === 'admin') ? `<div id="userMgmtPanel" style="margin-top:8px"></div>` : ''}
+  ${(state.role === 'manager' || state.role === 'admin') ? `<div id="userMgmtPanel" style="margin-top:20px"></div>` : ''}
   ${state.role === 'manager' ? `<div id="announcementsPanel" style="margin-top:8px"></div>` : ''}
   ${state.role === 'manager' ? `<div id="backupPanel" style="margin-top:8px"></div>` : ''}
   `;
