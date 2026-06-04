@@ -2553,6 +2553,7 @@ function shiftPickerYear(dir){
 function pickMonth(y, m){
   closeMonthPicker();
   state.year = y; state.month = m;
+  state._movedOutLoaded = false; // reset so admin tab reloads moved-out for new month
   const lbl = $('#monthPickLabel');
   if(lbl) lbl.textContent = MONTHS_FULL[m-1]+' '+y;
   showLoading();
@@ -4563,9 +4564,13 @@ function renderAdminDashboard(){
   if(!el) return;
   const y=state.year, m=state.month;
   const mStr=`${y}-${String(m).padStart(2,'0')}`;
-  // Ensure moved-out tenants are loaded (needed for move-out pro-rate in Movements)
-  const hasMovedOut = (state.tenants||[]).some(t=>t.active===false);
-  if(!hasMovedOut){ loadTenants({includeMovedOut:true}).then(()=>renderAdminDashboard()); return; }
+  // Ensure moved-out tenants are loaded once (for move-out pro-rate in Movements)
+  if(!state._movedOutLoaded){
+    state._movedOutLoaded = true;
+    el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--muted);font-size:13px">Loading admin data…</div>`;
+    loadTenants({includeMovedOut:true}).then(()=>renderAdminDashboard()).catch(()=>renderAdminDashboard());
+    return;
+  }
 
   // Filtered props / tenants
   const props   = (state.properties||[]).filter(_propPassesGlobalFilter);
@@ -4806,6 +4811,7 @@ function renderAdminDashboard(){
   const paneMap = {overview:paneOverview, unpaid:paneUnpaid, leases:paneLeases, movements:paneMovements, vacant:paneVacant, carpark:paneCarpark, signoff:paneSignoff};
 
   // ─────────────────────────────────────────────────────────────────────────
+  try {
   el.innerHTML = `
   ${tabBar}
   ${paneMap[sub] || paneOverview}
@@ -4814,6 +4820,11 @@ function renderAdminDashboard(){
   ${state.role === 'manager' ? `<div id="announcementsPanel" style="margin-top:8px"></div>` : ''}
   ${state.role === 'manager' ? `<div id="backupPanel" style="margin-top:8px"></div>` : ''}
   `;
+  } catch(err){
+    el.innerHTML = `<div style="padding:20px;background:#FEE2E2;border-radius:12px;color:#B91C1C;font-size:13px"><b>Admin tab error:</b> ${esc(err.message)}</div>`;
+    console.error('[adminDash]', err);
+    return;
+  }
 
   // Render user management panel for manager and admin
   if(state.role === 'manager' || state.role === 'admin'){
