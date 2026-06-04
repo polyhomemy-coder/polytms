@@ -2444,8 +2444,8 @@ function renderSidebarFilters(){
 
   // Unit Type chips — controls balance forward behaviour
   typeChipsEl.innerHTML =
-    mkChip('Other Unit', typeFil.includes('other_unit'), 'type', 'other_unit') +
-    mkChip('Own Unit',   typeFil.includes('own_unit'),   'type', 'own_unit');
+    mkChip('Other', typeFil.includes('other_unit'), 'type', 'other_unit') +
+    mkChip('Own',   typeFil.includes('own_unit'),   'type', 'own_unit');
 
   // Model chips — H2M vs R2R business model
   const modelChipsEl = document.getElementById('sbModelChips');
