@@ -4843,7 +4843,7 @@ function renderBackupHistory(){
     ${history.slice(-5).reverse().map(h=>`
       <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:8px;background:var(--th-bg);font-size:12px">
         <span style="color:var(--ink);font-weight:600">📦 ${esc(h.filename)}</span>
-        <span style="color:var(--muted)">${esc(h.date)} · ${h.rows} rows</span>
+        <span style="color:var(--muted)">${esc(h.date)} · ${h.rows} rows${h.by ? ' · by <b>'+esc(h.by)+'</b>' : ''}</span>
       </div>`).join('')}
     </div>`;
 }
@@ -4855,7 +4855,12 @@ async function doBackup(){
   if(btn) btn.disabled = true;
 
   try{
-    const backup = { version:'2.0', exported_at: new Date().toISOString(), tables:{} };
+    const backup = {
+      version:'2.0',
+      exported_at: new Date().toISOString(),
+      exported_by: state.currentUserName || state.currentUserEmail || 'unknown',
+      tables:{}
+    };
     let totalRows = 0;
 
     for(const tbl of BACKUP_TABLES){
@@ -4886,7 +4891,7 @@ async function doBackup(){
     // Save to history
     let history = [];
     try{ history = JSON.parse(localStorage.getItem('tms_backup_history')||'[]'); } catch(_){}
-    history.push({ filename, date: new Date().toLocaleDateString(), rows: totalRows });
+    history.push({ filename, date: new Date().toLocaleDateString(), rows: totalRows, by: state.currentUserName || state.currentUserEmail || '' });
     localStorage.setItem('tms_backup_history', JSON.stringify(history.slice(-20)));
 
     if(logEl) logEl.innerHTML += `<br><b style="color:#059669">✅ Backup complete! ${totalRows} total rows exported → ${filename}</b>`;
@@ -4923,6 +4928,7 @@ async function doRestore(input){
       `<b>⚠️ Restore from backup?</b><br><br>
        File: <b>${esc(file.name)}</b><br>
        Exported: <b>${esc(exportedAt)}</b><br>
+       Backed up by: <b>${esc(backup.exported_by||'unknown')}</b><br>
        Tables: <b>${tableNames.join(', ')}</b><br>
        Total rows: <b>${totalRows}</b><br><br>
        <span style="color:#B91C1C">This will <b>upsert</b> all records — existing rows with matching IDs will be overwritten. New rows will be inserted. No rows will be deleted.</span>`,
@@ -11516,7 +11522,12 @@ function showUserBox(email){
   const box = document.getElementById('userBox');
   const emEl = document.getElementById('userEmail');
   if(box) box.classList.remove('hidden');
-  if(emEl) emEl.textContent = email || '';
+  if(emEl){
+    const name = state.currentUserName || '';
+    emEl.innerHTML = name
+      ? `<span style="font-weight:800;color:var(--brand)">${esc(name)}</span><br><span style="font-size:10px;font-weight:500;opacity:.7">${esc(email||'')}</span>`
+      : esc(email||'');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -11531,9 +11542,11 @@ function showUserBox(email){
 async function fetchUserRole(userId){
   if(!sb || !userId) return 'admin';
   try {
-    const {data, error} = await sb.from('profiles').select('role,property_id').eq('id', userId).single();
+    const {data, error} = await sb.from('profiles').select('role,property_id,name,email').eq('id', userId).single();
     if(error || !data) return 'admin';
     if(data.property_id) state.ownerPropertyId = data.property_id;
+    state.currentUserName  = data.name  || '';
+    state.currentUserEmail = data.email || '';
     return (data.role || 'admin').toLowerCase();
   } catch(_){ return 'admin'; }
 }
@@ -11798,7 +11811,7 @@ async function renderUserManagementPanel(container){
       : canEdit
         ? `<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;flex-wrap:wrap">
              ${inviteBtn}
-             <button onclick="openEditUserModal('${p.id}','${esc(p.email||'')}','${p.role}','${p.property_id||''}')"
+             <button onclick="openEditUserModal('${p.id}','${esc(p.email||'')}','${p.role}','${p.property_id||''}','${esc(p.name||'')}')"
                style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">Edit</button>
            </div>`
         : `<span style="font-size:11px;color:var(--muted)">—</span>`;
@@ -11807,8 +11820,11 @@ async function renderUserManagementPanel(container){
       ? `<td style="padding:10px 12px">${statusChip(p)}</td>`
       : `<td style="padding:10px 12px;font-size:11px;color:var(--muted)">—</td>`;
 
+    const nameCell = p.name
+      ? `<div style="font-weight:700;color:var(--ink)">${esc(p.name)}</div><div style="font-size:11px;color:var(--muted)">${esc(p.email||'')}</div>`
+      : `<div style="color:var(--muted);font-style:italic;font-size:12px">${esc(p.email||'')}</div>`;
     return `<tr data-uid="${p.id}">
-      <td style="padding:10px 12px;font-size:13px;color:var(--ink)">${esc(p.email||'')}</td>
+      <td style="padding:10px 12px;font-size:13px">${nameCell}</td>
       <td style="padding:10px 12px">${roleChip(p.role)}</td>
       <td style="padding:10px 12px;font-size:12px;color:var(--muted)">${esc(propLabel)}</td>
       ${statusCell}
@@ -11837,7 +11853,7 @@ async function renderUserManagementPanel(container){
         <table style="width:100%;border-collapse:collapse">
           <thead>
             <tr style="background:var(--th-bg)">
-              <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Email</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Name / Email</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Role</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Property</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Status</th>
@@ -12129,7 +12145,7 @@ async function deleteAnnouncement(id){
 }
 
 // ── Edit User Modal ───────────────────────────────────────────
-function openEditUserModal(uid, email, currentRole, currentPropId){
+function openEditUserModal(uid, email, currentRole, currentPropId, currentName=''){
   const props = state.properties || [];
   const propOptions = props.map(p=>
     `<option value="${p.id}" ${p.id===currentPropId?'selected':''}>${esc(p.condo)} ${esc(p.unit)}</option>`
@@ -12148,6 +12164,10 @@ function openEditUserModal(uid, email, currentRole, currentPropId){
   const editBodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
     <div style="font-size:13px;color:var(--ink);font-weight:600">${esc(email)}</div>
     <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">DISPLAY NAME</label>
+      <input id="editUserName" class="input" placeholder="e.g. Irene Lu" value="${esc(currentName)}" style="width:100%;box-sizing:border-box">
+    </div>
+    <div>
       <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">ROLE</label>
       ${roleField}
     </div>
@@ -12164,10 +12184,13 @@ function openEditUserModal(uid, email, currentRole, currentPropId){
     </div>
   </div>`;
   openModal('Edit User', editBodyHtml, async ()=>{
-    const role = document.getElementById('editUserRole')?.value;
-    const propId = document.getElementById('editUserProp')?.value || null;
+    const role    = document.getElementById('editUserRole')?.value;
+    const propId  = document.getElementById('editUserProp')?.value || null;
+    const newName = (document.getElementById('editUserName')?.value||'').trim();
     try {
-      await saveProfile({id:uid, email, role, property_id: role==='owner' ? propId : null});
+      await saveProfile({id:uid, email, role, name: newName||null, property_id: role==='owner' ? propId : null});
+      // Refresh sidebar name if editing self
+      if(uid === state.currentUserId){ state.currentUserName = newName; showUserBox(state.currentUserEmail||email); }
       toast(`✓ Updated ${email} → ${role}`);
       const container = document.getElementById('userMgmtPanel');
       if(container) await renderUserManagementPanel(container);
