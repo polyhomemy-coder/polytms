@@ -4672,6 +4672,8 @@ function renderAdminDashboard(){
     {id:'vacant',    label:'🏠 Vacant'+badge(vacants.length, vacants.length>0)},
     {id:'carpark',   label:'🚗 Carpark'+badge(carparkList.length, false)},
     {id:'signoff',   label:'📋 Sign-off'+badge(reportPending.length, reportPending.length>0)},
+    ...(state.role==='manager'||state.role==='admin' ? [{id:'users', label:'👥 Users'}] : []),
+    ...(state.role==='manager' ? [{id:'notices', label:'📢 Notices'}, {id:'backup', label:'🗄️ Backup'}] : []),
   ];
 
   const tabBar = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
@@ -4808,7 +4810,11 @@ function renderAdminDashboard(){
       <div style="margin-top:5px;font-size:10.5px;color:var(--muted)">💡 Rent ÷ Days in Month × Days Occupied (up to move-out day)</div>
     ` : ''}`);
 
-  const paneMap = {overview:paneOverview, unpaid:paneUnpaid, leases:paneLeases, movements:paneMovements, vacant:paneVacant, carpark:paneCarpark, signoff:paneSignoff};
+  const paneUsers   = `<div id="userMgmtPanel"></div>`;
+  const paneNotices = `<div id="announcementsPanel"></div>`;
+  const paneBackup  = `<div id="backupPanel"></div>`;
+
+  const paneMap = {overview:paneOverview, unpaid:paneUnpaid, leases:paneLeases, movements:paneMovements, vacant:paneVacant, carpark:paneCarpark, signoff:paneSignoff, users:paneUsers, notices:paneNotices, backup:paneBackup};
 
   // ─────────────────────────────────────────────────────────────────────────
   try {
@@ -4816,9 +4822,6 @@ function renderAdminDashboard(){
   ${tabBar}
   ${paneMap[sub] || paneOverview}
 
-  ${(state.role === 'manager' || state.role === 'admin') ? `<div id="userMgmtPanel" style="margin-top:20px"></div>` : ''}
-  ${state.role === 'manager' ? `<div id="announcementsPanel" style="margin-top:8px"></div>` : ''}
-  ${state.role === 'manager' ? `<div id="backupPanel" style="margin-top:8px"></div>` : ''}
   `;
   } catch(err){
     el.innerHTML = `<div style="padding:20px;background:#FEE2E2;border-radius:12px;color:#B91C1C;font-size:13px"><b>Admin tab error:</b> ${esc(err.message)}</div>`;
@@ -4826,20 +4829,18 @@ function renderAdminDashboard(){
     return;
   }
 
-  // Render user management panel for manager and admin
-  if(state.role === 'manager' || state.role === 'admin'){
-    const panel = document.getElementById('userMgmtPanel');
-    if(panel) renderUserManagementPanel(panel);
+  // Render sub-tab panel content after innerHTML is set
+  if(sub === 'users' && (state.role==='manager'||state.role==='admin')){
+    const p = document.getElementById('userMgmtPanel');
+    if(p) renderUserManagementPanel(p);
   }
-  // Render announcements panel for manager
-  if(state.role === 'manager'){
-    const panel = document.getElementById('announcementsPanel');
-    if(panel) renderAnnouncementsPanel(panel);
+  if(sub === 'notices' && state.role==='manager'){
+    const p = document.getElementById('announcementsPanel');
+    if(p) renderAnnouncementsPanel(p);
   }
-  // Render backup/restore panel for manager
-  if(state.role === 'manager'){
-    const panel = document.getElementById('backupPanel');
-    if(panel) renderBackupPanel(panel);
+  if(sub === 'backup' && state.role==='manager'){
+    const p = document.getElementById('backupPanel');
+    if(p) renderBackupPanel(p);
   }
 }
 
