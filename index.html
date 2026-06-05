@@ -11143,25 +11143,40 @@ async function extractText(file){
 
 // --- parsers ----------------------------------------------
 function parseAmount(text){
-  // Extract all RM/MYR amounts
-  const rows = [...text.matchAll(/(?:RM|MYR)\s*[-]?\s*([\d,]+(?:\.\d{1,2})?)/gi)];
-  if(rows.length){
-    const nums = rows.map(m=>Number(m[1].replace(/,/g,''))).filter(n=>n>=50);
-    if(!nums.length) return null;
-    // Prefer amounts that look like rent: 200–5000 range, round to whole ringgit
-    // Avoid tiny amounts (fees, charges) and huge amounts (account balances)
-    const rentLike = nums.filter(n=>n>=200 && n<=5000 && Number.isInteger(n));
-    if(rentLike.length) return rentLike[0];
-    // Fallback: largest single amount in rent range (handles decimal rents)
-    const inRange = nums.filter(n=>n>=200 && n<=5000);
-    if(inRange.length) return inRange[0];
-    // Last resort: first number ≥ 50
-    return nums[0];
+  // STRICT rent range: 200 – 5000 only. Never return account/ref numbers.
+  const RENT_MIN = 200, RENT_MAX = 5000;
+
+  // Pass 1: "Transfer Amount (MYR)" / "Amount (MYR)" label — most precise
+  // Handles Hong Leong, Maybank, CIMB format: "Transfer Amount (MYR) : 930.00"
+  const amtLabel = text.match(/(?:Transfer\s+)?Amount\s*(?:\(MYR\))?\s*[:\s]\s*([\d,]+(?:\.\d{1,2})?)/i);
+  if(amtLabel){
+    const n = Number(amtLabel[1].replace(/,/g,''));
+    if(n >= RENT_MIN && n <= RENT_MAX) return n;
   }
-  // No RM/MYR prefix — look for standalone numbers that look like rent
-  // (whole numbers 200-5000 on their own line or after "Amount" keyword)
-  const amtLine = text.match(/(?:Amount|Amaun|AMOUNT)[^\d]*(\d{3,4}(?:\.\d{2})?)/i);
-  if(amtLine) return Number(amtLine[1]);
+
+  // Pass 2: RM / MYR prefix — but ONLY when NOT embedded in a reference/account number
+  // Negative lookbehind: skip if "RM" is preceded by a letter or digit (e.g. "...ORM716...")
+  const rmMatches = [...text.matchAll(/(?<![A-Za-z0-9])(?:RM|MYR)\s*[-]?\s*([\d,]+(?:\.\d{1,2})?)/g)];
+  if(rmMatches.length){
+    const nums = rmMatches
+      .map(m => Number(m[1].replace(/,/g,'')))
+      .filter(n => n >= RENT_MIN && n <= RENT_MAX);
+    if(nums.length){
+      const whole = nums.filter(n => Number.isInteger(n));
+      return whole.length ? whole[0] : nums[0];
+    }
+  }
+
+  // Pass 3: standalone number on its own line (image OCR — e.g. "930.00" alone)
+  const lines = text.split(/[\n\r]+/);
+  for(const line of lines){
+    const m = line.trim().match(/^([\d,]+(?:\.\d{2})?)$/);
+    if(m){
+      const n = Number(m[1].replace(/,/g,''));
+      if(n >= RENT_MIN && n <= RENT_MAX) return n;
+    }
+  }
+
   return null;
 }
 function parseDate(text){
@@ -11180,6 +11195,9 @@ function parseRoom(text){
   // "Room M", "ROOM I", "Bilik M", "BILIK I" (Malay)
   const m = text.match(/\b(?:Room|Bilik|Rm)\s*([AMCINJ])\b/i);
   if(m) return m[1].toUpperCase();
+  // "(i)", "(M)", "(A)" — room letter in parentheses in filename
+  const mp = text.match(/\(([AMCINJ])\)/i);
+  if(mp) return mp[1].toUpperCase();
   // "BILIKI" / "BILIKM" (no space) — common in Malay bank transfers
   const m3 = text.match(/\bBILIK([AMCINJ])\b/i);
   if(m3) return m3[1].toUpperCase();
@@ -11461,26 +11479,16 @@ function renderRecvTable(){
       ? `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FEE2E2;color:#991B1B;font-weight:700" title="${esc((r.tamperReasons||[]).join(' · '))}">⚠ TAMPER: ${esc((r.tamperReasons||[]).slice(0,1).join(''))}${(r.tamperReasons||[]).length>1?' (+'+((r.tamperReasons||[]).length-1)+' more)':''}</span></div>`
       : '';
     const rowBg = r.tamper ? 'bg-rose-50' : (bad?'bg-rose-50':dupBg);
-    // Cascading condo → unit picker
-    const condos = [...new Set(state.properties.map(p=>p.condo))].sort();
-    const selCondo = r.property_id ? (state.properties.find(p=>p.id===r.property_id)?.condo||'') : '';
-    const condoOpts = condos.map(c=>`<option value="${esc(c)}" ${c===selCondo?'selected':''}>${esc(c)}</option>`).join('');
-    const unitOpts = selCondo
-      ? state.properties.filter(p=>p.condo===selCondo).map(p=>`<option value="${p.id}" ${p.id===r.property_id?'selected':''}>${esc(p.unit)}</option>`).join('')
-      : '';
-
     const viewBtn = r._file
       ? `<button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
       : '';
 
     return `<tr class="${rowBg} ${r.skip?'opacity-40':''}">
       <td class="!p-2 text-xs text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,22))}${r.filename.length>22?'…':''}${tamperChip}</td>
-      <td class="!p-1" style="min-width:180px">
-        <select class="input !py-1 !text-xs !w-full" onchange="onRecvCondoChange(${i},this.value)" style="margin-bottom:3px">
-          <option value="">— condo —</option>${condoOpts}
-        </select>
+      <td class="!p-1" style="min-width:160px">
         <select class="input !py-1 !text-xs !w-full" onchange="updRecv(${i},'property_id',this.value,true)">
-          <option value="">— unit —</option>${unitOpts}
+          <option value="">— pick property —</option>
+          ${state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
         </select>
       </td>
       <td class="!p-1"><input class="input !py-1 !text-xs" value="${esc(r.room||'')}" onchange="updRecv(${i},'room',this.value)" maxlength="8" style="width:58px" placeholder="Room"/></td>
