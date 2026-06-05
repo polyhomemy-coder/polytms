@@ -11143,13 +11143,25 @@ async function extractText(file){
 
 // --- parsers ----------------------------------------------
 function parseAmount(text){
-  // strongest: MYR/RM followed by a number
+  // Extract all RM/MYR amounts
   const rows = [...text.matchAll(/(?:RM|MYR)\s*[-]?\s*([\d,]+(?:\.\d{1,2})?)/gi)];
   if(rows.length){
-    // prefer a value that looks like rent (>= 50) and pick the first
-    const nums = rows.map(m=>Number(m[1].replace(/,/g,''))).filter(n=>n>=10);
-    if(nums.length) return nums[0];
+    const nums = rows.map(m=>Number(m[1].replace(/,/g,''))).filter(n=>n>=50);
+    if(!nums.length) return null;
+    // Prefer amounts that look like rent: 200–5000 range, round to whole ringgit
+    // Avoid tiny amounts (fees, charges) and huge amounts (account balances)
+    const rentLike = nums.filter(n=>n>=200 && n<=5000 && Number.isInteger(n));
+    if(rentLike.length) return rentLike[0];
+    // Fallback: largest single amount in rent range (handles decimal rents)
+    const inRange = nums.filter(n=>n>=200 && n<=5000);
+    if(inRange.length) return inRange[0];
+    // Last resort: first number ≥ 50
+    return nums[0];
   }
+  // No RM/MYR prefix — look for standalone numbers that look like rent
+  // (whole numbers 200-5000 on their own line or after "Amount" keyword)
+  const amtLine = text.match(/(?:Amount|Amaun|AMOUNT)[^\d]*(\d{3,4}(?:\.\d{2})?)/i);
+  if(amtLine) return Number(amtLine[1]);
   return null;
 }
 function parseDate(text){
@@ -11165,9 +11177,13 @@ function parseDate(text){
   return null;
 }
 function parseRoom(text){
-  const m = text.match(/\bRoom\s+([AMCINJ])\b/i);
+  // "Room M", "ROOM I", "Bilik M", "BILIK I" (Malay)
+  const m = text.match(/\b(?:Room|Bilik|Rm)\s*([AMCINJ])\b/i);
   if(m) return m[1].toUpperCase();
-  // -C, _C, space-C at end/start boundaries
+  // "BILIKI" / "BILIKM" (no space) — common in Malay bank transfers
+  const m3 = text.match(/\bBILIK([AMCINJ])\b/i);
+  if(m3) return m3[1].toUpperCase();
+  // Filename pattern: "-I", "_I", " I" at word boundary before space/dot/end
   const m2 = text.match(/[\-\s_]([AMCINJ])(?=[\s\.\-_]|$)/i);
   return m2 ? m2[1].toUpperCase() : null;
 }
@@ -11187,19 +11203,24 @@ function normUnit(s){ return String(s||'').replace(/[^A-Z0-9]/gi,'').toUpperCase
 function fuzzyMatchProperty(unit, properties){
   if(!unit) return null;
   const u = normUnit(unit);
-  // exact
+  // 1. Exact match
   let best = properties.find(p => normUnit(p.unit) === u);
   if(best) return best;
-  // leading-zero tolerant: normalize numeric segments by dropping leading zeros
-  const strip = s => normUnit(s).replace(/\b0+(\d)/g, '$1');
+  // 2. Leading-zero tolerant (A3801 → A-38-01)
+  const strip = s => normUnit(s).replace(/0+(\d)/g, '$1');
   best = properties.find(p => strip(p.unit) === strip(u));
   if(best) return best;
-  // endsWith fallback (so "073A" matches "73A")
-  best = properties.find(p => {
-    const pu=normUnit(p.unit);
-    return pu.endsWith(u) || u.endsWith(pu);
-  });
-  return best || null;
+  // 3. endsWith ONLY when the detected unit has no leading letter prefix
+  //    (avoids "A-17-07" matching "B-17-07" because both end in "1707")
+  const hasLeadingLetter = /^[ABC]/i.test(u);
+  if(!hasLeadingLetter){
+    best = properties.find(p => {
+      const pu = normUnit(p.unit);
+      return pu.endsWith(u) || u.endsWith(pu);
+    });
+    if(best) return best;
+  }
+  return null;
 }
 
 function parseReceipt(text, filename, properties){
@@ -11388,6 +11409,7 @@ async function processReceiptFiles(files){
     try { text = await extractText(f); }
     catch(e){ text=''; }
     const row = parseReceipt(text, f.name, state.properties);
+    row._file = f;  // store file for view button
     // ----- TAMPERING / FRAUD DETECTION -----
     // Three checks run in parallel:
     //   1) SHA-256 hash matches a previously-uploaded receipt
@@ -11439,32 +11461,60 @@ function renderRecvTable(){
       ? `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FEE2E2;color:#991B1B;font-weight:700" title="${esc((r.tamperReasons||[]).join(' · '))}">⚠ TAMPER: ${esc((r.tamperReasons||[]).slice(0,1).join(''))}${(r.tamperReasons||[]).length>1?' (+'+((r.tamperReasons||[]).length-1)+' more)':''}</span></div>`
       : '';
     const rowBg = r.tamper ? 'bg-rose-50' : (bad?'bg-rose-50':dupBg);
+    // Cascading condo → unit picker
+    const condos = [...new Set(state.properties.map(p=>p.condo))].sort();
+    const selCondo = r.property_id ? (state.properties.find(p=>p.id===r.property_id)?.condo||'') : '';
+    const condoOpts = condos.map(c=>`<option value="${esc(c)}" ${c===selCondo?'selected':''}>${esc(c)}</option>`).join('');
+    const unitOpts = selCondo
+      ? state.properties.filter(p=>p.condo===selCondo).map(p=>`<option value="${p.id}" ${p.id===r.property_id?'selected':''}>${esc(p.unit)}</option>`).join('')
+      : '';
+
+    const viewBtn = r._file
+      ? `<button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
+      : '';
+
     return `<tr class="${rowBg} ${r.skip?'opacity-40':''}">
-      <td class="!p-2 text-xs text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,28))}${r.filename.length>28?'…':''}${tamperChip}</td>
-      <td class="!p-1">
-        <select class="input !py-1 !text-xs" onchange="updRecv(${i},'property_id',this.value, true)">
-          <option value="">— pick property —</option>
-          ${state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
+      <td class="!p-2 text-xs text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,22))}${r.filename.length>22?'…':''}${tamperChip}</td>
+      <td class="!p-1" style="min-width:180px">
+        <select class="input !py-1 !text-xs !w-full" onchange="onRecvCondoChange(${i},this.value)" style="margin-bottom:3px">
+          <option value="">— condo —</option>${condoOpts}
+        </select>
+        <select class="input !py-1 !text-xs !w-full" onchange="updRecv(${i},'property_id',this.value,true)">
+          <option value="">— unit —</option>${unitOpts}
         </select>
       </td>
-      <td class="!p-1"><input class="input !py-1 !text-xs" value="${esc(r.room||'')}" onchange="updRecv(${i},'room',this.value)" maxlength="8" style="width:80px"/></td>
+      <td class="!p-1"><input class="input !py-1 !text-xs" value="${esc(r.room||'')}" onchange="updRecv(${i},'room',this.value)" maxlength="8" style="width:58px" placeholder="Room"/></td>
       <td class="!p-1">
         <select class="input !py-1 !text-xs" onchange="updRecv(${i},'item_type',this.value)">
           <option value="room" ${r.item_type==='room'?'selected':''}>Room</option>
           <option value="carpark" ${r.item_type==='carpark'?'selected':''}>Carpark</option>
         </select>
       </td>
-      <td class="!p-1"><input type="number" step="0.01" class="input !py-1 !text-xs" value="${r.amount??''}" onchange="updRecv(${i},'amount',this.value)" style="width:100px"/></td>
-      <td class="!p-1"><input type="date" class="input !py-1 !text-xs" value="${r.date||''}" onchange="updRecv(${i},'date',this.value)" style="width:140px"/></td>
+      <td class="!p-1"><input type="number" step="0.01" class="input !py-1 !text-xs" value="${r.amount??''}" onchange="updRecv(${i},'amount',this.value)" style="width:90px" placeholder="Amount"/></td>
+      <td class="!p-1"><input type="date" class="input !py-1 !text-xs" value="${r.date||''}" onchange="updRecv(${i},'date',this.value)" style="width:130px"/></td>
       <td class="!p-2">${detCell}</td>
-      <td class="text-right !p-2">
-        <button class="px-2 py-1 rounded bg-slate-100 text-xs" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
+      <td class="text-right !p-2" style="white-space:nowrap">
+        ${viewBtn}
+        <button class="px-2 py-1 rounded bg-slate-100 text-xs ml-1" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
       </td>
     </tr>`;
   }).join('');
   $('#recvTable').innerHTML = `<thead><tr>
     <th>File</th><th>Property</th><th>Room</th><th>Type</th><th class="num">Amount</th><th>Date</th><th>Detection</th><th></th>
   </tr></thead><tbody>${rows || '<tr><td colspan="8" class="text-center py-6 text-slate-400">Drop files above to begin</td></tr>'}</tbody>`;
+}
+function onRecvCondoChange(i, condo){
+  // When condo changes, clear the unit selection and re-render so unit dropdown populates
+  const r = _recvRows[i]; if(!r) return;
+  r.property_id = null; r.condo = condo; r.property_unit = '';
+  renderRecvTable();
+}
+function viewReceipt(i){
+  const r = _recvRows[i]; if(!r || !r._file) return;
+  const url = URL.createObjectURL(r._file);
+  window.open(url, '_blank');
+  // Revoke after short delay so the tab has time to load
+  setTimeout(()=> URL.revokeObjectURL(url), 10000);
 }
 function updRecv(i, field, value, isProp){
   const r = _recvRows[i]; if(!r) return;
