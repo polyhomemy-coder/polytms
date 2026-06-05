@@ -11145,39 +11145,43 @@ async function extractText(file){
 function parseAmount(text){
   // STRICT rent range: 200 – 5000 only. Never return account/ref numbers.
   const RENT_MIN = 200, RENT_MAX = 5000;
+  const inRange = n => n >= RENT_MIN && n <= RENT_MAX && isFinite(n);
+  const parseN  = s => Number(String(s).replace(/,/g,''));
 
-  // Pass 1: "Transfer Amount (MYR)" / "Amount (MYR)" label — most precise
-  // Handles Hong Leong, Maybank, CIMB format: "Transfer Amount (MYR) : 930.00"
-  const amtLabel = text.match(/(?:Transfer\s+)?Amount\s*(?:\(MYR\))?\s*[:\s]\s*([\d,]+(?:\.\d{1,2})?)/i);
-  if(amtLabel){
-    const n = Number(amtLabel[1].replace(/,/g,''));
-    if(n >= RENT_MIN && n <= RENT_MAX) return n;
-  }
+  // Normalise: collapse all whitespace variants to single space for easier matching
+  const flat = text.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ');
 
-  // Pass 2: RM / MYR prefix — but ONLY when NOT embedded in a reference/account number
-  // Negative lookbehind: skip if "RM" is preceded by a letter or digit (e.g. "...ORM716...")
-  const rmMatches = [...text.matchAll(/(?<![A-Za-z0-9])(?:RM|MYR)\s*[-]?\s*([\d,]+(?:\.\d{1,2})?)/g)];
-  if(rmMatches.length){
-    const nums = rmMatches
-      .map(m => Number(m[1].replace(/,/g,'')))
-      .filter(n => n >= RENT_MIN && n <= RENT_MAX);
+  // Pass 1: explicit "Amount" / "Transfer Amount" label followed by number or MYR+number
+  // Covers: "Transfer Amount (MYR) : 930.00"  "Amount MYR 750.00"  "Amount : 550"
+  const p1 = flat.match(/(?:Transfer\s+)?Amount\s*(?:\(MYR\))?\s*[:\s]\s*(?:MYR|RM)?\s*([\d,]+(?:\.\d{1,2})?)/i);
+  if(p1){ const n=parseN(p1[1]); if(inRange(n)) return n; }
+
+  // Pass 2: "MYR 550.00" or "RM 750" anywhere — NOT embedded in ref/account numbers
+  // Uses negative lookbehind so "...ORM71606682" is skipped
+  const p2 = [...flat.matchAll(/(?<![A-Za-z0-9])(?:MYR|RM)\s*([\d,]+(?:\.\d{1,2})?)/gi)];
+  if(p2.length){
+    const nums = p2.map(m=>parseN(m[1])).filter(inRange);
     if(nums.length){
-      const whole = nums.filter(n => Number.isInteger(n));
+      const whole = nums.filter(n=>Number.isInteger(n));
       return whole.length ? whole[0] : nums[0];
     }
   }
 
-  // Pass 3: standalone number on its own line (image OCR — e.g. "930.00" alone)
-  const lines = text.split(/[\n\r]+/);
-  for(const line of lines){
-    const m = line.trim().match(/^([\d,]+(?:\.\d{2})?)$/);
-    if(m){
-      const n = Number(m[1].replace(/,/g,''));
-      if(n >= RENT_MIN && n <= RENT_MAX) return n;
-    }
+  // Pass 3: "550.00 MYR" or "680.00 MYR" — amount BEFORE currency (UOB style)
+  const p3 = [...flat.matchAll(/([\d,]+(?:\.\d{1,2})?)\s*(?:MYR|RM)(?![A-Za-z0-9])/gi)];
+  if(p3.length){
+    const nums = p3.map(m=>parseN(m[1])).filter(inRange);
+    if(nums.length) return nums[0];
   }
 
-  return null;
+  // Pass 4: standalone 3-4 digit number on its own line — last resort for image OCR
+  // The original multiline text is used here (not flat)
+  for(const line of text.split(/[\n\r]+/)){
+    const m = line.trim().match(/^([\d,]{3,7}(?:\.\d{2})?)$/);
+    if(m){ const n=parseN(m[1]); if(inRange(n)) return n; }
+  }
+
+  return null; // Never guess — leave blank so admin fills manually
 }
 function parseDate(text){
   // "02 Apr 2026"
