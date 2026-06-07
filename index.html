@@ -3181,6 +3181,115 @@ async function loadPendingIsewa(){
   const {data,error}=await sb.from('pending_isewa_payments').select('*').eq('status','pending').order('received_at',{ascending:false});
   if(error){ console.warn('pending_isewa load failed',error); return; }
   state.pendingIsewa=data||[];
+  // Try to auto-assign any newly loaded pending payments
+  const assigned = await autoAssignIsewa(state.pendingIsewa);
+  if(assigned>0){
+    // Reload so the auto-assigned ones disappear from the pending list
+    const {data:d2}=await sb.from('pending_isewa_payments').select('*').eq('status','pending').order('received_at',{ascending:false});
+    state.pendingIsewa=d2||[];
+    await loadAircon();
+    toast(`Auto-assigned ${assigned} iSewa payment${assigned>1?'s':''} ✓`);
+  }
+}
+
+// ── iSewa Auto-Assign ─────────────────────────────────────────────────────────
+// Tries to match each pending iSewa payment to a property+room using the
+// property_name_raw field (format: "ShortName/UnitCode/RoomXX" or similar).
+// Matching is done on unit code (most reliable), with condo name as a
+// secondary confirming check. Returns count of payments auto-assigned.
+async function autoAssignIsewa(pendingList){
+  if(!pendingList||!pendingList.length) return 0;
+  const props = state.properties||[];
+  if(!props.length) return 0;
+
+  // Normalize a string for loose comparison: lowercase, strip spaces/hyphens/slashes
+  const norm = s => String(s||'').toLowerCase().replace(/[\s\-\/]/g,'');
+
+  // Build a normalized unit → property map (unit codes are unique enough)
+  // Also index by normalized condo+unit combo
+  const byUnit = {};
+  props.forEach(p=>{
+    const u = norm(p.unit||'');
+    if(u){ (byUnit[u]=byUnit[u]||[]).push(p); }
+  });
+
+  let assigned = 0;
+  for(const p of pendingList){
+    try{
+      // ── Parse property_name_raw ───────────────────────────────────────────
+      // iSewa sends formats like:
+      //   "CGDB/15A-07-02/Room M"   → condo=CGDB, unit=15A-07-02, room=M
+      //   "Meta/B-21-08/room C"     → condo=Meta, unit=B-21-08, room=C
+      //   "MV/B-05-09/Room M"       → condo=Mvertica(abbrev), unit=B-05-09
+      //   "Metro/17-20/room A"      → condo=Metro, unit=17-20, room=A
+      const raw = String(p.property_name_raw||'');
+      if(!raw) continue;
+
+      // Split on "/" — parts: [shortName, unitCode, roomPart?]
+      const parts = raw.split('/').map(s=>s.trim()).filter(Boolean);
+      if(parts.length < 2) continue;
+      const condoRaw = parts[0];           // e.g. "CGDB", "Meta", "MV"
+      const unitRaw  = parts[1];           // e.g. "15A-07-02", "B-21-08"
+      // room from property_name_raw (3rd part) OR room_name_raw field
+      const roomPartRaw = parts[2] || p.room_name_raw || '';
+      // Extract just the letter/code: "Room M" → "M", "room C" → "C"
+      const roomCode = roomPartRaw.replace(/^room\s*/i,'').trim().toUpperCase();
+      if(!roomCode) continue;
+
+      // ── Match property by unit code ───────────────────────────────────────
+      const unitNorm = norm(unitRaw);
+      const candidates = byUnit[unitNorm]||[];
+
+      let matched = null;
+      if(candidates.length === 1){
+        // Unique unit match → use it directly
+        matched = candidates[0];
+      } else if(candidates.length > 1){
+        // Multiple properties share the same unit (unlikely but possible) →
+        // narrow by condo name. Try substring match of iSewa shortname in condo.
+        const condoNorm = norm(condoRaw);
+        matched = candidates.find(c=>
+          norm(c.condo||'').includes(condoNorm) || condoNorm.includes(norm(c.condo||'').slice(0,3))
+        ) || null;
+      }
+      if(!matched) continue;
+
+      // ── Validate room exists in property ─────────────────────────────────
+      const validRooms = parseRoomCodes(matched.room_codes||'').map(r=>r.toUpperCase());
+      if(validRooms.length && !validRooms.includes(roomCode)) continue;
+
+      // ── Determine year/month from payment date ────────────────────────────
+      const rawDate = (p.time_stamp_raw||p.received_at||'').slice(0,10);
+      const yr  = rawDate ? Number(rawDate.slice(0,4)) : state.year;
+      const mo  = rawDate ? Number(rawDate.slice(5,7)) : state.month;
+      const amt = Number(p.tran_received||p.tran_amount||0);
+      if(!(amt>0)) continue;
+
+      // Skip if report is locked for that month
+      if(isReportLocked(matched.id, yr, mo)) continue;
+
+      // ── Insert aircon top-up ──────────────────────────────────────────────
+      const rem = `iSewa auto-import${p.reload_amount_kwh?` · Reload: ${p.reload_amount_kwh} kWh`:''}${p.tran_id?` · TranID: ${p.tran_id}`:''}`;
+      const {error:insErr} = await sb.from('aircon_topups').insert({
+        property_id: matched.id, year: yr, month: mo,
+        room_code: roomCode, amount: amt,
+        topped_up_on: rawDate||null,
+        remark: rem,
+        isewa_tran_id: p.isewa_tran_id||null,
+      });
+      if(insErr){
+        // Duplicate (already assigned) — still mark pending as assigned
+        if(!insErr.code||insErr.code!=='23505') continue;
+      }
+
+      // ── Mark pending as assigned ──────────────────────────────────────────
+      await sb.from('pending_isewa_payments').update({status:'assigned'}).eq('id',p.id);
+      assigned++;
+    } catch(e){
+      console.warn('[polyTMS] autoAssignIsewa failed for', p.id, e);
+    }
+  }
+  return assigned;
 }
 async function loadExpenses(){
   const {data,error}=await sb.from('expenses').select('*').eq('year',state.year).eq('month',state.month);
@@ -8219,13 +8328,18 @@ function renderPendingIsewaBanner(){
   const expanded = host._isewaExpanded === true;
   host.innerHTML = `
     <div class="mb-3 rounded-xl border border-amber-300 bg-amber-50 overflow-hidden shadow-sm">
-      <button onclick="(function(btn){const host=btn.closest('[id=pendingIsewaBanner]')||document.getElementById('pendingIsewaBanner');host._isewaExpanded=!host._isewaExpanded;const body=host.querySelector('.isewa-body');const arrow=host.querySelector('.isewa-arrow');body.style.display=host._isewaExpanded?'':'none';arrow.textContent=host._isewaExpanded?'▲':'▼';})(this)"
-        style="width:100%;display:flex;align-items:center;gap:8px;padding:10px 16px;background:transparent;border:none;cursor:pointer;text-align:left">
-        <span class="text-amber-600 text-lg">⚠️</span>
-        <span class="font-bold text-amber-800 text-sm">${list.length} Unmatched iSewa Payment${list.length>1?'s':''}</span>
-        <span class="text-amber-600 text-xs ml-1">— tap to ${expanded?'hide':'show'}</span>
-        <span class="isewa-arrow ml-auto text-amber-600 text-xs font-bold">${expanded?'▲':'▼'}</span>
-      </button>
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:${expanded?'1px solid #FCD34D':'none'}">
+        <button onclick="(function(btn){const host=btn.closest('[id=pendingIsewaBanner]')||document.getElementById('pendingIsewaBanner');host._isewaExpanded=!host._isewaExpanded;const body=host.querySelector('.isewa-body');const arrow=host.querySelector('.isewa-arrow');body.style.display=host._isewaExpanded?'':'none';arrow.textContent=host._isewaExpanded?'▲':'▼';})(this)"
+          style="flex:1;display:flex;align-items:center;gap:8px;background:transparent;border:none;cursor:pointer;text-align:left;padding:0">
+          <span class="text-amber-600 text-lg">⚠️</span>
+          <span class="font-bold text-amber-800 text-sm">${list.length} Unmatched iSewa Payment${list.length>1?'s':''}</span>
+          <span class="text-amber-600 text-xs ml-1">— tap to ${expanded?'hide':'show'}</span>
+          <span class="isewa-arrow ml-2 text-amber-600 text-xs font-bold">${expanded?'▲':'▼'}</span>
+        </button>
+        <button onclick="(async function(){const btn=event.target;btn.disabled=true;btn.textContent='⏳ Matching…';await loadPendingIsewa();renderAircon();btn.disabled=false;btn.textContent='🔄 Auto-Match';})()"
+          style="padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;background:#F59E0B;color:#fff;border:none;cursor:pointer;white-space:nowrap;flex-shrink:0"
+          title="Try to auto-match all pending payments to your properties">🔄 Auto-Match</button>
+      </div>
       <div class="isewa-body overflow-x-auto" style="display:${expanded?'':'none'}">
         <table class="data text-sm w-full">
           <thead><tr>
