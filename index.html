@@ -8216,14 +8216,17 @@ function renderPendingIsewaBanner(){
     </tr>`;
   }).join('');
 
+  const expanded = host._isewaExpanded === true;
   host.innerHTML = `
     <div class="mb-3 rounded-xl border border-amber-300 bg-amber-50 overflow-hidden shadow-sm">
-      <div class="flex items-center gap-2 px-4 py-2.5 bg-amber-100 border-b border-amber-200">
+      <button onclick="(function(btn){const host=btn.closest('[id=pendingIsewaBanner]')||document.getElementById('pendingIsewaBanner');host._isewaExpanded=!host._isewaExpanded;const body=host.querySelector('.isewa-body');const arrow=host.querySelector('.isewa-arrow');body.style.display=host._isewaExpanded?'':'none';arrow.textContent=host._isewaExpanded?'▲':'▼';})(this)"
+        style="width:100%;display:flex;align-items:center;gap:8px;padding:10px 16px;background:transparent;border:none;cursor:pointer;text-align:left">
         <span class="text-amber-600 text-lg">⚠️</span>
         <span class="font-bold text-amber-800 text-sm">${list.length} Unmatched iSewa Payment${list.length>1?'s':''}</span>
-        <span class="text-amber-600 text-xs ml-1">— iSewa couldn't identify the tenant. Assign each one manually.</span>
-      </div>
-      <div class="overflow-x-auto">
+        <span class="text-amber-600 text-xs ml-1">— tap to ${expanded?'hide':'show'}</span>
+        <span class="isewa-arrow ml-auto text-amber-600 text-xs font-bold">${expanded?'▲':'▼'}</span>
+      </button>
+      <div class="isewa-body overflow-x-auto" style="display:${expanded?'':'none'}">
         <table class="data text-sm w-full">
           <thead><tr>
             <th>Date</th><th class="num">Amount</th><th>From iSewa</th><th></th>
