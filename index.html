@@ -3193,20 +3193,21 @@ async function loadPendingIsewa(){
 }
 
 // ── iSewa Auto-Assign ─────────────────────────────────────────────────────────
-// Tries to match each pending iSewa payment to a property+room using the
-// property_name_raw field (format: "ShortName/UnitCode/RoomXX" or similar).
-// Matching is done on unit code (most reliable), with condo name as a
-// secondary confirming check. Returns count of payments auto-assigned.
+// Matches pending iSewa payments to properties using the raw fields:
+//   property_name_raw = "CGDB 15A-07-02"        (space-sep: "CondoName UnitCode")
+//   room_name_raw     = "CGDB/15A-07-02/Room M"  (slash-sep: "short/unit/RoomX")
+// Unit code is the most reliable part — condo names may be abbreviated in iSewa.
+// Returns count of payments successfully auto-assigned.
 async function autoAssignIsewa(pendingList){
   if(!pendingList||!pendingList.length) return 0;
   const props = state.properties||[];
   if(!props.length) return 0;
+  console.log('[autoAssignIsewa] trying', pendingList.length, 'payments against', props.length, 'properties');
 
-  // Normalize a string for loose comparison: lowercase, strip spaces/hyphens/slashes
-  const norm = s => String(s||'').toLowerCase().replace(/[\s\-\/]/g,'');
+  // Normalize: lowercase, strip spaces/hyphens for fuzzy comparison
+  const norm = s => String(s||'').toLowerCase().replace(/[\s\-]/g,'');
 
-  // Build a normalized unit → property map (unit codes are unique enough)
-  // Also index by normalized condo+unit combo
+  // Index properties by normalized unit code
   const byUnit = {};
   props.forEach(p=>{
     const u = norm(p.unit||'');
@@ -3216,56 +3217,55 @@ async function autoAssignIsewa(pendingList){
   let assigned = 0;
   for(const p of pendingList){
     try{
-      // ── Parse property_name_raw ───────────────────────────────────────────
-      // iSewa sends formats like:
-      //   "CGDB/15A-07-02/Room M"   → condo=CGDB, unit=15A-07-02, room=M
-      //   "Meta/B-21-08/room C"     → condo=Meta, unit=B-21-08, room=C
-      //   "MV/B-05-09/Room M"       → condo=Mvertica(abbrev), unit=B-05-09
-      //   "Metro/17-20/room A"      → condo=Metro, unit=17-20, room=A
-      const raw = String(p.property_name_raw||'');
-      if(!raw) continue;
+      // ── Extract unit code ─────────────────────────────────────────────────
+      // property_name_raw = "CGDB 15A-07-02" or "Mvertica B-05-09"
+      // → split on spaces, last token is the unit code
+      const propRaw = String(p.property_name_raw||'').trim();
+      const propTokens = propRaw.split(/\s+/).filter(Boolean);
+      if(propTokens.length < 2){ console.log('[autoAssignIsewa] skip (no unit):', propRaw); continue; }
+      const condoRaw = propTokens.slice(0,-1).join(' '); // e.g. "CGDB", "Mvertica"
+      const unitRaw  = propTokens[propTokens.length-1];  // e.g. "15A-07-02", "B-05-09"
 
-      // Split on "/" — parts: [shortName, unitCode, roomPart?]
-      const parts = raw.split('/').map(s=>s.trim()).filter(Boolean);
-      if(parts.length < 2) continue;
-      const condoRaw = parts[0];           // e.g. "CGDB", "Meta", "MV"
-      const unitRaw  = parts[1];           // e.g. "15A-07-02", "B-21-08"
-      // room from property_name_raw (3rd part) OR room_name_raw field
-      const roomPartRaw = parts[2] || p.room_name_raw || '';
-      // Extract just the letter/code: "Room M" → "M", "room C" → "C"
-      const roomCode = roomPartRaw.replace(/^room\s*/i,'').trim().toUpperCase();
+      // ── Extract room code ─────────────────────────────────────────────────
+      // room_name_raw = "CGDB/15A-07-02/Room M" → last slash-segment → "Room M" → "M"
+      // Fallback: just strip "Room " / "room " prefix from room_name_raw directly
+      const roomRaw = String(p.room_name_raw||'').trim();
+      const roomSlashParts = roomRaw.split('/').map(s=>s.trim()).filter(Boolean);
+      const roomPart = roomSlashParts.length >= 2
+        ? roomSlashParts[roomSlashParts.length-1]   // last part of slash path
+        : roomRaw;                                   // fallback: use field directly
+      const roomCode = roomPart.replace(/^room\s*/i,'').trim().toUpperCase();
       if(!roomCode) continue;
 
-      // ── Match property by unit code ───────────────────────────────────────
+      // ── Match property ────────────────────────────────────────────────────
       const unitNorm = norm(unitRaw);
       const candidates = byUnit[unitNorm]||[];
-
       let matched = null;
       if(candidates.length === 1){
-        // Unique unit match → use it directly
         matched = candidates[0];
       } else if(candidates.length > 1){
-        // Multiple properties share the same unit (unlikely but possible) →
-        // narrow by condo name. Try substring match of iSewa shortname in condo.
+        // Tie-break by condo name substring match
         const condoNorm = norm(condoRaw);
-        matched = candidates.find(c=>
-          norm(c.condo||'').includes(condoNorm) || condoNorm.includes(norm(c.condo||'').slice(0,3))
-        ) || null;
+        matched = candidates.find(c=>{
+          const cn = norm(c.condo||'');
+          return cn.includes(condoNorm) || condoNorm.includes(cn.slice(0,4));
+        }) || null;
       }
+      console.log('[autoAssignIsewa]', propRaw, '→ unit:', unitRaw, '| room:', roomCode, '| candidates:', candidates.length, '| matched:', matched?.condo, matched?.unit);
       if(!matched) continue;
 
       // ── Validate room exists in property ─────────────────────────────────
       const validRooms = parseRoomCodes(matched.room_codes||'').map(r=>r.toUpperCase());
       if(validRooms.length && !validRooms.includes(roomCode)) continue;
 
-      // ── Determine year/month from payment date ────────────────────────────
+      // ── Determine year/month/date from payment timestamp ──────────────────
       const rawDate = (p.time_stamp_raw||p.received_at||'').slice(0,10);
       const yr  = rawDate ? Number(rawDate.slice(0,4)) : state.year;
       const mo  = rawDate ? Number(rawDate.slice(5,7)) : state.month;
       const amt = Number(p.tran_received||p.tran_amount||0);
       if(!(amt>0)) continue;
 
-      // Skip if report is locked for that month
+      // Skip locked reports
       if(isReportLocked(matched.id, yr, mo)) continue;
 
       // ── Insert aircon top-up ──────────────────────────────────────────────
@@ -3277,16 +3277,18 @@ async function autoAssignIsewa(pendingList){
         remark: rem,
         isewa_tran_id: p.isewa_tran_id||null,
       });
-      if(insErr){
-        // Duplicate (already assigned) — still mark pending as assigned
-        if(!insErr.code||insErr.code!=='23505') continue;
+      if(insErr && insErr.code==='23505'){
+        // Already exists — just mark pending as assigned and count it
+      } else if(insErr){
+        console.warn('[polyTMS] autoAssignIsewa insert failed', insErr.message, {propRaw, roomCode});
+        continue;
       }
 
       // ── Mark pending as assigned ──────────────────────────────────────────
       await sb.from('pending_isewa_payments').update({status:'assigned'}).eq('id',p.id);
       assigned++;
     } catch(e){
-      console.warn('[polyTMS] autoAssignIsewa failed for', p.id, e);
+      console.warn('[polyTMS] autoAssignIsewa error for', p.id, e);
     }
   }
   return assigned;
