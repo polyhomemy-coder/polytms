@@ -4213,26 +4213,17 @@ async function ensureManagementFeeExpenses(){
 async function syncDerivedExpenses(y, m){
   if(y==null) y = state.year;
   if(m==null) m = state.month;
-  // 1) Sync management fee for THIS month — picks up the new rental income.
-  for(const p of (state.properties||[]).filter(p=>p.active!==false)){
-    try { await ensureManagementFeeExpensesFor(p.id, y, m); }
-    catch(e){ console.warn('[polyTMS] management fee sync failed:', e); }
-  }
-  // 2) Sync next month's Balance Forward — this month's nett feeds into it.
+  const activeProps = (state.properties||[]).filter(p=>p.active!==false);
   let ny = y, nm = m + 1;
   if(nm > 12){ ny++; nm = 1; }
-  for(const p of (state.properties||[]).filter(p=>p.active!==false)){
-    try { await ensureBalanceForwardFor(p.id, ny, nm); }
-    catch(e){ console.warn('[polyTMS] BF sync failed:', e); }
-  }
-  // 3) ALSO sync THIS month's BF in case the previous month's nett changed
-  //    (rare — usually edits happen in the displayed month, not the prior).
-  for(const p of (state.properties||[]).filter(p=>p.active!==false)){
-    try { await ensureBalanceForwardFor(p.id, y, m); }
-    catch(_){}
-  }
-  // 4) Refresh the in-memory expense list so renderers pick up the synced
-  //    amounts on the next render call. Cheap one-shot reload.
+  // Run all three passes in parallel across properties — previously sequential
+  // per-property loops causing 10+ second waits with multiple properties.
+  await Promise.all(activeProps.map(p => Promise.all([
+    ensureManagementFeeExpensesFor(p.id, y, m).catch(e => console.warn('[polyTMS] management fee sync failed:', e)),
+    ensureBalanceForwardFor(p.id, ny, nm).catch(e => console.warn('[polyTMS] BF sync failed:', e)),
+    ensureBalanceForwardFor(p.id, y, m).catch(() => {}),
+  ])));
+  // Refresh in-memory expense list so renderers pick up the synced amounts.
   await loadExpenses();
 }
 
