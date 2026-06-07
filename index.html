@@ -4812,6 +4812,48 @@ function renderAdminDashboard(){
         </div>`;
       }).join('')}
     </div>` : ''}
+
+    <!-- Payment Day Distribution chart -->
+    ${(()=>{
+      // Count payments by which day-of-month they were made (paid_on field)
+      // Only count room payments (not carpark) that have a paid_on date this month
+      const paidPayments = (state.payments||[]).filter(p=>{
+        if(!p.paid_on) return false;
+        if(p.item_type==='carpark') return false;
+        const d = new Date(p.paid_on);
+        return d.getFullYear()===y && d.getMonth()+1===m;
+      });
+      // Bucket: day 1–7 individually, day 8+ grouped
+      const buckets = [1,2,3,4,5,6,7,8];
+      const counts = buckets.map(day=>{
+        if(day<=7) return paidPayments.filter(p=>new Date(p.paid_on).getDate()===day).length;
+        return paidPayments.filter(p=>new Date(p.paid_on).getDate()>=8).length;
+      });
+      const labels = ['1st','2nd','3rd','4th','5th','6th','7th','8th+'];
+      const colors = ['#10B981','#10B981','#10B981','#10B981','#10B981','#F59E0B','#F59E0B','#EF4444'];
+      const maxCount = Math.max(1,...counts);
+      const bars = counts.map((n,i)=>`
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:700;color:var(--ink)">${n||''}</div>
+          <div style="width:100%;background:var(--line);border-radius:4px;height:90px;display:flex;align-items:flex-end">
+            <div style="width:100%;height:${Math.max(n?4:0,Math.round(n/maxCount*100))}%;background:${colors[i]};border-radius:4px;transition:height .3s"></div>
+          </div>
+          <div style="font-size:10px;color:var(--muted);font-weight:${i>=7?700:400}">${labels[i]}</div>
+        </div>`).join('');
+      const totalPaid = paidPayments.length;
+      const earlyPaid = counts.slice(0,5).reduce((s,n)=>s+n,0);
+      const latePaid  = counts[7];
+      return `<div class="card">
+        <div style="font-size:12px;font-weight:800;color:var(--ink);margin-bottom:4px">📅 Payment Day Distribution — ${MONTHS[m-1]} ${y}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:14px">${totalPaid} paid · <span style="color:#10B981;font-weight:700">${earlyPaid} on time (day 1–5)</span> · <span style="color:#EF4444;font-weight:700">${latePaid} late (day 8+)</span></div>
+        <div style="display:flex;gap:6px;align-items:flex-end;height:110px;padding-bottom:4px">${bars}</div>
+        <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#10B981;display:inline-block"></span>Day 1–5 (on time)</span>
+          <span style="font-size:11px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#F59E0B;display:inline-block"></span>Day 6–7 (grace)</span>
+          <span style="font-size:11px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#EF4444;display:inline-block"></span>Day 8+ (late)</span>
+        </div>
+      </div>`;
+    })()}
   `;
 
   const paneUnpaid = panel(`
