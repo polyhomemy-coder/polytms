@@ -6966,11 +6966,27 @@ function openTenantView(id){
 //   merges tenant + property + landlord fields using {{field}} tags.
 // ============================================================
 let _pizZip=null, _docxtemplater=null, _fileSaver=null;
+async function loadScriptWithFallback(primary, fallback){
+  try { await loadScript(primary); }
+  catch(e){
+    console.warn('[polyTMS] CDN failed, trying fallback:', primary, '→', fallback);
+    await loadScript(fallback);
+  }
+}
 async function loadDocxLibs(){
   if(_pizZip && _docxtemplater) return;
-  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pizzip/3.1.6/pizzip.min.js');
-  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/docxtemplater/3.50.0/docxtemplater.js');
-  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js');
+  await loadScriptWithFallback(
+    'https://cdn.jsdelivr.net/npm/pizzip@3.1.6/dist/pizzip.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/pizzip/3.1.6/pizzip.min.js'
+  );
+  await loadScriptWithFallback(
+    'https://cdn.jsdelivr.net/npm/docxtemplater@3.50.0/build/docxtemplater.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/docxtemplater/3.50.0/docxtemplater.js'
+  );
+  await loadScriptWithFallback(
+    'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js'
+  );
   _pizZip = window.PizZip;
   _docxtemplater = window.docxtemplater;
   _fileSaver = window.saveAs;
