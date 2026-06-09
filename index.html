@@ -7040,35 +7040,55 @@ let _taTemplateLoaded = false;
 async function _hydrateTATemplate(){
   if(_taTemplateLoaded) return;
   _taTemplateLoaded = true;
-  // 1) Try IndexedDB (the durable store)
+  // 1) Try IndexedDB local cache first (fast, no network)
   try {
     const v = await _idbGet(TA_TEMPLATE_KEY);
     if(v){ _taTemplateCache = v; return; }
-  } catch(e){ console.warn('[polyTMS] IndexedDB read failed, falling back to localStorage:', e); }
-  // 2) MIGRATION: pull from old localStorage location (if present), copy
-  //    to IndexedDB, then delete from localStorage so the quota frees up.
+  } catch(e){ console.warn('[polyTMS] IndexedDB read failed:', e); }
+  // 2) MIGRATION: pull from old localStorage location
   try {
     const ls = localStorage.getItem(TA_TEMPLATE_KEY);
     if(ls){
       _taTemplateCache = ls;
       try { await _idbSet(TA_TEMPLATE_KEY, ls); localStorage.removeItem(TA_TEMPLATE_KEY); }
-      catch(_){ /* leave localStorage as-is; cache covers the read path */ }
+      catch(_){}
+      return;
     }
   } catch(_){}
+  // 3) Try Supabase Storage (shared across all users/devices)
+  await _fetchTATemplateFromSupabase();
+}
+
+// Download TA template from Supabase Storage → cache locally
+async function _fetchTATemplateFromSupabase(){
+  try {
+    const {data, error} = await sb.storage.from('tms-templates').download('TA_template.docx');
+    if(error || !data) return;
+    const buf = await data.arrayBuffer();
+    const b64 = _arrayBufferToBase64(buf);
+    _taTemplateCache = b64;
+    // Save to local IndexedDB so next open is instant
+    try { await _idbSet(TA_TEMPLATE_KEY, b64); } catch(_){}
+  } catch(e){ console.warn('[polyTMS] Supabase template fetch failed:', e); }
 }
 function _getStoredTATemplate(){ return _taTemplateCache || ''; }
-async function _setStoredTATemplate(b64){
+async function _setStoredTATemplate(b64, file){
   _taTemplateCache = b64 || '';
+  // 1) Save to local IndexedDB cache
   try { await _idbSet(TA_TEMPLATE_KEY, _taTemplateCache); }
   catch(e){
-    // IndexedDB write failed (rare — usually private mode or storage quota).
-    // Fall back to localStorage with the same friendly error path.
     const sizeKB = b64 ? Math.round((b64.length * 3 / 4) / 1024) : 0;
     try { localStorage.setItem(TA_TEMPLATE_KEY, b64||''); }
     catch(_){
-      toast(`⚠ Browser storage full — TA template (${sizeKB} KB) was NOT saved. Try a smaller .docx, or clear browser data for this site to free space.`, 'bad');
-      console.error('[polyTMS] template persist failed (IDB + localStorage):', e);
+      toast(`⚠ Browser storage full — TA template (${sizeKB} KB) was NOT saved locally.`, 'bad');
     }
+  }
+  // 2) Upload to Supabase Storage so all users/devices share the same template
+  if(file){
+    try {
+      const {error} = await sb.storage.from('tms-templates').upload('TA_template.docx', file, {upsert:true, contentType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+      if(error) console.warn('[polyTMS] Supabase template upload failed:', error.message);
+    } catch(e){ console.warn('[polyTMS] Supabase template upload error:', e); }
   }
 }
 // Approx % of localStorage quota currently used (best-effort; 5MB assumed).
@@ -7171,9 +7191,11 @@ const TA_FIELD_LABELS = {
   secondaryOccupation:'2nd Person Occupation', secondaryCompany:'2nd Person Company',
 };
 
-function openGenerateTAModal(tenantId){
+async function openGenerateTAModal(tenantId){
   const t = state.tenants.find(x=>x.id===tenantId);
   if(!t) return toast('Tenant not found','bad');
+  // If no local cache, try fetching from Supabase Storage silently first
+  if(!_getStoredTATemplate()) await _fetchTATemplateFromSupabase();
   const fields = buildTAFields(t);
   const hasTpl = !!_getStoredTATemplate();
   // Secondary fields are only required when the contract has 2 occupants;
@@ -7195,21 +7217,22 @@ function openGenerateTAModal(tenantId){
     </tr>`;
   }).join('');
 
-  // ---- Top action bar — Edit Master Template button (always shown) ----
-  // When a template is cached, the modal goes straight to preview + Generate
-  // without the upload step. When NOT cached, the user sees a one-time setup
-  // banner pointing to "Edit Master Template" — they only have to do it once.
+  // ---- Top action bar — Edit Master Template (manager only) ----
+  const isManager = state.role === 'manager';
+  const editTplBtn = isManager
+    ? `<button type="button" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]" onclick="openTAEditTemplateModal('${t.id}')">📝 Edit Master Template</button>`
+    : '';
   const headerBar = `<div class="flex items-center justify-between mb-1">
     <div class="text-xs text-slate-500">${hasTpl
-      ? '✓ Using your saved master template — no upload needed.'
-      : '⚠ No master template saved on this device yet.'}</div>
-    <button type="button" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]" onclick="openTAEditTemplateModal('${t.id}')">📝 Edit Master Template</button>
+      ? '✓ Using shared master template.'
+      : '⚠ No master template found — contact your manager to upload one.'}</div>
+    ${editTplBtn}
   </div>`;
 
-  const setupHint = hasTpl ? '' : `
+  const setupHint = (!hasTpl && isManager) ? `
     <div class="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs leading-relaxed">
-      <b>One-time setup:</b> click <b>📝 Edit Master Template</b> above to upload your <b>TA_template.docx</b>. It saves to this browser, so every future "Generate TA" will use it automatically.
-    </div>`;
+      <b>One-time setup:</b> click <b>📝 Edit Master Template</b> above to upload <b>TA_template.docx</b>. It syncs to all users automatically.
+    </div>` : '';
 
   const missingNote = missing.length
     ? `<div class="mt-2 text-xs text-rose-600">⚠ ${missing.length} field(s) are blank — they'll appear empty in the document. Edit the tenant first if you need to fill them in.</div>`
@@ -7298,9 +7321,8 @@ async function taOnMasterTemplateUpload(ev, returnToTenantId){
   try{
     const buf = await f.arrayBuffer();
     const b64 = _arrayBufferToBase64(buf);
-    await _setStoredTATemplate(b64);
-    toast('Master template saved — every Generate TA will use this from now on');
-    // Refresh whichever modal we're viewing
+    await _setStoredTATemplate(b64, f); // pass file for Supabase upload
+    toast('Master template saved & synced — all users will use this template from now on ✓');
     openTAEditTemplateModal(returnToTenantId);
   }catch(e){
     toast('Failed to read template: '+e.message,'bad');
@@ -11174,7 +11196,11 @@ function bindReportAutoPreview(){
   };
   const _curPropId = ()=> $('#rptProp')?.value || '';
   const _ac = $('#btnAdminCheck'); if(_ac) _ac.onclick = ()=>{ const {y,m}=_curReportYM(); openAdminCheckModal(y,m,_curPropId()); };
-  const _mv = $('#btnManagerVerify'); if(_mv) _mv.onclick = ()=>{ const {y,m}=_curReportYM(); openManagerVerifyModal(y,m,_curPropId()); };
+  const _mv = $('#btnManagerVerify');
+  if(_mv){
+    if(state.role==='admin'){ _mv.style.display='none'; }
+    else { _mv.onclick = ()=>{ const {y,m}=_curReportYM(); openManagerVerifyModal(y,m,_curPropId()); }; }
+  }
   const _ln = $('#btnLaunch'); if(_ln) _ln.onclick = ()=>{ const {y,m}=_curReportYM(); openLaunchModal(y,m,_curPropId()); };
   _reportBound = true;
 }
