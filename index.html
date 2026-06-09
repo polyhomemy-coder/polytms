@@ -10802,14 +10802,11 @@ function renderReportDesktopHTML(ctx, opts){
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Plus Jakarta Sans',sans-serif;background:#F0F9FB;color:#1C3A42;padding:24px}
   .sheet{max-width:1100px;margin:0 auto;background:#fff;border-radius:18px;padding:36px 40px;box-shadow:0 4px 24px rgba(0,123,138,.08)}
-  .top{display:grid;grid-template-columns:1.7fr 1fr;gap:24px;align-items:start;border-bottom:3px solid #007B8A;padding-bottom:20px;margin-bottom:22px;position:relative}
+  .top{display:grid;grid-template-columns:1.7fr 1fr;gap:24px;align-items:start;border-bottom:3px solid #007B8A;padding-bottom:20px;margin-bottom:22px}
   .brand-label{font-size:11px;font-weight:700;letter-spacing:3px;color:#F4811F;text-transform:uppercase}
   .doc-title{font-size:28px;font-weight:800;color:#007B8A;line-height:1.15;margin-top:4px}
   .doc-period{font-size:13px;color:#486870;font-weight:600;margin-top:6px}
-  /* Big month tag — position:absolute so it is fully out of grid flow.
-     html2canvas handles absolute elements correctly; line-height overflow
-     from in-flow elements was causing the text to paint below the border. */
-  .month-tag{position:absolute;bottom:16px;left:0;font-size:90px;font-weight:400;color:#B3DADF;line-height:1;letter-spacing:-2px;text-transform:uppercase;z-index:0;pointer-events:none}
+  .month-tag{font-size:80px;font-weight:400;color:#B3DADF;line-height:1;letter-spacing:-2px;text-transform:uppercase;display:block;margin-top:6px}
   .addr-box{background:#E8F8FA;border-radius:12px;padding:14px 16px;font-size:12px;line-height:1.55}
   .addr-box .t{font-size:10px;font-weight:700;letter-spacing:1px;color:#007B8A;text-transform:uppercase;margin-bottom:4px}
   .addr-box .v{font-weight:600;color:#1C3A42}
@@ -10874,6 +10871,7 @@ function renderReportDesktopHTML(ctx, opts){
       <div class="brand-label">POLYHOME TMS</div>
       <div class="doc-title">Landlord Income Report</div>
       <div class="doc-period">Report Period: ${periodText}</div>
+      <div class="month-tag">${MONTHS[month-1].toUpperCase()}</div>
     </div>
     <div class="addr-box">
       <div class="t">Owner Contact &amp; Bank</div>
@@ -10882,7 +10880,6 @@ function renderReportDesktopHTML(ctx, opts){
       <div class="addr-row"><span class="t">Contact</span><span class="v">${esc(P.owner_contact||'—')}</span></div>
       <div class="addr-row"><span class="t">Email</span><span class="v">${esc(P.owner_email||'—')}</span></div>
     </div>
-    <div class="month-tag">${MONTHS[month-1].toUpperCase()}</div>
   </div>
 
   <div class="hello">
