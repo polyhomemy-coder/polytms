@@ -10027,13 +10027,12 @@ function openExpenseModal(id){
       const q = id ? sb.from('expenses').update(payload).eq('id',id) : sb.from('expenses').insert(payload);
       const {error}=await q; if(error) throw error;
       await loadExpenses();
-      // Skip the recompute when the user is editing the management_fee or
-      // balance_forward rows directly — those ARE the derived rows, and a
-      // re-sync would just overwrite what the user just typed.
-      if(payload.category!=='management_fee' && payload.category!=='balance_forward'){
-        await syncDerivedExpenses();
-      }
       renderTab('expenses');
+      // Run derived sync in background — modal closes immediately after insert.
+      // Skip management_fee / balance_forward rows (they ARE the derived rows).
+      if(payload.category!=='management_fee' && payload.category!=='balance_forward'){
+        syncDerivedExpenses().then(()=>renderTab('expenses')).catch(e=>console.warn('[syncDerived]',e));
+      }
   });
 }
 async function delExpense(id){
@@ -10042,10 +10041,10 @@ async function delExpense(id){
   if(r){ try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); } }
   const {error}=await sb.from('expenses').delete().eq('id',id); if(error)return toast(error.message,'bad');
   await loadExpenses();
-  if(r && r.category!=='management_fee' && r.category!=='balance_forward'){
-    await syncDerivedExpenses();
-  }
   renderTab('expenses'); toast('Deleted');
+  if(r && r.category!=='management_fee' && r.category!=='balance_forward'){
+    syncDerivedExpenses().then(()=>renderTab('expenses')).catch(e=>console.warn('[syncDerived]',e));
+  }
 }
 
 // -- Extra income modal --
@@ -10065,8 +10064,9 @@ function openExtraModal(id){
       const q = id ? sb.from('extra_incomes').update(payload).eq('id',id) : sb.from('extra_incomes').insert(payload);
       const {error}=await q; if(error) throw error;
       await loadExtras();
-      await syncDerivedExpenses();
       renderTab('extra');
+      // Background sync — modal closes immediately
+      syncDerivedExpenses().then(()=>renderTab('extra')).catch(e=>console.warn('[syncDerived]',e));
   });
 }
 async function delExtra(id){
@@ -10075,8 +10075,8 @@ async function delExtra(id){
   if(r){ try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); } }
   const {error}=await sb.from('extra_incomes').delete().eq('id',id); if(error)return toast(error.message,'bad');
   await loadExtras();
-  await syncDerivedExpenses();
   renderTab('extra'); toast('Deleted');
+  syncDerivedExpenses().then(()=>renderTab('extra')).catch(e=>console.warn('[syncDerived]',e));
 }
 
 // ============================================================
