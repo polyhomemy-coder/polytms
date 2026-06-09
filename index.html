@@ -5051,10 +5051,12 @@ function renderAdminDashboard(){
       const days=isIn?(dim-d.getDate()+1):d.getDate();
       const rent=parseFloat(t.room_rental)||0; const pr=rent/dim*days;
       const col=isIn?'#0891b2':'#B91C1C';
-      const formula=`${rent%1===0?rent:rent.toFixed(2)}/${dim}×${days}`;
-      rentalCell=td('RM '+fmt(rent),{right:true});
+      // Clean formatter: drop .00 for whole numbers, same as income tab proRateNote
+      const clean = n => n%1===0 ? n.toLocaleString('en-MY') : n.toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+      const formula=`RM ${clean(rent)}/${dim}×${days}`;
+      rentalCell=td('RM '+clean(rent),{right:true});
       formulaCell=td(`<span style="font-family:monospace;font-size:10.5px;color:${col};background:${isIn?'rgba(8,145,178,0.08)':'rgba(185,28,28,0.06)'};padding:2px 6px;border-radius:4px">${esc(formula)}</span>`,{right:true});
-      proRateCell=td(`<b style="color:${col}">RM ${fmt(pr)}</b>`,{right:true});
+      proRateCell=td(`<b style="color:${col}">RM ${clean(pr)}</b>`,{right:true});
     }
     return `<tr>
       ${td(esc(t.name||'—'),{bold:true})}
