@@ -2029,7 +2029,8 @@
           <button data-view="mobile"  class="view-tab flex-1 px-3 py-2 rounded-lg text-sm font-bold">📱 Mobile</button>
         </div>
         <div class="flex gap-2 mt-4">
-          <button class="btn-accent px-4 py-2.5 rounded-xl text-sm font-bold w-full" onclick="exportReport()">⬇ Export HTML</button>
+          <button class="btn-accent px-4 py-2.5 rounded-xl text-sm font-bold flex-1" onclick="exportReport()">⬇ Export HTML</button>
+          <button id="btnExportPDF" class="btn-brand px-4 py-2.5 rounded-xl text-sm font-bold flex-1" onclick="exportReportPDF()">📄 Export PDF</button>
         </div>
         <div id="rptStatus" class="help mt-3"></div>
 
@@ -11135,6 +11136,10 @@ async function buildReport(){
 function renderReportSignoff(){
   const host = $('#rptSignoff');
   if(!host) return;
+  // Show/hide Manager Verify button based on current role (re-evaluated every render,
+  // so it also reacts correctly when a manager switches to "Preview as Admin").
+  const _mvBtn = $('#btnManagerVerify');
+  if(_mvBtn) _mvBtn.style.display = (state.role === 'admin') ? 'none' : '';
   const propId = $('#rptProp')?.value;
   const mv     = $('#rptMonth')?.value;
   if(!propId || !mv){
@@ -11184,6 +11189,22 @@ function exportReport(){
   toast('Exported '+fname);
 }
 
+async function exportReportPDF(){
+  const propId = $('#rptProp')?.value;
+  const mv     = $('#rptMonth')?.value;
+  if(!propId || !mv){ toast('Pick a property + month first','warn'); return; }
+  const [y, m] = mv.split('-').map(Number);
+  const btn = $('#btnExportPDF');
+  if(btn){ btn.disabled=true; btn.style.opacity='.6'; btn.textContent='⏳ Generating…'; }
+  try{
+    await _downloadDesktopPDF(propId, y, m);
+  } catch(e){
+    toast('PDF export failed: '+e.message,'bad');
+  } finally {
+    if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent='📄 Export PDF'; }
+  }
+}
+
 // Auto-preview the income report whenever any input changes.
 let _reportBound = false;
 function bindReportAutoPreview(){
@@ -11213,10 +11234,7 @@ function bindReportAutoPreview(){
   const _curPropId = ()=> $('#rptProp')?.value || '';
   const _ac = $('#btnAdminCheck'); if(_ac) _ac.onclick = ()=>{ const {y,m}=_curReportYM(); openAdminCheckModal(y,m,_curPropId()); };
   const _mv = $('#btnManagerVerify');
-  if(_mv){
-    if(state.role==='admin'){ _mv.style.display='none'; }
-    else { _mv.onclick = ()=>{ const {y,m}=_curReportYM(); openManagerVerifyModal(y,m,_curPropId()); }; }
-  }
+  if(_mv) _mv.onclick = ()=>{ const {y,m}=_curReportYM(); openManagerVerifyModal(y,m,_curPropId()); };
   const _ln = $('#btnLaunch'); if(_ln) _ln.onclick = ()=>{ const {y,m}=_curReportYM(); openLaunchModal(y,m,_curPropId()); };
   _reportBound = true;
 }
