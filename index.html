@@ -4079,10 +4079,12 @@ function _rcAutoComIsOff(propId, y, m){
 function _rcAutoComSetOff(propId, y, m){
   try { localStorage.setItem(_rcAutoComKey(propId,y,m),'1'); } catch(_){}
 }
-// Apply saved autoCom override to the dropdown when switching property/month
+// Apply saved autoCom state to the dropdown when switching property/month.
+// Always sets the value (ON or OFF) so switching never inherits a stale selection.
 function _applyAutoComOverride(propId, y, m){
   const sel = $('#rptAutoCom');
-  if(sel && _rcAutoComIsOff(propId, y, m)) sel.value = '0';
+  if(!sel) return;
+  sel.value = _rcAutoComIsOff(propId, y, m) ? '0' : '1';
 }
 
 // Auto-insert "Rent Commission" expense rows for any tenant whose
@@ -11150,9 +11152,6 @@ async function buildReport(){
   const [y,m]=mv.split('-').map(Number);
   const issue = $('#rptIssue').value || todayISODateLocal();
   const autoFee = $('#rptAutoFee').value==='1';
-  // Apply saved autoCom override — if user previously deleted rent commission
-  // for this property+month, force the dropdown to OFF before reading it.
-  _applyAutoComOverride(propId, y, m);
   const autoCom = $('#rptAutoCom').value==='1';
   $('#rptStatus').textContent='Generating…';
   // Auto-materialize cleaning + balance-forward for this property+month so
@@ -11278,10 +11277,26 @@ function bindReportAutoPreview(){
     el.addEventListener('change', ()=>{ if(onReportTab()) buildReport(); });
   });
 
+  // When property or month changes, apply the saved autoCom state for that
+  // unit+month BEFORE buildReport reads it. This resets the select correctly
+  // (ON for fresh months, OFF for months where commission was deleted).
+  ['rptProp','rptMonth'].forEach(id=>{
+    const el = $('#'+id); if(!el) return;
+    el.addEventListener('change', ()=>{
+      const propId = $('#rptProp')?.value;
+      const mv     = $('#rptMonth')?.value;
+      if(!propId || !mv) return;
+      const [y, m] = mv.split('-').map(Number);
+      _applyAutoComOverride(propId, y, m);
+    }, true); // capture phase so it fires before the buildReport listener
+  });
+
   // ── Rent-Comm Auto toggle: persist per property+month ─────────────────────
   // When turned OFF → save the override (no auto commission for this unit+month)
-  // When turned ON  → clear the override AND clear deletion flags so commission
-  //                   rows can be re-inserted into DB and shown in the report.
+  // When turned ON  → clear the override AND deletion flags so commission
+  //                   rows re-appear in the report and DB.
+  // NOTE: flag save/clear is done SYNCHRONOUSLY at the top so buildReport
+  // (triggered by the other 'change' listener) reads the correct state.
   const autoComSel = $('#rptAutoCom');
   if(autoComSel){
     autoComSel.addEventListener('change', async ()=>{
@@ -11292,25 +11307,24 @@ function bindReportAutoPreview(){
       const isOn = autoComSel.value === '1';
 
       if(!isOn){
-        // User turned OFF → persist the override
+        // Synchronously persist OFF — buildReport will read autoCom=false
         _rcAutoComSetOff(propId, y, m);
       } else {
-        // User turned ON → clear the override and all deletion flags for this month
+        // Synchronously clear all flags — buildReport will read autoCom=true
         try { localStorage.removeItem(_rcAutoComKey(propId, y, m)); } catch(_){}
-        // Clear all individual row deletion flags for this property+month
         const prefix = `polyTMS_rc_del_${propId}_${y}_${m}_`;
         try {
           const keys = [];
-          for(let i=0;i<localStorage.length;i++){
+          for(let i=0; i<localStorage.length; i++){
             const k = localStorage.key(i);
             if(k && k.startsWith(prefix)) keys.push(k);
           }
           keys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){} });
         } catch(_){}
-        // Re-materialize rent commission DB rows for this month
+        // Async: re-materialize commission rows in DB then refresh
         await ensureRentCommissionExpensesFor(propId, y, m);
         await loadExpenses();
-        toast('Rent-Comm Auto turned ON — commission rows restored for this unit & month ✓');
+        toast('Rent-Comm Auto ON — commission restored for this unit & month ✓');
       }
     });
   }
