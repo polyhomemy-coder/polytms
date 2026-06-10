@@ -10408,21 +10408,23 @@ function renderReportHTML(ctx, opts){
         const mo = tenureMonths(t.agreement_start, t.agreement_end);
         const ratio = mo ? (mo/12) : 1;
         const moTxt = mo ? ` · ${mo}/12 mo` : '';
-        // Room commission
-        if(!expenses.some(e=>e.category==='rent_commission' && (e.description||'').includes('Room '+t.room_code))){
+        // Room commission — exact match on "Room X)" to avoid "Room M" matching "Room MM"
+        const hasRoomRC = expenses.some(e=>e.category==='rent_commission'
+          && (e.description||'').includes('Room '+t.room_code+')'));
+        if(!hasRoomRC){
           const amt = +(Number(t.room_rental||0) * ratio).toFixed(2);
-          expRows.push({desc:'Rent Commission (Room '+t.room_code+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
+          if(amt>0) expRows.push({desc:'Rent Commission (Room '+t.room_code+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
         }
-        // Carpark commission — same tenure-pro-rate rule, only when the
-        // tenant actually has a carpark and the carpark belongs to THIS
-        // property (cross-property carparks are billed on their own report).
+        // Carpark commission — same tenure-pro-rate rule
         const cpFull = Number(t.carpark_rental||0);
         const cpProp = t.carpark_property_id || t.property_id;
         if(t.carpark && cpFull>0 && cpProp===P.id){
           const cpLot = String(t.carpark).trim();
-          if(!expenses.some(e=>e.category==='rent_commission' && (e.description||'').includes('Carpark '+cpLot))){
+          const hasCpRC = expenses.some(e=>e.category==='rent_commission'
+            && (e.description||'').includes('Carpark '+cpLot+')'));
+          if(!hasCpRC){
             const amt = +(cpFull * ratio).toFixed(2);
-            expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
+            if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
           }
         }
       }
@@ -10745,20 +10747,24 @@ function renderReportDesktopHTML(ctx, opts){
         const mo = tenureMonths(t.agreement_start, t.agreement_end);
         const ratio = mo ? (mo/12) : 1;
         const moTxt = mo ? ` · ${mo}/12 mo` : '';
-        // Room commission
-        if(!expenses.some(e=>e.category==='rent_commission' && (e.description||'').includes('Room '+t.room_code))){
+        // Room commission — exact match on "Room X)" to avoid substring collision
+        const hasRoomRC = expenses.some(e=>e.category==='rent_commission'
+          && (e.description||'').includes('Room '+t.room_code+')'));
+        if(!hasRoomRC){
           const amt = +(Number(t.room_rental||0) * ratio).toFixed(2);
-          expRows.push({desc:'Rent Commission (Room '+t.room_code+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
+          if(amt>0) expRows.push({desc:'Rent Commission (Room '+t.room_code+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
         }
-        // Carpark commission — same tenure rule, only when the tenant has a
-        // carpark and that carpark belongs to THIS property.
+        // Carpark commission — same tenure rule, only when tenant has a carpark
+        // on THIS property.
         const cpFull = Number(t.carpark_rental||0);
         const cpProp = t.carpark_property_id || t.property_id;
         if(t.carpark && cpFull>0 && cpProp===P.id){
           const cpLot = String(t.carpark).trim();
-          if(!expenses.some(e=>e.category==='rent_commission' && (e.description||'').includes('Carpark '+cpLot))){
+          const hasCpRC = expenses.some(e=>e.category==='rent_commission'
+            && (e.description||'').includes('Carpark '+cpLot+')'));
+          if(!hasCpRC){
             const amt = +(cpFull * ratio).toFixed(2);
-            expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
+            if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
           }
         }
       }
@@ -11321,9 +11327,11 @@ function bindReportAutoPreview(){
           }
           keys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){} });
         } catch(_){}
-        // Async: re-materialize commission rows in DB then refresh
+        // Async: re-materialize commission rows in DB, then rebuild report
+        // so the renderer sees the fresh DB rows and doesn't double-up.
         await ensureRentCommissionExpensesFor(propId, y, m);
         await loadExpenses();
+        if(onReportTab()) await buildReport();
         toast('Rent-Comm Auto ON — commission restored for this unit & month ✓');
       }
     });
