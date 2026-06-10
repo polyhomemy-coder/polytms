@@ -2038,18 +2038,8 @@
         <div class="mt-4 pt-4 border-t border-[color:var(--line)]">
           <div class="text-xs font-bold uppercase tracking-wider text-[color:var(--brand)] mb-2">📋 Sign-off &amp; Launch</div>
           <div id="rptSignoff" class="space-y-2"></div>
-          <div class="grid grid-cols-1 gap-2 mt-3">
-            <!-- Admin Check — quick (this unit) + multi-select -->
-            <div class="flex gap-1.5">
-              <button id="btnAdminCheckQuick" class="flex-1 px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]">✓ Check This Unit</button>
-              <button id="btnAdminCheck"      class="px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]" title="Mark multiple units">☰ Multi</button>
-            </div>
-            <!-- Manager Verify — quick (this unit) + multi-select -->
-            <div id="btnManagerVerifyRow" class="flex gap-1.5">
-              <button id="btnManagerVerifyQuick" class="flex-1 px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F8E8] text-[#1F7A1F] border border-[#B8E0B8] hover:bg-[#D4F0D4]">🔍 Verify This Unit</button>
-              <button id="btnManagerVerify"      class="px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F8E8] text-[#1F7A1F] border border-[#B8E0B8] hover:bg-[#D4F0D4]" title="Verify multiple units">☰ Multi</button>
-            </div>
-            <button id="btnLaunch" class="px-3 py-2 rounded-lg text-xs font-bold bg-[#FFF4E5] text-[#F4811F] border border-[#F8C893] hover:bg-[#FFEBCC]">🚀 Launch to Owner…</button>
+          <div class="mt-3">
+            <button id="btnLaunch" class="w-full px-3 py-2 rounded-lg text-xs font-bold bg-[#FFF4E5] text-[#F4811F] border border-[#F8C893] hover:bg-[#FFEBCC]">🚀 Launch to Owner…</button>
           </div>
         </div>
 
@@ -11314,33 +11304,86 @@ async function addAnnotation(){
   const mv     = $('#rptMonth')?.value;
   if(!propId||!mv) return toast('Pick a property + month first','warn');
   const [y,m]  = mv.split('-').map(Number);
+
+  // Toggle off if already open
+  const existing = document.getElementById('annotationFloatPanel');
+  if(existing){ existing.remove(); return; }
+
   const secOpts = ANNOTATION_SECTIONS.map(s=>`<option value="${s}">${s}</option>`).join('');
-  openModal('🚩 Add Query Note', `
-    <div class="space-y-3">
-      <div><label class="label">Section</label>
+  const panel = document.createElement('div');
+  panel.id = 'annotationFloatPanel';
+  panel.style.cssText = 'position:fixed;top:120px;right:24px;width:310px;z-index:500;border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.22);';
+  panel.innerHTML = `
+    <div id="annotationFloatHandle" style="cursor:move;padding:10px 14px;background:var(--brand,#1a7a8a);color:#fff;display:flex;align-items:center;user-select:none;">
+      <span style="font-size:13px;font-weight:700;flex:1;">🚩 Add Query Note</span>
+      <button id="annotationFloatClose" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;line-height:1;padding:0 0 0 8px;">✕</button>
+    </div>
+    <div style="padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--card,#fff);">
+      <div>
+        <div class="label" style="margin-bottom:4px;">Section</div>
         <select id="an_sec" class="input">${secOpts}</select>
       </div>
-      <div><label class="label">Note <span class="text-rose-500">*</span></label>
-        <textarea id="an_note" class="input" rows="4" placeholder="Describe the query or issue…" style="resize:vertical"></textarea>
+      <div>
+        <div class="label" style="margin-bottom:4px;">Note <span style="color:#ef4444">*</span></div>
+        <textarea id="an_note" class="input" rows="5" placeholder="Describe the query or issue…" style="resize:vertical;width:100%;"></textarea>
       </div>
-    </div>`, async()=>{
-    const section = $('#an_sec').value;
-    const note    = $('#an_note').value.trim();
-    if(!note) throw new Error('Note cannot be empty');
-    const payload = {
-      property_id: propId, year: y, month: m,
-      section, note,
-      resolved: false,
-      created_by: state.role==='manager' ? 'Manager' : 'Admin',
-      created_at: new Date().toISOString(),
-    };
-    const {data,error} = await sb.from('report_annotations').insert(payload).select();
-    if(error) throw error;
-    if(data&&data[0]) state.annotations.push(data[0]);
-    else await loadAnnotations();
-    renderAnnotations();
-    toast('Query note added ✓');
-  }, 'Add Note');
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button id="annotationFloatCancel" class="px-4 py-2 rounded-xl font-semibold text-sm" style="background:var(--muted,#f1f5f9);">Cancel</button>
+        <button id="annotationFloatSave" class="btn-brand px-4 py-2 rounded-xl font-bold text-sm">Add Note</button>
+      </div>
+    </div>`;
+  document.body.appendChild(panel);
+
+  const closePanel = ()=>{ const p=document.getElementById('annotationFloatPanel'); if(p) p.remove(); };
+  document.getElementById('annotationFloatClose').onclick  = closePanel;
+  document.getElementById('annotationFloatCancel').onclick = closePanel;
+
+  // Drag logic
+  const handle = document.getElementById('annotationFloatHandle');
+  let dragging=false, ox=0, oy=0, pl=0, pt=0;
+  handle.addEventListener('mousedown', e=>{
+    if(e.target.id==='annotationFloatClose') return;
+    dragging=true;
+    const rect = panel.getBoundingClientRect();
+    ox=e.clientX; oy=e.clientY; pl=rect.left; pt=rect.top;
+    panel.style.right='auto';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e=>{
+    if(!dragging) return;
+    panel.style.left = Math.max(0, pl+(e.clientX-ox))+'px';
+    panel.style.top  = Math.max(0, pt+(e.clientY-oy))+'px';
+  });
+  document.addEventListener('mouseup', ()=>{ dragging=false; });
+
+  // Save
+  document.getElementById('annotationFloatSave').onclick = async ()=>{
+    const section = document.getElementById('an_sec').value;
+    const note    = (document.getElementById('an_note').value||'').trim();
+    if(!note){ toast('Note cannot be empty','warn'); return; }
+    const saveBtn = document.getElementById('annotationFloatSave');
+    saveBtn.disabled=true; saveBtn.style.opacity='.6'; saveBtn.textContent='⏳ Saving…';
+    try {
+      const payload = {
+        property_id: propId, year: y, month: m,
+        section, note, resolved: false,
+        created_by: state.role==='manager' ? 'Manager' : 'Admin',
+        created_at: new Date().toISOString(),
+      };
+      const {data,error} = await sb.from('report_annotations').insert(payload).select();
+      if(error) throw error;
+      if(data&&data[0]) state.annotations.push(data[0]);
+      else await loadAnnotations();
+      renderAnnotations();
+      toast('Query note added ✓');
+      closePanel();
+    } catch(e){
+      toast(e.message||'Failed','bad');
+      saveBtn.disabled=false; saveBtn.style.opacity=''; saveBtn.textContent='Add Note';
+    }
+  };
+
+  setTimeout(()=>{ const ta=document.getElementById('an_note'); if(ta) ta.focus(); }, 50);
 }
 
 async function resolveAnnotation(id){
@@ -11397,11 +11440,7 @@ async function deleteAnnotation(id){
 function renderReportSignoff(){
   const host = $('#rptSignoff');
   if(!host) return;
-  // Show/hide Manager Verify buttons based on current role
   const isAdmin = state.role === 'admin';
-  const _mvBtn = $('#btnManagerVerify');      if(_mvBtn) _mvBtn.style.display = isAdmin ? 'none' : '';
-  const _mvqBtn = $('#btnManagerVerifyQuick'); if(_mvqBtn) _mvqBtn.style.display = isAdmin ? 'none' : '';
-  const _mvRow = $('#btnManagerVerifyRow');    if(_mvRow) _mvRow.style.display = isAdmin ? 'none' : '';
   const propId = $('#rptProp')?.value;
   const mv     = $('#rptMonth')?.value;
   if(!propId || !mv){
@@ -11415,16 +11454,14 @@ function renderReportSignoff(){
   const launchedOn= !!(r && r.launched_at);
   const locked    = adminOn && managerOn;
 
-  const pill = (label, on, ts) => {
-    const cls = on
-      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-      : 'bg-slate-50 border-slate-200 text-slate-500';
-    const tsTxt = on && ts ? `<span class="text-[10px] font-normal opacity-70 ml-1">${esc(new Date(ts).toLocaleString('en-MY',{dateStyle:'medium',timeStyle:'short'}))}</span>` : '';
-    return `<div class="flex items-center justify-between text-xs font-bold ${cls} border rounded-lg px-2.5 py-1.5">
-      <span>${esc(label)}</span>
-      <span>${on?'✓ DONE':'⏳ PENDING'}${tsTxt}</span>
-    </div>`;
-  };
+  const pillCls = on => on
+    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+    : 'bg-slate-50 border-slate-200 text-slate-500';
+  const tsTxt = ts => ts ? `<span class="text-[10px] font-normal opacity-70 ml-1">${esc(new Date(ts).toLocaleString('en-MY',{dateStyle:'medium',timeStyle:'short'}))}</span>` : '';
+
+  const adminBtnCls  = 'px-2 py-1 rounded-lg text-[11px] font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA] whitespace-nowrap shrink-0';
+  const mgrBtnCls    = 'px-2 py-1 rounded-lg text-[11px] font-bold bg-[#E8F8E8] text-[#1F7A1F] border border-[#B8E0B8] hover:bg-[#D4F0D4] whitespace-nowrap shrink-0';
+
   const lockBanner = locked
     ? `<div class="text-xs font-bold bg-rose-50 border border-rose-200 text-rose-700 rounded-lg px-2.5 py-1.5">🔒 LOCKED — both sign-offs done. Edits to this month's payments / aircon / expenses / extras are blocked. Uncheck either sign-off to unlock.</div>`
     : `<div class="text-xs font-bold bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-2.5 py-1.5">✏️ EDITABLE — needs both sign-offs to lock.</div>`;
@@ -11433,10 +11470,66 @@ function renderReportSignoff(){
     : '';
 
   host.innerHTML = `
-    ${pill('Admin Check',    adminOn,   r?.admin_checked_at)}
-    ${pill('Manager Verify', managerOn, r?.manager_verified_at)}
+    <div class="flex items-center gap-1.5">
+      <div class="flex items-center justify-between text-xs font-bold ${pillCls(adminOn)} border rounded-lg px-2.5 py-1.5 flex-1 min-w-0">
+        <span>Admin Check</span>
+        <span class="ml-1 shrink-0">${adminOn?'✓ DONE':'⏳ PENDING'}${tsTxt(r?.admin_checked_at)}</span>
+      </div>
+      <button id="btnAdminCheckQuick" class="${adminBtnCls}">✓ Check</button>
+      <button id="btnAdminCheck" class="${adminBtnCls}" title="Mark multiple units">☰</button>
+    </div>
+    ${isAdmin ? '' : `
+    <div class="flex items-center gap-1.5" id="btnManagerVerifyRow">
+      <div class="flex items-center justify-between text-xs font-bold ${pillCls(managerOn)} border rounded-lg px-2.5 py-1.5 flex-1 min-w-0">
+        <span>Manager Verify</span>
+        <span class="ml-1 shrink-0">${managerOn?'✓ DONE':'⏳ PENDING'}${tsTxt(r?.manager_verified_at)}</span>
+      </div>
+      <button id="btnManagerVerifyQuick" class="${mgrBtnCls}">🔍 Verify</button>
+      <button id="btnManagerVerify" class="${mgrBtnCls}" title="Verify multiple units">☰</button>
+    </div>`}
     ${lockBanner}
     ${launchBanner}`;
+
+  // Bind action buttons (re-bound each render since elements are recreated)
+  const _acq = $('#btnAdminCheckQuick');
+  if(_acq) _acq.onclick = async ()=>{
+    const rr = _findReportStatus(propId, y, m);
+    const alreadyDone = !!(rr && rr.admin_checked_at);
+    const label = alreadyDone ? 'Uncheck Admin Check for this unit?' : 'Mark Admin Check Done for this unit?';
+    if(!await confirmModal(label, {confirmText: alreadyDone ? 'Uncheck' : 'Confirm'})) return;
+    _acq.disabled=true; _acq.style.opacity='.6';
+    try {
+      await setReportStatus(propId, y, m, {
+        admin_checked_at: alreadyDone ? null : new Date().toISOString(),
+        admin_checked_by: alreadyDone ? null : 'admin',
+      });
+      await loadReportStatus(); renderReportSignoff(); buildReport();
+      toast(alreadyDone ? 'Admin check removed' : '✓ Admin check done');
+    } catch(e){ toast(e.message,'bad'); }
+    finally { _acq.disabled=false; _acq.style.opacity=''; }
+  };
+
+  const _ac = $('#btnAdminCheck');
+  if(_ac) _ac.onclick = ()=>{ const mv2=$('#rptMonth')?.value; if(!mv2) return; const [yy,mm]=mv2.split('-').map(Number); openAdminCheckModal(yy,mm,propId); };
+
+  const _mvq = $('#btnManagerVerifyQuick');
+  if(_mvq) _mvq.onclick = async ()=>{
+    const rr = _findReportStatus(propId, y, m);
+    const alreadyDone = !!(rr && rr.manager_verified_at);
+    _mvq.disabled=true; _mvq.style.opacity='.6';
+    try {
+      await setReportStatus(propId, y, m, {
+        manager_verified_at: alreadyDone ? null : new Date().toISOString(),
+        manager_verified_by: alreadyDone ? null : 'manager',
+      });
+      await loadReportStatus(); renderReportSignoff(); buildReport();
+      toast(alreadyDone ? 'Manager verify removed' : '🔍 Manager verify done');
+    } catch(e){ toast(e.message,'bad'); }
+    finally { _mvq.disabled=false; _mvq.style.opacity=''; }
+  };
+
+  const _mv = $('#btnManagerVerify');
+  if(_mv) _mv.onclick = ()=>{ const mv2=$('#rptMonth')?.value; if(!mv2) return; const [yy,mm]=mv2.split('-').map(Number); openManagerVerifyModal(yy,mm,propId); };
 }
 
 function exportReport(){
@@ -11538,61 +11631,14 @@ function bindReportAutoPreview(){
       if(onReportTab()) buildReport();
     });
   });
-  // Sign-off + Launch buttons — open the multi-property modals scoped to
-  // the currently-selected Report Period month (falls back to the topbar
-  // month if nothing is selected yet).
+  // Launch button + Add Annotation button (static elements, bound once)
   const _curReportYM = ()=>{
     const mv = $('#rptMonth')?.value;
     if(mv){ const [y,m]=mv.split('-').map(Number); return {y,m}; }
     return {y: state.year, m: state.month};
   };
   const _curPropId = ()=> $('#rptProp')?.value || '';
-  // Multi-select modals (existing behaviour)
   const _aa = $('#btnAddAnnotation'); if(_aa) _aa.onclick = ()=> addAnnotation();
-  const _ac = $('#btnAdminCheck'); if(_ac) _ac.onclick = ()=>{ const {y,m}=_curReportYM(); openAdminCheckModal(y,m,_curPropId()); };
-  const _mv = $('#btnManagerVerify');
-  if(_mv) _mv.onclick = ()=>{ const {y,m}=_curReportYM(); openManagerVerifyModal(y,m,_curPropId()); };
-
-  // Quick single-unit buttons
-  const _acq = $('#btnAdminCheckQuick');
-  if(_acq) _acq.onclick = async ()=>{
-    const propId = _curPropId(); const {y,m} = _curReportYM();
-    if(!propId) return toast('Pick a property first','warn');
-    const r = _findReportStatus(propId, y, m);
-    const alreadyDone = !!(r && r.admin_checked_at);
-    const label = alreadyDone ? 'Uncheck Admin Check for this unit?' : 'Mark Admin Check Done for this unit?';
-    if(!await confirmModal(label, {confirmText: alreadyDone ? 'Uncheck' : 'Confirm'})) return;
-    _acq.disabled=true; _acq.style.opacity='.6';
-    try {
-      await setReportStatus(propId, y, m, {
-        admin_checked_at: alreadyDone ? null : new Date().toISOString(),
-        admin_checked_by: alreadyDone ? null : 'admin',
-      });
-      await loadReportStatus(); renderReportSignoff(); buildReport();
-      toast(alreadyDone ? 'Admin check removed' : '✓ Admin check done');
-    } catch(e){ toast(e.message,'bad'); }
-    finally { _acq.disabled=false; _acq.style.opacity=''; }
-  };
-
-  const _mvq = $('#btnManagerVerifyQuick');
-  if(_mvq) _mvq.onclick = async ()=>{
-    const propId = _curPropId(); const {y,m} = _curReportYM();
-    if(!propId) return toast('Pick a property first','warn');
-    const r = _findReportStatus(propId, y, m);
-    const alreadyDone = !!(r && r.manager_verified_at);
-    const label = alreadyDone ? 'Uncheck Manager Verify for this unit?' : 'Mark Manager Verify Done for this unit?';
-    if(!await confirmModal(label, {confirmText: alreadyDone ? 'Uncheck' : 'Confirm'})) return;
-    _mvq.disabled=true; _mvq.style.opacity='.6';
-    try {
-      await setReportStatus(propId, y, m, {
-        manager_verified_at: alreadyDone ? null : new Date().toISOString(),
-        manager_verified_by: alreadyDone ? null : 'manager',
-      });
-      await loadReportStatus(); renderReportSignoff(); buildReport();
-      toast(alreadyDone ? 'Manager verify removed' : '🔍 Manager verify done');
-    } catch(e){ toast(e.message,'bad'); }
-    finally { _mvq.disabled=false; _mvq.style.opacity=''; }
-  };
   const _ln = $('#btnLaunch'); if(_ln) _ln.onclick = ()=>{ const {y,m}=_curReportYM(); openLaunchModal(y,m,_curPropId()); };
   _reportBound = true;
 }
