@@ -11316,7 +11316,10 @@ function bindReportAutoPreview(){
         // Synchronously persist OFF — buildReport will read autoCom=false
         _rcAutoComSetOff(propId, y, m);
       } else {
-        // Synchronously clear all flags — buildReport will read autoCom=true
+        // Synchronously clear all flags ONLY — do NOT call ensureRentCommissionExpensesFor
+        // or buildReport here. The 'change' listener above already triggers buildReport(),
+        // which internally calls ensureRentCommissionExpensesFor. Running both in parallel
+        // causes two concurrent DB inserts that both see no existing row → duplicate rows.
         try { localStorage.removeItem(_rcAutoComKey(propId, y, m)); } catch(_){}
         const prefix = `polyTMS_rc_del_${propId}_${y}_${m}_`;
         try {
@@ -11327,12 +11330,7 @@ function bindReportAutoPreview(){
           }
           keys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){} });
         } catch(_){}
-        // Async: re-materialize commission rows in DB, then rebuild report
-        // so the renderer sees the fresh DB rows and doesn't double-up.
-        await ensureRentCommissionExpensesFor(propId, y, m);
-        await loadExpenses();
-        if(onReportTab()) await buildReport();
-        toast('Rent-Comm Auto ON — commission restored for this unit & month ✓');
+        toast('Rent-Comm Auto ON — commission will be restored for this unit & month ✓');
       }
     });
   }
