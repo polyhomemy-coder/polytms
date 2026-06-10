@@ -2039,9 +2039,17 @@
           <div class="text-xs font-bold uppercase tracking-wider text-[color:var(--brand)] mb-2">📋 Sign-off &amp; Launch</div>
           <div id="rptSignoff" class="space-y-2"></div>
           <div class="grid grid-cols-1 gap-2 mt-3">
-            <button id="btnAdminCheck"   class="px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]">✓ Admin: Check Done…</button>
-            <button id="btnManagerVerify" class="px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F8E8] text-[#1F7A1F] border border-[#B8E0B8] hover:bg-[#D4F0D4]">🔍 Manager: Verify Done…</button>
-            <button id="btnLaunch"        class="px-3 py-2 rounded-lg text-xs font-bold bg-[#FFF4E5] text-[#F4811F] border border-[#F8C893] hover:bg-[#FFEBCC]">🚀 Launch to Owner…</button>
+            <!-- Admin Check — quick (this unit) + multi-select -->
+            <div class="flex gap-1.5">
+              <button id="btnAdminCheckQuick" class="flex-1 px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]">✓ Check This Unit</button>
+              <button id="btnAdminCheck"      class="px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]" title="Mark multiple units">☰ Multi</button>
+            </div>
+            <!-- Manager Verify — quick (this unit) + multi-select -->
+            <div id="btnManagerVerifyRow" class="flex gap-1.5">
+              <button id="btnManagerVerifyQuick" class="flex-1 px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F8E8] text-[#1F7A1F] border border-[#B8E0B8] hover:bg-[#D4F0D4]">🔍 Verify This Unit</button>
+              <button id="btnManagerVerify"      class="px-3 py-2 rounded-lg text-xs font-bold bg-[#E8F8E8] text-[#1F7A1F] border border-[#B8E0B8] hover:bg-[#D4F0D4]" title="Verify multiple units">☰ Multi</button>
+            </div>
+            <button id="btnLaunch" class="px-3 py-2 rounded-lg text-xs font-bold bg-[#FFF4E5] text-[#F4811F] border border-[#F8C893] hover:bg-[#FFEBCC]">🚀 Launch to Owner…</button>
           </div>
         </div>
       </div>
@@ -11205,10 +11213,11 @@ async function buildReport(){
 function renderReportSignoff(){
   const host = $('#rptSignoff');
   if(!host) return;
-  // Show/hide Manager Verify button based on current role (re-evaluated every render,
-  // so it also reacts correctly when a manager switches to "Preview as Admin").
-  const _mvBtn = $('#btnManagerVerify');
-  if(_mvBtn) _mvBtn.style.display = (state.role === 'admin') ? 'none' : '';
+  // Show/hide Manager Verify buttons based on current role
+  const isAdmin = state.role === 'admin';
+  const _mvBtn = $('#btnManagerVerify');      if(_mvBtn) _mvBtn.style.display = isAdmin ? 'none' : '';
+  const _mvqBtn = $('#btnManagerVerifyQuick'); if(_mvqBtn) _mvqBtn.style.display = isAdmin ? 'none' : '';
+  const _mvRow = $('#btnManagerVerifyRow');    if(_mvRow) _mvRow.style.display = isAdmin ? 'none' : '';
   const propId = $('#rptProp')?.value;
   const mv     = $('#rptMonth')?.value;
   if(!propId || !mv){
@@ -11353,9 +11362,51 @@ function bindReportAutoPreview(){
     return {y: state.year, m: state.month};
   };
   const _curPropId = ()=> $('#rptProp')?.value || '';
+  // Multi-select modals (existing behaviour)
   const _ac = $('#btnAdminCheck'); if(_ac) _ac.onclick = ()=>{ const {y,m}=_curReportYM(); openAdminCheckModal(y,m,_curPropId()); };
   const _mv = $('#btnManagerVerify');
   if(_mv) _mv.onclick = ()=>{ const {y,m}=_curReportYM(); openManagerVerifyModal(y,m,_curPropId()); };
+
+  // Quick single-unit buttons
+  const _acq = $('#btnAdminCheckQuick');
+  if(_acq) _acq.onclick = async ()=>{
+    const propId = _curPropId(); const {y,m} = _curReportYM();
+    if(!propId) return toast('Pick a property first','warn');
+    const r = _findReportStatus(propId, y, m);
+    const alreadyDone = !!(r && r.admin_checked_at);
+    const label = alreadyDone ? 'Uncheck Admin Check for this unit?' : 'Mark Admin Check Done for this unit?';
+    if(!await confirmModal(label, {confirmText: alreadyDone ? 'Uncheck' : 'Confirm'})) return;
+    _acq.disabled=true; _acq.style.opacity='.6';
+    try {
+      await setReportStatus(propId, y, m, {
+        admin_checked_at: alreadyDone ? null : new Date().toISOString(),
+        admin_checked_by: alreadyDone ? null : 'admin',
+      });
+      await loadReportStatus(); renderReportSignoff(); buildReport();
+      toast(alreadyDone ? 'Admin check removed' : '✓ Admin check done');
+    } catch(e){ toast(e.message,'bad'); }
+    finally { _acq.disabled=false; _acq.style.opacity=''; }
+  };
+
+  const _mvq = $('#btnManagerVerifyQuick');
+  if(_mvq) _mvq.onclick = async ()=>{
+    const propId = _curPropId(); const {y,m} = _curReportYM();
+    if(!propId) return toast('Pick a property first','warn');
+    const r = _findReportStatus(propId, y, m);
+    const alreadyDone = !!(r && r.manager_verified_at);
+    const label = alreadyDone ? 'Uncheck Manager Verify for this unit?' : 'Mark Manager Verify Done for this unit?';
+    if(!await confirmModal(label, {confirmText: alreadyDone ? 'Uncheck' : 'Confirm'})) return;
+    _mvq.disabled=true; _mvq.style.opacity='.6';
+    try {
+      await setReportStatus(propId, y, m, {
+        manager_verified_at: alreadyDone ? null : new Date().toISOString(),
+        manager_verified_by: alreadyDone ? null : 'manager',
+      });
+      await loadReportStatus(); renderReportSignoff(); buildReport();
+      toast(alreadyDone ? 'Manager verify removed' : '🔍 Manager verify done');
+    } catch(e){ toast(e.message,'bad'); }
+    finally { _mvq.disabled=false; _mvq.style.opacity=''; }
+  };
   const _ln = $('#btnLaunch'); if(_ln) _ln.onclick = ()=>{ const {y,m}=_curReportYM(); openLaunchModal(y,m,_curPropId()); };
   _reportBound = true;
 }
