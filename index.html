@@ -4055,6 +4055,21 @@ function _commissionAmount(tenant, kind /* 'room' | 'carpark' */){
   return { amt, moTxt };
 }
 
+// ── Rent Commission deletion flags ───────────────────────────────────────────
+// When a user manually deletes a rent_commission row, we remember it in
+// localStorage (keyed by property+year+month+description-slug) so the
+// ensure function never re-inserts it. Matches the balance-forward pattern.
+function _rcFlagKey(propId, y, m, descSlug){
+  return `polyTMS_rc_del_${propId}_${y}_${m}_${descSlug}`;
+}
+function _rcSlug(description){ return String(description||'').replace(/\s+/g,'_').toLowerCase(); }
+function _rcSetDeleted(propId, y, m, description){
+  try { localStorage.setItem(_rcFlagKey(propId,y,m,_rcSlug(description)),'1'); } catch(_){}
+}
+function _rcIsDeleted(propId, y, m, description){
+  try { return localStorage.getItem(_rcFlagKey(propId,y,m,_rcSlug(description)))==='1'; } catch(_){ return false; }
+}
+
 // Auto-insert "Rent Commission" expense rows for any tenant whose
 // agreement_start falls in (year, month) for the given property. Idempotent
 // per-tenant — checks the existing description string before inserting.
@@ -4080,21 +4095,23 @@ async function ensureRentCommissionExpensesFor(propId, y, m){
     // commission on THAT property's report.
     if(t.property_id===propId && t.room_code && !has('Room '+t.room_code)){
       const { amt, moTxt } = _commissionAmount(t, 'room');
-      if(amt>0) rows.push({property_id:propId, year:y, month:m,
-        category:'rent_commission',
-        description:`Rent Commission (Room ${t.room_code})${moTxt}`,
-        amount:amt, expense_date:null});
+      const desc = `Rent Commission (Room ${t.room_code})${moTxt}`;
+      // Skip if user has manually deleted this row for this month
+      if(amt>0 && !_rcIsDeleted(propId,y,m,desc))
+        rows.push({property_id:propId, year:y, month:m,
+          category:'rent_commission', description:desc,
+          amount:amt, expense_date:null});
     }
     // Carpark commission goes on whichever property the carpark belongs to
-    // (carpark_property_id falls back to tenant's room property).
     const cpProp = t.carpark_property_id || t.property_id;
     const cpFull = Number(t.carpark_rental||0);
     if(cpProp===propId && t.carpark && cpFull>0 && !has('Carpark '+t.carpark)){
       const { amt, moTxt } = _commissionAmount(t, 'carpark');
-      if(amt>0) rows.push({property_id:propId, year:y, month:m,
-        category:'rent_commission',
-        description:`Rent Commission (Carpark ${t.carpark})${moTxt}`,
-        amount:amt, expense_date:null});
+      const desc = `Rent Commission (Carpark ${t.carpark})${moTxt}`;
+      if(amt>0 && !_rcIsDeleted(propId,y,m,desc))
+        rows.push({property_id:propId, year:y, month:m,
+          category:'rent_commission', description:desc,
+          amount:amt, expense_date:null});
     }
   });
   if(!rows.length) return false;
@@ -10083,6 +10100,10 @@ async function delExpense(id){
   const r = state.expenses.find(x=>x.id===id);
   if(r){ try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); } }
   const {error}=await sb.from('expenses').delete().eq('id',id); if(error)return toast(error.message,'bad');
+  // Remember user-deleted rent_commission rows so the auto-ensure never re-inserts them
+  if(r && r.category==='rent_commission'){
+    _rcSetDeleted(r.property_id, r.year, r.month, r.description||'');
+  }
   await loadExpenses();
   renderTab('expenses'); toast('Deleted');
   if(r && r.category!=='management_fee' && r.category!=='balance_forward'){
