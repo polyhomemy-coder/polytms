@@ -11431,21 +11431,48 @@ function renderAnnotations(){
   }
 
   const isManager = state.role==='manager';
-  list.innerHTML = notes.map(n=>`
-    <div style="background:${n.resolved?'#F0FDF4':'#FFF5F5'};border:1px solid ${n.resolved?'#BBF7D0':'#FECACA'};border-radius:10px;padding:8px 10px">
+  const isAdmin   = state.role==='admin';
+  list.innerHTML = notes.map(n=>{
+    const fmtDate = ts => ts ? new Date(ts).toLocaleDateString('en-MY',{day:'2-digit',month:'short'}) : '';
+    const bg      = n.resolved ? '#F0FDF4' : '#FFF5F5';
+    const border  = n.resolved ? '#BBF7D0' : '#FECACA';
+    const tagBg   = n.resolved ? '#DCFCE7' : '#FEE2E2';
+    const tagClr  = n.resolved ? '#065F46' : '#B91C1C';
+    const noteClr = n.resolved ? '#166534' : '#7F1D1D';
+
+    const replyHtml = n.reply ? `
+      <div style="margin-top:8px;padding:7px 10px;background:#EFF6FF;border-left:3px solid #3B82F6;border-radius:0 7px 7px 0">
+        <div style="font-size:10px;font-weight:700;color:#1D4ED8;margin-bottom:3px">💬 ${esc(n.reply_by||'Reply')} · ${fmtDate(n.reply_at)}</div>
+        <div style="font-size:12px;color:#1E3A5F;line-height:1.5">${esc(n.reply)}</div>
+        ${(isAdmin||isManager) ? `<button onclick="replyAnnotation('${n.id}')" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:5px;border:none;cursor:pointer;background:#DBEAFE;color:#1D4ED8;margin-top:4px">✎ Edit Reply</button>` : ''}
+      </div>` : '';
+
+    const canReply  = (isAdmin || isManager) && !n.resolved;
+    const replyBtn  = canReply && !n.reply
+      ? `<button onclick="replyAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#DBEAFE;color:#1D4ED8">💬 Reply</button>`
+      : '';
+    const resolveBtn= !n.resolved
+      ? `<button onclick="resolveAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#DCFCE7;color:#065F46">✓ Resolve</button>`
+      : `<button onclick="reopenAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#FEF3C7;color:#92400E">↩ Reopen</button>`;
+    const deleteBtn = isManager
+      ? `<button onclick="deleteAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#FEE2E2;color:#B91C1C">✕</button>` : '';
+    const editBtn   = isManager && !n.resolved
+      ? `<button onclick="editAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#F1F5F9;color:#475569">✎ Edit</button>` : '';
+
+    return `
+    <div style="background:${bg};border:1px solid ${border};border-radius:10px;padding:8px 10px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <span style="font-size:10px;font-weight:700;background:${n.resolved?'#DCFCE7':'#FEE2E2'};color:${n.resolved?'#065F46':'#B91C1C'};padding:1px 8px;border-radius:999px">${esc(n.section||'General')}</span>
+        <span style="font-size:10px;font-weight:700;background:${tagBg};color:${tagClr};padding:1px 8px;border-radius:999px">${esc(n.section||'General')}</span>
         ${n.resolved?'<span style="font-size:10px;color:#065F46;font-weight:700">✓ Resolved</span>':'<span style="font-size:10px;color:#B91C1C;font-weight:700">🚩 Open</span>'}
-        <span style="font-size:10px;color:var(--muted);margin-left:auto">${n.created_by||''} · ${n.created_at?(new Date(n.created_at).toLocaleDateString('en-MY',{day:'2-digit',month:'short'})):''}
-        </span>
+        <span style="font-size:10px;color:var(--muted);margin-left:auto">${esc(n.created_by||'')} · ${fmtDate(n.created_at)}</span>
       </div>
-      <div style="font-size:12px;color:${n.resolved?'#166534':'#7F1D1D'};line-height:1.5">${esc(n.note)}</div>
+      <div style="font-size:12px;color:${noteClr};line-height:1.5">${esc(n.note)}</div>
+      ${replyHtml}
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-        ${!n.resolved ? `<button onclick="resolveAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#DCFCE7;color:#065F46">✓ Mark Resolved</button>` : `<button onclick="reopenAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#FEF3C7;color:#92400E">↩ Reopen</button>`}
-        ${isManager ? `<button onclick="deleteAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#FEE2E2;color:#B91C1C">✕ Delete</button>` : ''}
-        ${isManager && !n.resolved ? `<button onclick="editAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#F1F5F9;color:#475569">✎ Edit</button>` : ''}
+        ${resolveBtn}${replyBtn}${editBtn}${deleteBtn}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function addAnnotation(){
@@ -11533,6 +11560,84 @@ async function addAnnotation(){
   };
 
   setTimeout(()=>{ const ta=document.getElementById('an_note'); if(ta) ta.focus(); }, 50);
+}
+
+async function replyAnnotation(id){
+  const a = state.annotations.find(x=>x.id===id);
+  if(!a) return;
+
+  const existing = document.getElementById('annotationReplyPanel');
+  if(existing && existing.dataset.forId===id){ existing.remove(); return; }
+  if(existing) existing.remove();
+
+  const panel = document.createElement('div');
+  panel.id = 'annotationReplyPanel';
+  panel.dataset.forId = id;
+  panel.style.cssText = 'position:fixed;top:140px;right:24px;width:320px;z-index:500;border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.22);';
+  panel.innerHTML = `
+    <div id="annotationReplyHandle" style="cursor:move;padding:10px 14px;background:#1D4ED8;color:#fff;display:flex;align-items:center;user-select:none;">
+      <span style="font-size:13px;font-weight:700;flex:1;">💬 Reply to Query Note</span>
+      <button id="annotationReplyClose" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;line-height:1;padding:0 0 0 8px;">✕</button>
+    </div>
+    <div style="padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--card,#fff);">
+      <div style="font-size:11px;font-weight:700;color:#475569;background:#F1F5F9;border-radius:8px;padding:8px 10px;line-height:1.5">
+        <span style="color:#B91C1C">🚩 ${esc(a.section||'General')}</span> · ${esc(a.created_by||'')}
+        <div style="margin-top:4px;color:#64748B">${esc(a.note)}</div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:4px;">Your Reply <span style="color:#ef4444">*</span></div>
+        <textarea id="reply_note" class="input" rows="4" placeholder="Type your reply…" style="resize:vertical;width:100%;">${esc(a.reply||'')}</textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button id="annotationReplyCancel" class="px-4 py-2 rounded-xl font-semibold text-sm" style="background:var(--muted,#f1f5f9);">Cancel</button>
+        <button id="annotationReplySave" class="px-4 py-2 rounded-xl font-bold text-sm" style="background:#1D4ED8;color:#fff;">Save Reply</button>
+        ${!a.resolved ? `<button id="annotationReplyResolve" class="px-4 py-2 rounded-xl font-bold text-sm" style="background:#065F46;color:#fff;">💬 Reply &amp; Resolve</button>` : ''}
+      </div>
+    </div>`;
+  document.body.appendChild(panel);
+
+  const closePanel = ()=>{ document.getElementById('annotationReplyPanel')?.remove(); };
+  document.getElementById('annotationReplyClose').onclick  = closePanel;
+  document.getElementById('annotationReplyCancel').onclick = closePanel;
+
+  // Drag
+  const handle = document.getElementById('annotationReplyHandle');
+  let dragging=false, ox=0, oy=0, pl=0, pt=0;
+  handle.addEventListener('mousedown', e=>{
+    if(e.target.id==='annotationReplyClose') return;
+    dragging=true;
+    const rect=panel.getBoundingClientRect(); ox=e.clientX; oy=e.clientY; pl=rect.left; pt=rect.top;
+    panel.style.right='auto'; e.preventDefault();
+  });
+  document.addEventListener('mousemove', e=>{ if(!dragging) return; panel.style.left=Math.max(0,pl+(e.clientX-ox))+'px'; panel.style.top=Math.max(0,pt+(e.clientY-oy))+'px'; });
+  document.addEventListener('mouseup', ()=>{ dragging=false; });
+
+  const doSave = async (andResolve)=>{
+    const reply = (document.getElementById('reply_note').value||'').trim();
+    if(!reply){ toast('Reply cannot be empty','warn'); return; }
+    const saveBtn = document.getElementById(andResolve ? 'annotationReplyResolve' : 'annotationReplySave');
+    if(saveBtn){ saveBtn.disabled=true; saveBtn.style.opacity='.6'; saveBtn.textContent='⏳…'; }
+    const byLabel = state.role==='manager' ? 'Manager' : 'Admin';
+    const patch = { reply, reply_by: byLabel, reply_at: new Date().toISOString() };
+    if(andResolve){ patch.resolved=true; patch.resolved_by=byLabel; patch.resolved_at=new Date().toISOString(); }
+    try {
+      const {error} = await sb.from('report_annotations').update(patch).eq('id',id);
+      if(error) throw error;
+      Object.assign(a, patch);
+      renderAnnotations();
+      toast(andResolve ? '💬 Replied & resolved ✓' : '💬 Reply saved ✓');
+      closePanel();
+    } catch(e){
+      toast(e.message||'Failed','bad');
+      if(saveBtn){ saveBtn.disabled=false; saveBtn.style.opacity=''; saveBtn.textContent=andResolve?'💬 Reply & Resolve':'Save Reply'; }
+    }
+  };
+
+  document.getElementById('annotationReplySave').onclick = ()=> doSave(false);
+  const resolveBtn = document.getElementById('annotationReplyResolve');
+  if(resolveBtn) resolveBtn.onclick = ()=> doSave(true);
+
+  setTimeout(()=>{ const ta=document.getElementById('reply_note'); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); } }, 50);
 }
 
 async function resolveAnnotation(id){
