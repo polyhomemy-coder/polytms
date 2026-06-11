@@ -4110,6 +4110,8 @@ async function ensureRentCommissionExpensesFor(propId, y, m){
   const p = (state.properties||[]).find(x=>x.id===propId);
   if(!p || p.active===false) return false;
   if(isReportLocked(propId, y, m)) return false;
+  // Never auto-insert when the user has turned off Rent-Comm Auto for this property+month
+  if(_rcAutoComIsOff(propId, y, m)) return false;
   const tenants = (state.tenants||[]).filter(t=>{
     if(!t.agreement_start) return false;
     const s = parseISODateLocal(t.agreement_start);
@@ -11173,6 +11175,9 @@ async function buildReport(){
   const mv = $('#rptMonth').value;
   if(!propId||!mv){ $('#rptStatus').textContent='Pick property + month to preview.'; return; }
   const [y,m]=mv.split('-').map(Number);
+  // Always apply the saved autoCom override for this property+month before reading
+  // the dropdown — critical for fresh sessions where the select hasn't been touched.
+  _applyAutoComOverride(propId, y, m);
   const issue = $('#rptIssue').value || todayISODateLocal();
   const autoFee = $('#rptAutoFee').value==='1';
   const autoCom = $('#rptAutoCom').value==='1';
@@ -11188,7 +11193,7 @@ async function buildReport(){
   // appear in the income report alongside the 1st.
   materialized = (await ensureFirstMonthProRateExpensesFor(propId, y, m)) || materialized;
   materialized = (await ensureLastMonthProRateExpensesFor(propId, y, m)) || materialized;
-  materialized = (await ensureRentCommissionExpensesFor(propId, y, m)) || materialized;
+  if(autoCom) materialized = (await ensureRentCommissionExpensesFor(propId, y, m)) || materialized;
   materialized = (await ensureManagementFeeExpensesFor(propId, y, m)) || materialized;
   materialized = (await ensureBalanceForwardFor(propId, y, m)) || materialized;
   // If we inserted rows for the topbar's currently-selected month, refresh
