@@ -4137,7 +4137,7 @@ async function ensureRentCommissionExpensesFor(propId, y, m){
           category:'rent_commission', description:desc,
           amount:amt, expense_date:null});
     }
-    // Carpark commission goes on whichever property the carpark belongs to
+    // Carpark 1 commission
     const cpProp = t.carpark_property_id || t.property_id;
     const cpFull = Number(t.carpark_rental||0);
     if(cpProp===propId && t.carpark && cpFull>0 && !has('Carpark '+t.carpark)){
@@ -4147,6 +4147,20 @@ async function ensureRentCommissionExpensesFor(propId, y, m){
         rows.push({property_id:propId, year:y, month:m,
           category:'rent_commission', description:desc,
           amount:amt, expense_date:null});
+    }
+    // Carpark 2 commission
+    const cp2Prop = t.carpark2_property_id || t.property_id;
+    const cp2Full = Number(t.carpark2_rental||0);
+    if(cp2Prop===propId && t.carpark2 && cp2Full>0 && !has('Carpark '+t.carpark2)){
+      const mo2   = tenureMonths(t.agreement_start, t.agreement_end);
+      const ratio2= mo2 ? (mo2/12) : 1;
+      const amt2  = +(cp2Full * ratio2).toFixed(2);
+      const mo2Txt= mo2 ? ` · ${mo2}/12 mo` : '';
+      const desc2 = `Rent Commission (Carpark ${t.carpark2})${mo2Txt}`;
+      if(amt2>0 && !_rcIsDeleted(propId,y,m,desc2))
+        rows.push({property_id:propId, year:y, month:m,
+          category:'rent_commission', description:desc2,
+          amount:amt2, expense_date:null});
     }
   });
   if(!rows.length) return false;
@@ -4247,6 +4261,47 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
       if(!error){ inserted++; taken.add((t.room_code||'').toUpperCase()); }
     }
   }
+  // Cross-property carpark pro-rate: tenants whose carpark (1 or 2) belongs to THIS
+  // property but their room is on a different property.
+  const _insertCrossCarpark = async (cpPays, cpTaken, t, lot, cpFull) => {
+    if(cpTaken.has(lot)) return;
+    const s   = parseISODateLocal(t.agreement_start);
+    const sd  = s.getDate(), dim = new Date(s.getFullYear(), s.getMonth()+1, 0).getDate();
+    const days    = dim - sd + 1;
+    const cpShare = sd===1 ? cpFull : Math.ceil(cpFull * (days/dim));
+    if(cpShare<=0) return;
+    const monStr = MONTHS[m-1];
+    const remark = sd===1
+      ? `🆕 New move-in (full ${monStr}): Carpark RM ${cpFull}`
+      : `🆕 Move-in pro-rate ${sd}–${dim} ${monStr}: RM ${cpFull}/${dim}×${days} = RM ${cpShare}`;
+    const {error} = await sb.from('rental_payments').insert({
+      property_id: propId, year: y, month: m,
+      item_type: 'carpark', room_code: lot,
+      amount: cpShare, paid_on: t.agreement_start, remark,
+      payment_kind: sd===1 ? null : 'first_month_prorate',
+    });
+    if(!error){ inserted++; cpTaken.add(lot); }
+  };
+
+  const crossCpTenants = (state.tenants||[]).filter(t=>{
+    if(t.active===false) return false;
+    if(t.property_id === propId) return false;
+    const hasCross1 = t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId;
+    const hasCross2 = t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId;
+    return (hasCross1 || hasCross2) && monthMatch(t);
+  });
+  if(crossCpTenants.length){
+    const { data: cpPays } = await sb.from('rental_payments').select('id,room_code')
+      .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','carpark');
+    const cpTaken = new Set((cpPays||[]).map(p=>normCarpark(p.room_code)));
+    for(const t of crossCpTenants){
+      if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId)
+        await _insertCrossCarpark(cpPays, cpTaken, t, normCarpark(t.carpark),  Number(t.carpark_rental||0));
+      if(t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId)
+        await _insertCrossCarpark(cpPays, cpTaken, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0));
+    }
+  }
+
   return inserted > 0;
 }
 async function ensureFirstMonthProRateExpenses(){
@@ -6188,21 +6243,21 @@ function computeFirstMonthProRate(tenant, y, m){
   // Round UP to a whole RM — per Aaron's rule (5.01→6, 78.29→79, 154.72→155).
   // Each component is ceiled separately so the parts add up cleanly.
   const room   = Math.ceil(Number(tenant.room_rental||0) * ratio);
-  const cpFull = Number(tenant.carpark_rental||0);
-  // Same-property carpark gets folded into the consolidated room payment.
-  // Cross-property carparks stay on their own property's billing.
-  const cpProp = tenant.carpark_property_id || tenant.property_id;
-  const sameCp = !!tenant.carpark && cpFull>0 && cpProp===tenant.property_id;
-  const cp     = sameCp ? Math.ceil(cpFull * ratio) : 0;
-  const total  = room + cp;
+  const cpFull  = Number(tenant.carpark_rental||0);
+  const cpProp  = tenant.carpark_property_id || tenant.property_id;
+  const sameCp  = !!tenant.carpark && cpFull>0 && cpProp===tenant.property_id;
+  const cp      = sameCp ? Math.ceil(cpFull * ratio) : 0;
+  const cp2Full = Number(tenant.carpark2_rental||0);
+  const cp2Prop = tenant.carpark2_property_id || tenant.property_id;
+  const sameCp2 = !!tenant.carpark2 && cp2Full>0 && cp2Prop===tenant.property_id;
+  const cp2     = sameCp2 ? Math.ceil(cp2Full * ratio) : 0;
+  const total   = room + cp + cp2;
   return {
     moveInYear: sy, moveInMonth: sm, startDay: sd, daysInMonth: dim,
     daysOccupied: days, ratio,
     roomFull: Number(tenant.room_rental||0),
-    carparkFull: cpFull,
-    sameCarpark: sameCp,
-    roomShare: room,
-    carparkShare: cp,
+    carparkFull: cpFull, sameCarpark: sameCp, roomShare: room, carparkShare: cp,
+    carpark2Full: cp2Full, sameCarpark2: sameCp2, carpark2Share: cp2,
     total,
   };
 }
@@ -6222,19 +6277,21 @@ function computeLastMonthProRate(tenant){
   if(days >= dim) return null;                          // full month — no pro-rate needed
   const ratio  = days / dim;
   const room   = Math.ceil(Number(tenant.room_rental||0) * ratio);
-  const cpFull = Number(tenant.carpark_rental||0);
-  const cpProp = tenant.carpark_property_id || tenant.property_id;
-  const sameCp = !!tenant.carpark && cpFull>0 && cpProp===tenant.property_id;
-  const cp     = sameCp ? Math.ceil(cpFull * ratio) : 0;
-  const total  = room + cp;
+  const cpFull  = Number(tenant.carpark_rental||0);
+  const cpProp  = tenant.carpark_property_id || tenant.property_id;
+  const sameCp  = !!tenant.carpark && cpFull>0 && cpProp===tenant.property_id;
+  const cp      = sameCp ? Math.ceil(cpFull * ratio) : 0;
+  const cp2Full = Number(tenant.carpark2_rental||0);
+  const cp2Prop = tenant.carpark2_property_id || tenant.property_id;
+  const sameCp2 = !!tenant.carpark2 && cp2Full>0 && cp2Prop===tenant.property_id;
+  const cp2     = sameCp2 ? Math.ceil(cp2Full * ratio) : 0;
+  const total   = room + cp + cp2;
   return {
     moveOutYear: ey, moveOutMonth: em, moveOutDay: ed, daysInMonth: dim,
     daysOccupied: days, ratio,
     roomFull: Number(tenant.room_rental||0),
-    carparkFull: cpFull,
-    sameCarpark: sameCp,
-    roomShare: room,
-    carparkShare: cp,
+    carparkFull: cpFull, sameCarpark: sameCp, roomShare: room, carparkShare: cp,
+    carpark2Full: cp2Full, sameCarpark2: sameCp2, carpark2Share: cp2,
     total,
   };
 }
@@ -6242,9 +6299,14 @@ function computeLastMonthProRate(tenant){
 // Build the standard formula remark for a first-month pro-rate row.
 function _firstMonthProRateRemark(pr){
   const monStr = MONTHS[pr.moveInMonth-1];
-  return pr.sameCarpark
-    ? `🆕 New move-in pro-rate ${pr.startDay}–${pr.daysInMonth} ${monStr}: RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied} + RM ${pr.carparkFull}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.total} (room ${pr.roomShare} + carpark ${pr.carparkShare})`
-    : `🆕 New move-in pro-rate ${pr.startDay}–${pr.daysInMonth} ${monStr}: RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.total}`;
+  const base = `🆕 New move-in pro-rate ${pr.startDay}–${pr.daysInMonth} ${monStr}: RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
+  const cp1  = pr.sameCarpark  ? ` + RM ${pr.carparkFull}/${pr.daysInMonth}×${pr.daysOccupied}`  : '';
+  const cp2  = pr.sameCarpark2 ? ` + RM ${pr.carpark2Full}/${pr.daysInMonth}×${pr.daysOccupied}` : '';
+  const hasCp = pr.sameCarpark || pr.sameCarpark2;
+  const detail = hasCp
+    ? ` = RM ${pr.total} (room ${pr.roomShare}${pr.sameCarpark?' + carpark '+pr.carparkShare:''}${pr.sameCarpark2?' + carpark2 '+pr.carpark2Share:''})`
+    : ` = RM ${pr.total}`;
+  return base + cp1 + cp2 + detail;
 }
 
 // Insert one rental_payments row representing the move-in month's pro-rate.
@@ -6311,9 +6373,14 @@ async function _autoCreateFirstMonthProRate(t){
 // Build the formula remark for the LAST-month (move-out) pro-rate row.
 function _lastMonthProRateRemark(pr){
   const monStr = MONTHS[pr.moveOutMonth-1];
-  return pr.sameCarpark
-    ? `🚪 Move-out pro-rate 1–${pr.moveOutDay} ${monStr}: RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied} + RM ${pr.carparkFull}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.total} (room ${pr.roomShare} + carpark ${pr.carparkShare})`
-    : `🚪 Move-out pro-rate 1–${pr.moveOutDay} ${monStr}: RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.total}`;
+  const base = `🚪 Move-out pro-rate 1–${pr.moveOutDay} ${monStr}: RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
+  const cp1  = pr.sameCarpark  ? ` + RM ${pr.carparkFull}/${pr.daysInMonth}×${pr.daysOccupied}`  : '';
+  const cp2  = pr.sameCarpark2 ? ` + RM ${pr.carpark2Full}/${pr.daysInMonth}×${pr.daysOccupied}` : '';
+  const hasCp = pr.sameCarpark || pr.sameCarpark2;
+  const detail = hasCp
+    ? ` = RM ${pr.total} (room ${pr.roomShare}${pr.sameCarpark?' + carpark '+pr.carparkShare:''}${pr.sameCarpark2?' + carpark2 '+pr.carpark2Share:''})`
+    : ` = RM ${pr.total}`;
+  return base + cp1 + cp2 + detail;
 }
 
 // Auto-create a last-month pro-rate row when the tenant moves out partway
@@ -9683,7 +9750,17 @@ function openTenantModal(id, prefill){
       </div>
       <!-- ── Carpark block ── -->
       <div class="form-field-block md:col-span-2 bg-[#FFF8F0] rounded-xl p-3">
-        <div class="text-[10px] font-extrabold uppercase tracking-wider text-[#BF8355] mb-2"><span style="filter:grayscale(1) opacity(.7)">🚗</span> Carpark</div>
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-[10px] font-extrabold uppercase tracking-wider text-[#BF8355]"><span style="filter:grayscale(1) opacity(.7)">🚗</span> Carpark</div>
+          <button type="button" id="btnAddCarpark2" onclick="
+            const b=document.getElementById('f_cp2block');
+            const show=b.style.display==='none';
+            b.style.display=show?'':'none';
+            this.textContent=show?'✕ Remove 2nd Carpark':'＋ Add 2nd Carpark';
+          " class="text-[11px] font-bold px-2 py-1 rounded-lg bg-[#F4811F]/10 text-[#F4811F] border border-[#F4811F]/30 hover:bg-[#F4811F]/20">
+            ${t.carpark2 ? '✕ Remove 2nd Carpark' : '＋ Add 2nd Carpark'}
+          </button>
+        </div>
         <div class="grid md:grid-cols-3 gap-3 items-end">
           <div><label class="label">Carpark</label><input id="f_cp" class="input" value="${esc(t.carpark||'')}"></div>
           <div><label class="label">Carpark Rental (RM)</label><input type="number" step="0.01" id="f_cpr" class="input" value="${t.carpark_rental??0}"></div>
@@ -9693,6 +9770,20 @@ function openTenantModal(id, prefill){
               <option value="">— Same as room property —</option>
               ${state.properties.map(p=>`<option value="${p.id}" ${t.carpark_property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
             </select></div>
+        </div>
+        <!-- 2nd carpark — hidden unless tenant already has one or user clicks ＋ -->
+        <div id="f_cp2block" style="display:${t.carpark2?'':'none'}" class="mt-3 pt-3 border-t border-[#F4811F]/20">
+          <div class="text-[10px] font-extrabold uppercase tracking-wider text-[#BF8355] mb-2">🚗 2nd Carpark</div>
+          <div class="grid md:grid-cols-3 gap-3 items-end">
+            <div><label class="label">Carpark 2</label><input id="f_cp2" class="input" value="${esc(t.carpark2||'')}"></div>
+            <div><label class="label">Rental (RM)</label><input type="number" step="0.01" id="f_cpr2" class="input" value="${t.carpark2_rental??0}"></div>
+            <div><label class="label">Deposit (RM) <span class="help">defaults to rental</span></label><input type="number" step="0.01" id="f_cpd2" class="input" value="${t.carpark2_deposit??''}" placeholder="auto = carpark2 rental"></div>
+            <div class="md:col-span-3"><label class="label">Carpark 2 belongs to <span class="help">(only set if different property)</span></label>
+              <select id="f_cppid2" class="input">
+                <option value="">— Same as room property —</option>
+                ${state.properties.map(p=>`<option value="${p.id}" ${t.carpark2_property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
+              </select></div>
+          </div>
         </div>
       </div>
       <div><label class="label">Agreement Start</label><input type="date" id="f_start" class="input" value="${t.agreement_start||''}"></div>
@@ -9785,11 +9876,13 @@ function openTenantModal(id, prefill){
         room_rental:rrVal,
         room_deposit: rdRaw==='' ? rrVal : (Number(rdRaw)||0),
         carpark: normCarpark($('#f_cp').value), carpark_rental:cprVal,
-        // Cross-property carpark — empty select means "same as room property"
-        // and we store NULL so the carpark income falls onto the tenant's
-        // home property by default.
         carpark_property_id: ($('#f_cppid')?.value || null) || null,
         carpark_deposit: cpdRaw==='' ? cprVal : (Number(cpdRaw)||0),
+        // 2nd carpark (only saved when block is visible and lot is filled)
+        carpark2: normCarpark($('#f_cp2')?.value||''),
+        carpark2_rental: Number($('#f_cpr2')?.value||0),
+        carpark2_property_id: ($('#f_cppid2')?.value||null)||null,
+        carpark2_deposit: (()=>{ const v=$('#f_cpd2')?.value||''; const r=Number($('#f_cpr2')?.value||0); return v===''?r:(Number(v)||0); })(),
         agreement_start:$('#f_start').value||null, agreement_end:$('#f_end').value||null,
         ...sec,
       };
@@ -9832,6 +9925,21 @@ function openTenantModal(id, prefill){
             `One carpark can only have one active renter. `+
             `Free up the carpark by editing ${cpConflict.name} (clear their carpark or pick a different lot) before assigning it here.`
           );
+        }
+      }
+      // ----- Guard: carpark2 cannot be rented by two active tenants -----
+      if(payload.carpark2){
+        const cp2Code = payload.carpark2.trim().toUpperCase();
+        const cp2Prop = payload.carpark2_property_id || payload.property_id;
+        const cp2Conflict = state.tenants.find(x =>
+          x.id !== id && x.active !== false && (
+            ((x.carpark ||'').trim().toUpperCase()===cp2Code && ((x.carpark_property_id ||x.property_id)===cp2Prop)) ||
+            ((x.carpark2||'').trim().toUpperCase()===cp2Code && ((x.carpark2_property_id||x.property_id)===cp2Prop))
+          )
+        );
+        if(cp2Conflict){
+          const lbl = state.properties.find(p=>p.id===cp2Prop)||{};
+          throw new Error(`Carpark ${payload.carpark2} at ${lbl.condo||''} ${lbl.unit||''} is already assigned to ${cp2Conflict.name}. Free up this lot first.`);
         }
       }
       // ── Multi-user safety ──────────────────────────────────────────────
@@ -10307,23 +10415,36 @@ function buildReportLineMap(P, ctx, roomTenancies){
         ? computeFirstMonthProRate(t)
         : computeLastMonthProRate(t);
       const isLast = p.payment_kind==='last_month_prorate';
-      if(pr && pr.sameCarpark && Math.abs((pr.roomShare + pr.carparkShare) - amt) < 0.5){
+      const prExpected = pr ? (pr.roomShare + pr.carparkShare + (pr.carpark2Share||0)) : 0;
+      if(pr && Math.abs(prExpected - amt) < 0.5){
         roomShare = pr.roomShare;
-        const cpLine = ensureLine('carpark', normCarpark(t.carpark));
-        cpLine.rental += pr.carparkShare;
-        cpLine.proRateNote = `RM ${pr.carparkFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
-        cpLine.proRateLabel = isLast ? '🚪 Move-out' : '🆕 Move-in';
+        if(pr.sameCarpark){
+          const cpLine = ensureLine('carpark', normCarpark(t.carpark));
+          cpLine.rental += pr.carparkShare;
+          cpLine.proRateNote  = `RM ${pr.carparkFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
+          cpLine.proRateLabel = isLast ? '🚪 Move-out' : '🆕 Move-in';
+        }
+        if(pr.sameCarpark2){
+          const cp2Line = ensureLine('carpark', normCarpark(t.carpark2));
+          cp2Line.rental += pr.carpark2Share;
+          cp2Line.proRateNote  = `RM ${pr.carpark2Full}/${pr.daysInMonth}×${pr.daysOccupied}`;
+          cp2Line.proRateLabel = isLast ? '🚪 Move-out' : '🆕 Move-in';
+        }
         _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
       } else {
         // Fallback: proportional split with ceiling.
         const roomFull = Number(t.room_rental||0);
         const cpFull   = Number(t.carpark_rental||0);
-        const cpProp   = t.carpark_property_id || t.property_id;
-        const sameCp   = !!t.carpark && cpFull>0 && cpProp===P.id;
-        if(sameCp && (roomFull + cpFull) > 0){
-          roomShare = Math.ceil(amt * (roomFull / (roomFull + cpFull)));
-          const cpShare = amt - roomShare;
-          ensureLine('carpark', normCarpark(t.carpark)).rental += cpShare;
+        const cp2Full  = Number(t.carpark2_rental||0);
+        const cpProp   = t.carpark_property_id  || t.property_id;
+        const cp2Prop  = t.carpark2_property_id || t.property_id;
+        const sameCp   = !!t.carpark  && cpFull>0  && cpProp ===P.id;
+        const sameCp2  = !!t.carpark2 && cp2Full>0 && cp2Prop===P.id;
+        const denom = roomFull + (sameCp?cpFull:0) + (sameCp2?cp2Full:0);
+        if(denom>0 && (sameCp||sameCp2)){
+          roomShare = Math.ceil(amt * (roomFull/denom));
+          if(sameCp)  ensureLine('carpark', normCarpark(t.carpark)).rental  += Math.ceil(amt*(cpFull/denom));
+          if(sameCp2) ensureLine('carpark', normCarpark(t.carpark2)).rental += amt - roomShare - (sameCp?Math.ceil(amt*(cpFull/denom)):0);
         }
         if(pr) _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
       }
@@ -10333,24 +10454,25 @@ function buildReportLineMap(P, ctx, roomTenancies){
         rl.proRateLabel = isLast ? '🚪 Move-out' : '🆕 Move-in';
       }
     } else if(p.payment_kind==='advance_covered_full' && t){
-      // 2nd-month: tenant paid prior pro-rate in cash; the 1-month advance
-      // covers full month — recognize FULL room+carpark income regardless
-      // of the actual cash amount stored on the row.
       roomShare = Number(t.room_rental||0);
-      const cpFull = Number(t.carpark_rental||0);
-      const cpProp = t.carpark_property_id || t.property_id;
-      if(t.carpark && cpFull>0 && cpProp===P.id){
-        ensureLine('carpark', normCarpark(t.carpark)).rental += cpFull;
-      }
-    } else if(t && t.carpark && Number(t.carpark_rental||0)>0){
-      const expected = Number(t.room_rental||0) + Number(t.carpark_rental||0);
-      if(Math.abs(amt - expected) < 0.01){
-        // Auto-split kicks in
+      const cpFull  = Number(t.carpark_rental||0);
+      const cpProp  = t.carpark_property_id  || t.property_id;
+      const cp2Full = Number(t.carpark2_rental||0);
+      const cp2Prop = t.carpark2_property_id || t.property_id;
+      if(t.carpark  && cpFull>0  && cpProp ===P.id) ensureLine('carpark', normCarpark(t.carpark)).rental  += cpFull;
+      if(t.carpark2 && cp2Full>0 && cp2Prop===P.id) ensureLine('carpark', normCarpark(t.carpark2)).rental += cp2Full;
+    } else if(t && (t.carpark || t.carpark2)){
+      const cpFull  = Number(t.carpark_rental||0);
+      const cp2Full = Number(t.carpark2_rental||0);
+      const cpProp  = t.carpark_property_id  || t.property_id;
+      const cp2Prop = t.carpark2_property_id || t.property_id;
+      const sameCp  = !!t.carpark  && cpFull>0  && cpProp ===P.id;
+      const sameCp2 = !!t.carpark2 && cp2Full>0 && cp2Prop===P.id;
+      const expected = Number(t.room_rental||0) + (sameCp?cpFull:0) + (sameCp2?cp2Full:0);
+      if(expected>0 && Math.abs(amt - expected) < 0.01){
         roomShare = Number(t.room_rental||0);
-        const cpProp = t.carpark_property_id || t.property_id;
-        if(cpProp === P.id){
-          ensureLine('carpark', normCarpark(t.carpark)).rental += Number(t.carpark_rental||0);
-        }
+        if(sameCp)  ensureLine('carpark', normCarpark(t.carpark)).rental  += cpFull;
+        if(sameCp2) ensureLine('carpark', normCarpark(t.carpark2)).rental += cp2Full;
         // else: cross-property — claimed by the OTHER property's report below
       }
     }
@@ -10359,20 +10481,42 @@ function buildReportLineMap(P, ctx, roomTenancies){
 
   // CROSS-PROPERTY CARPARK income — pull our share from other properties'
   // room payments where the tenant's carpark belongs to us.
+  // Also handles item_type:'carpark' payments inserted by ensureFirstMonthProRateExpensesFor
+  // for cross-property carpark pro-rate months.
   (allTenants||[]).forEach(t=>{
     const cpProp = t.carpark_property_id || t.property_id;
     if(cpProp !== P.id) return;          // not our carpark
     if(t.property_id === P.id) return;   // same-property — handled above
     if(!t.carpark || !(Number(t.carpark_rental||0)>0)) return;
+    const cpFull = Number(t.carpark_rental||0);
+    const lot    = normCarpark(t.carpark);
+    // First: check for a dedicated carpark payment on this property (cross-property pro-rate)
+    const cpPay = (payments||[]).find(p=>
+      p.item_type==='carpark' &&
+      normCarpark(p.room_code)===lot
+    );
+    if(cpPay){
+      ensureLine('carpark', lot).rental += Number(cpPay.amount||0);
+      if(cpPay.payment_kind==='first_month_prorate'){
+        const pr = computeFirstMonthProRate(t);
+        if(pr){
+          const cpLine = ensureLine('carpark', lot);
+          cpLine.proRateNote  = `RM ${cpFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
+          cpLine.proRateLabel = '🆕 Move-in';
+        }
+      }
+      return;
+    }
+    // Fallback: full-month combined payment on the room property
     const homePay = (allPayments||[]).find(p=>
       p.item_type==='room' &&
       p.property_id===t.property_id &&
       (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase()
     );
     if(!homePay) return;
-    const expected = Number(t.room_rental||0) + Number(t.carpark_rental||0);
+    const expected = Number(t.room_rental||0) + cpFull;
     if(Math.abs(Number(homePay.amount||0) - expected) >= 0.01) return;
-    ensureLine('carpark', normCarpark(t.carpark)).rental += Number(t.carpark_rental||0);
+    ensureLine('carpark', lot).rental += cpFull;
   });
 
   // LEGACY: standalone carpark-typed payment rows (carpark-only renters).
