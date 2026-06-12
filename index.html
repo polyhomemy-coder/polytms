@@ -1977,6 +1977,7 @@
       <div class="section-title">Expenses <span class="help ml-2" id="expMonthLbl"></span></div>
       <div class="flex gap-2 items-center">
         <select id="expSelProp" class="input !w-auto !text-xs"></select>
+        <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#FFF4E5] text-[#F4811F] border border-[#F8C893] hover:bg-[#FFEBCC]" onclick="openBulkExpenseModal()">📋 Bulk Expenses</button>
         <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openExpenseModal()">+ Add Expense</button>
       </div>
     </div>
@@ -10239,6 +10240,87 @@ function openExpenseModal(id){
       }
   });
 }
+// ── Bulk Expenses — paste "UNIT RMamount" lines, one shared description ──────
+// Example line formats accepted:
+//   9A-02-02 RM2800   ·   8A-27-06 Rm 2,800.50   ·   13B-12-3A 2600
+function _parseBulkExpenseLines(raw){
+  const norm = s => String(s||'').trim().toUpperCase().replace(/\s+/g,'');
+  const props = (state.properties||[]).filter(p=>p.active!==false);
+  return String(raw||'').split('\n').map(s=>s.trim()).filter(Boolean).map(line=>{
+    // amount: number after optional "RM", allow commas/decimals
+    const m = line.match(/(?:rm\s*)?([\d][\d,]*(?:\.\d{1,2})?)\s*$/i);
+    const amount = m ? Number(m[1].replace(/,/g,'')) : 0;
+    const unitRaw = m ? line.slice(0, m.index).replace(/rm\s*$/i,'').trim() : line;
+    const unit = unitRaw.replace(/[:\-–—]\s*$/,'').trim();
+    const prop = props.find(p => norm(p.unit)===norm(unit));
+    return { line, unit, amount, prop };
+  });
+}
+function _renderBulkExpensePreview(){
+  const out = $('#bx_preview'); if(!out) return;
+  const rows = _parseBulkExpenseLines($('#bx_list')?.value);
+  if(!rows.length){ out.innerHTML='<p class="help">Paste your list above to preview.</p>'; return; }
+  let ok=0, bad=0;
+  out.innerHTML = rows.map(r=>{
+    const good = r.prop && r.amount>0;
+    if(good) ok++; else bad++;
+    const label = r.prop ? `${esc(r.prop.condo)} · ${esc(r.prop.unit)}` :
+      `<span style="color:#B91C1C">unit not found</span>`;
+    const amt = r.amount>0 ? 'RM '+fmt(r.amount) : `<span style="color:#B91C1C">no amount</span>`;
+    return `<div style="display:flex;gap:8px;align-items:center;font-size:12px;padding:3px 0;border-bottom:1px dashed var(--line)">
+      <span style="width:14px">${good?'✅':'⚠️'}</span>
+      <span style="flex:1">${esc(r.unit)}</span>
+      <span style="flex:1.2;color:var(--muted)">${label}</span>
+      <span style="font-weight:700">${amt}</span>
+    </div>`;
+  }).join('') + `<div class="help mt-2">${ok} ready${bad?` · <b style="color:#B91C1C">${bad} need fixing</b>`:''}</div>`;
+}
+function openBulkExpenseModal(){
+  const cats=['other','management_fee','rent_commission','cleaning','maintenance'];
+  const catOpts = cats.map(c=>`<option value="${c}">${c.replace('_',' ')}</option>`).join('');
+  openModal('📋 Bulk Expenses — '+MONTHS_FULL[state.month-1]+' '+state.year, `
+    <div class="space-y-3">
+      <div class="grid md:grid-cols-2 gap-3">
+        <div><label class="label">Description * <span class="help">(applied to every row)</span></label>
+          <input id="bx_desc" class="input" placeholder="e.g. June Rental"></div>
+        <div><label class="label">Category</label><select id="bx_cat" class="input">${catOpts}</select></div>
+      </div>
+      <div><label class="label">Paste your list * <span class="help">one line per unit: UNIT RMamount</span></label>
+        <textarea id="bx_list" class="input" rows="7" style="resize:vertical;font-family:monospace" placeholder="9A-02-02 RM2800
+8A-27-06 Rm2800
+9B-06-3A Rm2800
+13B-12-3A RM 2600" oninput="_renderBulkExpensePreview()"></textarea></div>
+      <div><label class="label">Preview</label>
+        <div id="bx_preview" style="max-height:200px;overflow:auto;background:var(--card,#fff);border:1px solid var(--line);border-radius:10px;padding:8px 10px"><p class="help">Paste your list above to preview.</p></div></div>
+    </div>`, async()=>{
+    const desc = $('#bx_desc').value.trim();
+    if(!desc) throw new Error('Description is required');
+    const rows = _parseBulkExpenseLines($('#bx_list').value);
+    if(!rows.length) throw new Error('Paste at least one line');
+    const bad = rows.filter(r=>!r.prop || !(r.amount>0));
+    if(bad.length) throw new Error(`Fix these lines first: ${bad.map(r=>r.line).join(' · ')}`);
+    // Skip locked months; collect skipped units to report
+    const cat = $('#bx_cat').value;
+    const skipped = [];
+    const payloads = [];
+    rows.forEach(r=>{
+      try { requireReportEditable(r.prop.id, state.year, state.month); }
+      catch(_){ skipped.push(r.prop.condo+' '+r.prop.unit); return; }
+      payloads.push({property_id:r.prop.id, year:state.year, month:state.month,
+        category:cat, description:desc, amount:r.amount, expense_date:null});
+    });
+    if(!payloads.length) throw new Error('All units are locked for this month — nothing inserted');
+    const {error} = await sb.from('expenses').insert(payloads);
+    if(error) throw error;
+    await loadExpenses();
+    renderTab('expenses');
+    toast(`✅ ${payloads.length} expense${payloads.length>1?'s':''} added`+(skipped.length?` · skipped (locked): ${skipped.join(', ')}`:''));
+    if(cat!=='management_fee'){
+      syncDerivedExpenses().then(()=>renderTab('expenses')).catch(e=>console.warn('[syncDerived]',e));
+    }
+  }, 'Insert All');
+}
+
 async function delExpense(id){
   const r = state.expenses.find(x=>x.id===id);
 
