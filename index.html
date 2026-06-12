@@ -10432,19 +10432,22 @@ function buildReportLineMap(P, ctx, roomTenancies){
         }
         _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
       } else {
-        // Fallback: proportional split with ceiling.
+        // Fallback: proportional split with ceiling. The denominator counts
+        // EVERY carpark (cross-property too) so the room line never absorbs
+        // a carpark's share; only same-property carpark lines get credited.
         const roomFull = Number(t.room_rental||0);
         const cpFull   = Number(t.carpark_rental||0);
         const cp2Full  = Number(t.carpark2_rental||0);
+        const hasCp    = !!t.carpark  && cpFull>0;
+        const hasCp2   = !!t.carpark2 && cp2Full>0;
         const cpProp   = t.carpark_property_id  || t.property_id;
         const cp2Prop  = t.carpark2_property_id || t.property_id;
-        const sameCp   = !!t.carpark  && cpFull>0  && cpProp ===P.id;
-        const sameCp2  = !!t.carpark2 && cp2Full>0 && cp2Prop===P.id;
-        const denom = roomFull + (sameCp?cpFull:0) + (sameCp2?cp2Full:0);
-        if(denom>0 && (sameCp||sameCp2)){
+        const denom = roomFull + (hasCp?cpFull:0) + (hasCp2?cp2Full:0);
+        if(denom>0 && (hasCp||hasCp2)){
           roomShare = Math.ceil(amt * (roomFull/denom));
-          if(sameCp)  ensureLine('carpark', normCarpark(t.carpark)).rental  += Math.ceil(amt*(cpFull/denom));
-          if(sameCp2) ensureLine('carpark', normCarpark(t.carpark2)).rental += amt - roomShare - (sameCp?Math.ceil(amt*(cpFull/denom)):0);
+          const cpShare = hasCp ? Math.ceil(amt*(cpFull/denom)) : 0;
+          if(hasCp  && cpProp ===P.id) ensureLine('carpark', normCarpark(t.carpark)).rental  += cpShare;
+          if(hasCp2 && cp2Prop===P.id) ensureLine('carpark', normCarpark(t.carpark2)).rental += amt - roomShare - cpShare;
         }
         if(pr) _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
       }
@@ -10462,18 +10465,25 @@ function buildReportLineMap(P, ctx, roomTenancies){
       if(t.carpark  && cpFull>0  && cpProp ===P.id) ensureLine('carpark', normCarpark(t.carpark)).rental  += cpFull;
       if(t.carpark2 && cp2Full>0 && cp2Prop===P.id) ensureLine('carpark', normCarpark(t.carpark2)).rental += cp2Full;
     } else if(t && (t.carpark || t.carpark2)){
+      // IMPORTANT: expected must include EVERY carpark the tenant rents —
+      // same-property OR cross-property — because the tenant's combined
+      // payment (room + all carparks) lands on the room property's row.
+      // The room line must NEVER absorb a carpark's share. Cross-property
+      // carpark shares are simply not credited here; the owning property's
+      // report claims them in the cross-property scan below.
       const cpFull  = Number(t.carpark_rental||0);
       const cp2Full = Number(t.carpark2_rental||0);
+      const hasCp   = !!t.carpark  && cpFull>0;
+      const hasCp2  = !!t.carpark2 && cp2Full>0;
       const cpProp  = t.carpark_property_id  || t.property_id;
       const cp2Prop = t.carpark2_property_id || t.property_id;
-      const sameCp  = !!t.carpark  && cpFull>0  && cpProp ===P.id;
-      const sameCp2 = !!t.carpark2 && cp2Full>0 && cp2Prop===P.id;
-      const expected = Number(t.room_rental||0) + (sameCp?cpFull:0) + (sameCp2?cp2Full:0);
+      const expected = Number(t.room_rental||0) + (hasCp?cpFull:0) + (hasCp2?cp2Full:0);
       if(expected>0 && Math.abs(amt - expected) < 0.01){
         roomShare = Number(t.room_rental||0);
-        if(sameCp)  ensureLine('carpark', normCarpark(t.carpark)).rental  += cpFull;
-        if(sameCp2) ensureLine('carpark', normCarpark(t.carpark2)).rental += cp2Full;
-        // else: cross-property — claimed by the OTHER property's report below
+        if(hasCp  && cpProp ===P.id) ensureLine('carpark', normCarpark(t.carpark)).rental  += cpFull;
+        if(hasCp2 && cp2Prop===P.id) ensureLine('carpark', normCarpark(t.carpark2)).rental += cp2Full;
+        // cross-property carparks: share excluded from room line; claimed by
+        // the owning property's report in the cross-property scan below.
       }
     }
     ensureLine('room', code).rental += roomShare;
@@ -10484,39 +10494,49 @@ function buildReportLineMap(P, ctx, roomTenancies){
   // Also handles item_type:'carpark' payments inserted by ensureFirstMonthProRateExpensesFor
   // for cross-property carpark pro-rate months.
   (allTenants||[]).forEach(t=>{
-    const cpProp = t.carpark_property_id || t.property_id;
-    if(cpProp !== P.id) return;          // not our carpark
     if(t.property_id === P.id) return;   // same-property — handled above
-    if(!t.carpark || !(Number(t.carpark_rental||0)>0)) return;
-    const cpFull = Number(t.carpark_rental||0);
-    const lot    = normCarpark(t.carpark);
-    // First: check for a dedicated carpark payment on this property (cross-property pro-rate)
-    const cpPay = (payments||[]).find(p=>
-      p.item_type==='carpark' &&
-      normCarpark(p.room_code)===lot
-    );
-    if(cpPay){
-      ensureLine('carpark', lot).rental += Number(cpPay.amount||0);
-      if(cpPay.payment_kind==='first_month_prorate'){
-        const pr = computeFirstMonthProRate(t);
-        if(pr){
-          const cpLine = ensureLine('carpark', lot);
-          cpLine.proRateNote  = `RM ${cpFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
-          cpLine.proRateLabel = '🆕 Move-in';
+    // Either carpark (1 or 2) may belong to this property.
+    const claims = [];
+    if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===P.id)
+      claims.push({lot: normCarpark(t.carpark),  full: Number(t.carpark_rental||0)});
+    if(t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===P.id)
+      claims.push({lot: normCarpark(t.carpark2), full: Number(t.carpark2_rental||0)});
+    if(!claims.length) return;
+
+    // The tenant's combined home payment must cover room + ALL their carparks
+    // (including ones on third properties) for the full-month claim to apply.
+    const totalCp = Number(t.carpark_rental||0) * (t.carpark && Number(t.carpark_rental||0)>0 ? 1:0)
+                  + Number(t.carpark2_rental||0) * (t.carpark2 && Number(t.carpark2_rental||0)>0 ? 1:0);
+    const expected = Number(t.room_rental||0) + totalCp;
+
+    claims.forEach(c=>{
+      // A dedicated item_type:'carpark' payment on this property (inserted by
+      // the cross-property pro-rate pass) is credited by the LEGACY block
+      // below — do NOT credit it here too. Just attach the pro-rate note.
+      const cpPay = (payments||[]).find(p=>
+        p.item_type==='carpark' && normCarpark(p.room_code)===c.lot
+      );
+      if(cpPay){
+        if(cpPay.payment_kind==='first_month_prorate'){
+          const pr = computeFirstMonthProRate(t);
+          if(pr){
+            const cpLine = ensureLine('carpark', c.lot);
+            cpLine.proRateNote  = `RM ${c.full}/${pr.daysInMonth}×${pr.daysOccupied}`;
+            cpLine.proRateLabel = '🆕 Move-in';
+          }
         }
+        return;
       }
-      return;
-    }
-    // Fallback: full-month combined payment on the room property
-    const homePay = (allPayments||[]).find(p=>
-      p.item_type==='room' &&
-      p.property_id===t.property_id &&
-      (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase()
-    );
-    if(!homePay) return;
-    const expected = Number(t.room_rental||0) + cpFull;
-    if(Math.abs(Number(homePay.amount||0) - expected) >= 0.01) return;
-    ensureLine('carpark', lot).rental += cpFull;
+      // Fallback: full-month combined payment on the room property
+      const homePay = (allPayments||[]).find(p=>
+        p.item_type==='room' &&
+        p.property_id===t.property_id &&
+        (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase()
+      );
+      if(!homePay) return;
+      if(Math.abs(Number(homePay.amount||0) - expected) >= 0.01) return;
+      ensureLine('carpark', c.lot).rental += c.full;
+    });
   });
 
   // LEGACY: standalone carpark-typed payment rows (carpark-only renters).
