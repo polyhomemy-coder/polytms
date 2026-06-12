@@ -13511,6 +13511,18 @@ function _initLiveSync(){
       if(s.includes('tenants'))    await loadTenants();
       if(s.some(x=>['payments','expenses','aircon','extras','pending'].includes(x)))
         await refreshMonthData();
+      // Sign-off status (admin check / manager verify / lock) — light-weight:
+      // reload + repaint the sign-off panel directly, no full tab re-render.
+      if(s.includes('report_status')){
+        await loadReportStatus();
+        renderReportSignoff();
+        // Rebuild the preview so the lock banner inside the report follows too
+        if(onReportTab() && !_isModalOpen()) buildReport();
+      }
+      if(s.includes('annotations')){
+        await loadAnnotations();
+        renderAnnotations();
+      }
       // Only re-render if no modal is open — otherwise defer
       if(_isModalOpen()){
         _renderDeferred = true;
@@ -13530,6 +13542,8 @@ function _initLiveSync(){
     .on('postgres_changes',{event:'*',schema:'public',table:'aircon_topups'},          ()=>_schedule('aircon'))
     .on('postgres_changes',{event:'*',schema:'public',table:'extra_incomes'},          ()=>_schedule('extras'))
     .on('postgres_changes',{event:'*',schema:'public',table:'pending_isewa_payments'}, ()=>_schedule('pending'))
+    .on('postgres_changes',{event:'*',schema:'public',table:'report_status'},          ()=>_schedule('report_status'))
+    .on('postgres_changes',{event:'*',schema:'public',table:'report_annotations'},     ()=>_schedule('annotations'))
     .subscribe();
 
   // Refresh silently when the user returns to this tab
@@ -13542,6 +13556,8 @@ function _initLiveSync(){
       _schedule('aircon');
       _schedule('extras');
       _schedule('pending');
+      _schedule('report_status');
+      _schedule('annotations');
     }
   });
 }
