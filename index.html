@@ -2034,8 +2034,8 @@
           <button id="btnExportPDF" class="btn-brand px-4 py-2.5 rounded-xl text-sm font-bold flex-1" onclick="exportReportPDF()">📄 Export PDF</button>
         </div>
         <div class="flex gap-2 mt-2">
-          <button class="btn-accent px-4 py-2.5 rounded-xl text-sm font-bold flex-1" onclick="multiExportHTML()">⬇ Multi HTML</button>
-          <button id="btnMultiExportPDF" class="btn-brand px-4 py-2.5 rounded-xl text-sm font-bold flex-1" onclick="multiExportPDF()">📄 Multi PDF</button>
+          <button class="px-2 py-1 rounded-lg text-[11px] font-bold bg-[#E8F8FA] text-[#007B8A] border border-[#B0DDE4] hover:bg-[#D0EEF3] whitespace-nowrap shrink-0 flex-1" onclick="multiExportHTML()">☰ Multi HTML</button>
+          <button id="btnMultiExportPDF" class="px-2 py-1 rounded-lg text-[11px] font-bold bg-[#FFF4E5] text-[#B85C00] border border-[#F8C893] hover:bg-[#FFEBCC] whitespace-nowrap shrink-0 flex-1" onclick="multiExportPDF()">☰ Multi PDF</button>
         </div>
         <div id="rptStatus" class="help mt-3"></div>
 
@@ -3486,7 +3486,7 @@ function _propFilterChipsHTML(ns){
 
 // Wire up the filter chip toggle behaviour for a modal using namespace `ns`.
 // `listId` is the id of the container whose `[data-pid]` rows get shown/hidden.
-function _bindPropFilterChips(ns, listId){
+function _bindPropFilterChips(ns, listId, onChange){
   const active = {city:new Set(), model:new Set(), type:new Set()};
   const clearBtn = document.getElementById(`${ns}-fClear`);
 
@@ -3503,6 +3503,7 @@ function _bindPropFilterChips(ns, listId){
     });
     const anyActive = active.city.size||active.model.size||active.type.size;
     if(clearBtn) clearBtn.classList.toggle('hidden', !anyActive);
+    if(onChange) onChange();
   }
 
   document.querySelectorAll(`.${ns}-fchip`).forEach(btn=>{
@@ -3548,9 +3549,10 @@ function _signoffModal(opts){
        ${_propFilterChipsHTML('so')}
        <div class="flex items-center justify-between text-xs text-slate-600 pb-1">
          <span>Tick = mark as done. Untick = revert to pending.</span>
-         <span>
+         <span class="flex items-center gap-2">
+           <span id="soCount" class="font-bold text-[color:var(--brand)]"></span>
            <button type="button" id="soSelAll"  class="font-bold text-[color:var(--brand)] hover:underline">Select all</button>
-           <span class="text-slate-300 mx-1">·</span>
+           <span class="text-slate-300">·</span>
            <button type="button" id="soSelNone" class="font-bold text-rose-600 hover:underline">Select none</button>
          </span>
        </div>
@@ -3573,13 +3575,22 @@ function _signoffModal(opts){
     },
     confirmLabel || 'Apply');
 
-  // Wire chips + select-all / none after the modal renders
+  // Wire chips + select-all / none + live counter after the modal renders
   setTimeout(()=>{
-    _bindPropFilterChips('so', 'soList');
+    const countEl = document.getElementById('soCount');
+    function updateSoCount(){
+      if(!countEl) return;
+      const n = document.querySelectorAll('#soList .so-cb:checked').length;
+      const total = document.querySelectorAll('#soList .so-cb').length;
+      countEl.textContent = `${n} / ${total} selected`;
+    }
+    _bindPropFilterChips('so', 'soList', updateSoCount);
+    document.getElementById('soList')?.addEventListener('change', updateSoCount);
     const all = document.querySelector('#soSelAll');
     const none = document.querySelector('#soSelNone');
-    if(all) all.onclick = ()=> document.querySelectorAll('#soList [data-pid]:not([style*="none"]) .so-cb').forEach(cb=>cb.checked=true);
-    if(none) none.onclick = ()=> document.querySelectorAll('#soList [data-pid]:not([style*="none"]) .so-cb').forEach(cb=>cb.checked=false);
+    if(all) all.onclick = ()=>{ document.querySelectorAll('#soList [data-pid]:not([style*="none"]) .so-cb').forEach(cb=>cb.checked=true); updateSoCount(); };
+    if(none) none.onclick = ()=>{ document.querySelectorAll('#soList [data-pid]:not([style*="none"]) .so-cb').forEach(cb=>cb.checked=false); updateSoCount(); };
+    updateSoCount();
   }, 0);
 }
 
@@ -12001,9 +12012,10 @@ function _multiExportPickerModal(onConfirm){
     </label>`).join('');
   openModal(`Export All — ${MONTHS_FULL[m-1]} ${y}`,`
     ${_propFilterChipsHTML('mx')}
-    <div class="flex gap-2 mb-2">
+    <div class="flex items-center gap-2 mb-2">
       <button type="button" class="text-xs px-2 py-1 rounded bg-[#E8F8FA] text-[#007B8A] font-bold" id="mxSelAll">Select All</button>
       <button type="button" class="text-xs px-2 py-1 rounded bg-[#E8F8FA] text-[#007B8A] font-bold" id="mxSelNone">Clear All</button>
+      <span id="mxCount" class="ml-auto text-xs font-bold text-[color:var(--brand)]"></span>
     </div>
     <div id="mxList" class="space-y-1 max-h-64 overflow-y-auto border rounded-xl p-2 bg-[#F8FEFF]">${rows}</div>
   `, async ()=>{
@@ -12012,13 +12024,22 @@ function _multiExportPickerModal(onConfirm){
       .map(c=>c.value);
     if(!selected.length) throw new Error('Select at least one property');
     await onConfirm(selected, y, m);
-  }, {confirmText:'Export'});
+  }, 'Export');
   setTimeout(()=>{
-    _bindPropFilterChips('mx', 'mxList');
+    const countEl = document.getElementById('mxCount');
+    function updateMxCount(){
+      if(!countEl) return;
+      const n = document.querySelectorAll('#mxList .multi-exp-chk:checked').length;
+      const total = document.querySelectorAll('#mxList .multi-exp-chk').length;
+      countEl.textContent = `${n} / ${total} selected`;
+    }
+    _bindPropFilterChips('mx', 'mxList', updateMxCount);
+    document.getElementById('mxList')?.addEventListener('change', updateMxCount);
     const selAll  = document.getElementById('mxSelAll');
     const selNone = document.getElementById('mxSelNone');
-    if(selAll)  selAll.onclick  = ()=> document.querySelectorAll('#mxList [data-pid]:not([style*="none"]) .multi-exp-chk').forEach(c=>c.checked=true);
-    if(selNone) selNone.onclick = ()=> document.querySelectorAll('#mxList [data-pid]:not([style*="none"]) .multi-exp-chk').forEach(c=>c.checked=false);
+    if(selAll)  selAll.onclick  = ()=>{ document.querySelectorAll('#mxList [data-pid]:not([style*="none"]) .multi-exp-chk').forEach(c=>c.checked=true); updateMxCount(); };
+    if(selNone) selNone.onclick = ()=>{ document.querySelectorAll('#mxList [data-pid]:not([style*="none"]) .multi-exp-chk').forEach(c=>c.checked=false); updateMxCount(); };
+    updateMxCount();
   }, 0);
 }
 
