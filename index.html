@@ -3855,8 +3855,9 @@ async function _downloadDesktopPDF(propId, y, m){
     await loadPdfLibs();
 
     const ctx = await gatherReportData(propId, y, m);
+    const autoCom = !_rcAutoComIsOff(propId, y, m);
     const html = renderReportDesktopHTML(ctx, {
-      year:y, month:m, issueDate: todayISODateLocal(), autoFee:true, autoCom:true,
+      year:y, month:m, issueDate: todayISODateLocal(), autoFee:true, autoCom,
     });
     const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
     const bodyMatch  = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -12064,7 +12065,7 @@ async function multiExportHTML(){
     for(const propId of propIds){
       try{
         const ctx  = await gatherReportData(propId, y, m);
-        const html = renderReportDesktopHTML(ctx, {year:y, month:m, issueDate:todayISODateLocal(), autoFee:true, autoCom:true});
+        const html = renderReportDesktopHTML(ctx, {year:y, month:m, issueDate:todayISODateLocal(), autoFee:true, autoCom:!_rcAutoComIsOff(propId, y, m)});
         const P    = (state.properties||[]).find(p=>p.id===propId)||{};
         const fname= `${P.condo||'property'}_${P.unit||''}_${MONTHS_FULL[m-1]}_${y}_income_report.html`
           .replace(/\s+/g,'_').replace(/[^\w.\-]+/g,'_');
