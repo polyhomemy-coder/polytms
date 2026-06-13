@@ -461,9 +461,9 @@
   @keyframes pieFadeIn{from{opacity:0;transform:scale(.92);transform-origin:center}to{opacity:1;transform:scale(1)}}
   @keyframes tableRowFade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
   @keyframes shimmer{0%,100%{box-shadow:0 4px 14px rgba(0,123,138,.14)}50%{box-shadow:0 6px 22px rgba(0,123,138,.22)}}
-  @keyframes opBannerScroll{0%{transform:translateX(0)}100%{transform:translateX(-33.333%)}}
+  @keyframes opBannerScroll{0%{transform:translateX(0)}100%{transform:translateX(-16.6667%)}}
   .op-banner-track{overflow:hidden;flex:1;min-width:0}
-  .op-banner-text{display:inline-block;white-space:nowrap;animation:opBannerScroll 14.4s linear infinite}
+  .op-banner-text{display:inline-block;white-space:nowrap;animation:opBannerScroll 10s linear infinite;font-weight:400}
   .anim-hero{animation:heroFadeUp .55s cubic-bezier(.2,.8,.2,1) both}
   .anim-bar  {animation:barGrow .9s cubic-bezier(.2,.8,.2,1) both}
   .anim-pie  {animation:pieFadeIn .55s ease-out both}
@@ -1507,7 +1507,7 @@
           <span id="monthPickLabel">—</span>
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#F4811F" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
         </button>
-        <div id="monthPickerPanel" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:999;background:var(--card-bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:10px;min-width:200px">
+        <div id="monthPickerPanel" style="display:none;position:fixed;z-index:9999;background:var(--card-bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.2);padding:10px;min-width:210px">
           <!-- Year row -->
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
             <button onclick="shiftPickerYear(-1)" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--brand);padding:2px 6px">‹</button>
@@ -2635,6 +2635,25 @@ function toggleMonthPicker(){
   _pickerYear = state.year;
   renderPickerGrid();
   p.style.display = 'block';
+  // Position fixed relative to the button so it never gets clipped by sidebar
+  const btn = $('#monthPickBtn');
+  if(btn){
+    const r = btn.getBoundingClientRect();
+    const panelH = 220; // approximate panel height
+    const spaceAbove = r.top;
+    const spaceBelow = window.innerHeight - r.bottom;
+    if(spaceAbove > panelH || spaceAbove > spaceBelow){
+      // open upward
+      p.style.top = '';
+      p.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+    } else {
+      // open downward
+      p.style.bottom = '';
+      p.style.top = (r.bottom + 6) + 'px';
+    }
+    p.style.left = r.left + 'px';
+    p.style.width = r.width + 'px';
+  }
   setTimeout(()=>document.addEventListener('click', _pickerOutside, {once:true}), 10);
 }
 
@@ -4747,9 +4766,11 @@ function fillPropertySelectors(){
   const lbl = MONTHS_FULL[state.month-1]+' '+state.year;
   ['colMonthLbl','payMonthLbl','airMonthLbl','expMonthLbl','extMonthLbl','dashMonthLbl','rentalMonthLbl'].forEach(id=>{ const el=$('#'+id); if(el) el.textContent='('+lbl+')'; });
   // Orange operation banners on Income and Expenses tabs
-  const bannerTxt = MONTHS_FULL[state.month-1].toUpperCase()+' '+state.year+' — OPERATION REPORT';
-  const bannerFull = (bannerTxt+'    ★    ').repeat(3);
-  ['incomeOpBannerText','expensesOpBannerText'].forEach(id=>{ const el=$('#'+id); if(el) el.textContent=bannerFull; });
+  const bannerMonth = MONTHS_FULL[state.month-1].toUpperCase();
+  const bannerSegment = '<b>'+bannerMonth+'<\/b> '+state.year+' — OPERATION REPORT';
+  const bannerSep = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;✶&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+  const bannerFull = (bannerSegment + bannerSep).repeat(6);
+  ['incomeOpBannerText','expensesOpBannerText'].forEach(id=>{ const el=$('#'+id); if(el) el.innerHTML=bannerFull; });
   // report month dropdown
   buildMonthOptions($('#rptMonth'));
   if(!$('#rptIssue').value) $('#rptIssue').valueAsDate=new Date();
