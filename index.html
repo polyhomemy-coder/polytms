@@ -12060,24 +12060,27 @@ function _multiExportPickerModal(onConfirm){
 }
 
 async function multiExportHTML(){
+  const isMobile = state.reportView === 'mobile';
+  const renderer = isMobile ? renderReportHTML : renderReportDesktopHTML;
+  const viewLabel = isMobile ? 'mobile' : 'desktop';
   _multiExportPickerModal(async (propIds, y, m)=>{
     let count = 0;
     for(const propId of propIds){
       try{
         const ctx  = await gatherReportData(propId, y, m);
-        const html = renderReportDesktopHTML(ctx, {year:y, month:m, issueDate:todayISODateLocal(), autoFee:true, autoCom:!_rcAutoComIsOff(propId, y, m)});
+        const html = renderer(ctx, {year:y, month:m, issueDate:todayISODateLocal(), autoFee:true, autoCom:!_rcAutoComIsOff(propId, y, m)});
         const P    = (state.properties||[]).find(p=>p.id===propId)||{};
-        const fname= `${P.condo||'property'}_${P.unit||''}_${MONTHS_FULL[m-1]}_${y}_income_report.html`
+        const fname= `${P.condo||'property'}_${P.unit||''}_${MONTHS_FULL[m-1]}_${y}_${viewLabel}_income_report.html`
           .replace(/\s+/g,'_').replace(/[^\w.\-]+/g,'_');
         const blob = new Blob([html],{type:'text/html'});
         const a    = document.createElement('a');
         a.href = URL.createObjectURL(blob); a.download = fname;
         document.body.appendChild(a); a.click(); a.remove();
         count++;
-        await new Promise(r=>setTimeout(r,300)); // brief pause between downloads
+        await new Promise(r=>setTimeout(r,300));
       } catch(e){ toast(`HTML export failed for one property: ${e.message}`,'bad'); }
     }
-    toast(`✅ Exported ${count} HTML report${count!==1?'s':''}`, 'ok');
+    toast(`✅ Exported ${count} ${viewLabel} HTML report${count!==1?'s':''}`, 'ok');
   });
 }
 
