@@ -2573,6 +2573,13 @@ function pickMonth(y, m){
   state._movedOutLoaded = false; // reset so admin tab reloads moved-out for new month
   const lbl = $('#monthPickLabel');
   if(lbl) lbl.textContent = MONTHS_FULL[m-1]+' '+y;
+  // Keep the income report month selector in sync with the sidebar picker
+  const rptM = $('#rptMonth');
+  if(rptM){
+    const v = y+'-'+String(m).padStart(2,'0');
+    if(rptM.querySelector(`option[value="${v}"]`)) rptM.value = v;
+    else buildMonthOptions(rptM); // rebuild options if year is out of current range
+  }
   showLoading();
   requestAnimationFrame(()=>requestAnimationFrame(()=>refreshMonthData()));
 }
@@ -4778,6 +4785,7 @@ function renderTab(t){
       .catch(e=> toast('Auto-balance-forward failed: '+(e.message||e),'bad'));
   }
   if(t==='extra') renderExtras();
+  if(t==='report') buildReport();
   fillPropertySelectors();
 }
 
