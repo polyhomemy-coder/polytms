@@ -3499,7 +3499,13 @@ function _bindPropFilterChips(ns, listId, onChange){
       const city  = active.city.size  === 0 || active.city.has(p.city||'__none__');
       const model = active.model.size === 0 || active.model.has(p.model||'__none__');
       const type  = active.type.size  === 0 || active.type.has(p.unit_type||'other_unit');
-      row.style.display = (city && model && type) ? '' : 'none';
+      const visible = city && model && type;
+      row.style.display = visible ? '' : 'none';
+      // Auto-uncheck hidden rows so count and export always match what's visible
+      if(!visible){
+        const cb = row.querySelector('input[type="checkbox"]');
+        if(cb) cb.checked = false;
+      }
     });
     const anyActive = active.city.size||active.model.size||active.type.size;
     if(clearBtn) clearBtn.classList.toggle('hidden', !anyActive);
