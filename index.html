@@ -3462,6 +3462,65 @@ async function setReportStatus(propId, y, m, patch){
 // Both Admin Check and Manager Verify share the same UX: a list of all active
 // properties with a checkbox per row reflecting the desired final state. On
 // confirm we diff against current state and write only what changed.
+// ── Shared filter chips helper used by sign-off and multi-export modals ──────
+// Returns HTML for city / model / unit-type filter chips and a live-filter
+// script block. The chip container ids use the given `ns` (namespace) prefix
+// so multiple modals can coexist without id collisions.
+function _propFilterChipsHTML(ns){
+  const props = (state.properties||[]).filter(p=>p.active!==false);
+  const cities = [...new Set(props.map(p=>p.city).filter(Boolean))].sort();
+  const models = [...new Set(props.map(p=>p.model).filter(Boolean))].sort();
+  const hasOwn = props.some(p=>p.unit_type==='own_unit');
+  const cityChips = cities.map(c=>`<button type="button" class="${ns}-fchip px-2 py-0.5 rounded-full text-xs font-semibold border border-[#007B8A] text-[#007B8A] hover:bg-[#007B8A] hover:text-white transition-colors" data-ns="${ns}" data-fg="city" data-fv="${esc(c)}">${esc(c)}</button>`).join('');
+  const modelChips = models.map(m=>`<button type="button" class="${ns}-fchip px-2 py-0.5 rounded-full text-xs font-semibold border border-[#007B8A] text-[#007B8A] hover:bg-[#007B8A] hover:text-white transition-colors" data-ns="${ns}" data-fg="model" data-fv="${esc(m)}">${esc(m)}</button>`).join('');
+  const typeChips = `<button type="button" class="${ns}-fchip px-2 py-0.5 rounded-full text-xs font-semibold border border-[#007B8A] text-[#007B8A] hover:bg-[#007B8A] hover:text-white transition-colors" data-ns="${ns}" data-fg="type" data-fv="other_unit">Other</button>`
+    +(hasOwn?`<button type="button" class="${ns}-fchip px-2 py-0.5 rounded-full text-xs font-semibold border border-[#007B8A] text-[#007B8A] hover:bg-[#007B8A] hover:text-white transition-colors" data-ns="${ns}" data-fg="type" data-fv="own_unit">Own</button>`:'');
+  return `
+    <div class="flex flex-wrap gap-1 items-center pb-2 border-b border-slate-100 mb-2">
+      <span class="text-[10px] font-bold uppercase tracking-wide text-slate-400 mr-1">City</span>${cityChips||'<span class="text-[10px] text-slate-300">—</span>'}
+      <span class="text-[10px] font-bold uppercase tracking-wide text-slate-400 mx-1">Model</span>${modelChips||'<span class="text-[10px] text-slate-300">—</span>'}
+      <span class="text-[10px] font-bold uppercase tracking-wide text-slate-400 mx-1">Type</span>${typeChips}
+      <button type="button" id="${ns}-fClear" class="ml-auto text-[10px] text-rose-500 hover:underline font-bold hidden">✕ Clear filters</button>
+    </div>`;
+}
+
+// Wire up the filter chip toggle behaviour for a modal using namespace `ns`.
+// `listId` is the id of the container whose `[data-pid]` rows get shown/hidden.
+function _bindPropFilterChips(ns, listId){
+  const active = {city:new Set(), model:new Set(), type:new Set()};
+  const clearBtn = document.getElementById(`${ns}-fClear`);
+
+  function applyFilters(){
+    const rows = document.querySelectorAll(`#${listId} [data-pid]`);
+    const props = state.properties||[];
+    rows.forEach(row=>{
+      const p = props.find(x=>x.id===row.dataset.pid);
+      if(!p){ row.style.display=''; return; }
+      const city  = active.city.size  === 0 || active.city.has(p.city||'__none__');
+      const model = active.model.size === 0 || active.model.has(p.model||'__none__');
+      const type  = active.type.size  === 0 || active.type.has(p.unit_type||'other_unit');
+      row.style.display = (city && model && type) ? '' : 'none';
+    });
+    const anyActive = active.city.size||active.model.size||active.type.size;
+    if(clearBtn) clearBtn.classList.toggle('hidden', !anyActive);
+  }
+
+  document.querySelectorAll(`.${ns}-fchip`).forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const fg = btn.dataset.fg, fv = btn.dataset.fv;
+      if(active[fg].has(fv)){ active[fg].delete(fv); btn.classList.remove('!bg-[#007B8A]','!text-white'); }
+      else { active[fg].add(fv); btn.classList.add('!bg-[#007B8A]','!text-white'); }
+      applyFilters();
+    });
+  });
+  if(clearBtn) clearBtn.addEventListener('click',()=>{
+    ['city','model','type'].forEach(g=>active[g].clear());
+    document.querySelectorAll(`.${ns}-fchip`).forEach(b=>b.classList.remove('!bg-[#007B8A]','!text-white'));
+    applyFilters();
+    clearBtn.classList.add('hidden');
+  });
+}
+
 function _signoffModal(opts){
   const {title, monthY, monthM, currentValueOf, applyOne, defaultPropId, helpHTML, confirmLabel} = opts;
   const props = (state.properties||[]).filter(p=>p.active!==false)
@@ -3473,7 +3532,7 @@ function _signoffModal(opts){
     const on = currentValueOf(p.id);
     const isDefault = (p.id===defaultPropId);
     const ts = on ? `<span class="text-[10px] text-slate-500 ml-2">${esc(new Date(on).toLocaleString('en-MY',{dateStyle:'short',timeStyle:'short'}))}</span>` : '';
-    return `<label class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border ${on?'border-emerald-300 bg-emerald-50/50':'border-slate-200 bg-white'} cursor-pointer hover:bg-slate-50">
+    return `<label class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border ${on?'border-emerald-300 bg-emerald-50/50':'border-slate-200 bg-white'} cursor-pointer hover:bg-slate-50" data-pid="${p.id}">
       <span class="flex items-center gap-2 min-w-0">
         <input type="checkbox" class="so-cb" data-pid="${p.id}" ${on?'checked':''} ${isDefault?'data-default="1"':''}>
         <span class="font-semibold text-sm truncate">${esc(p.condo)} · ${esc(p.unit)}</span>
@@ -3486,6 +3545,7 @@ function _signoffModal(opts){
   openModal(title+' — '+MONTHS_FULL[monthM-1]+' '+monthY,
     `<div class="space-y-2">
        ${helpHTML||''}
+       ${_propFilterChipsHTML('so')}
        <div class="flex items-center justify-between text-xs text-slate-600 pb-1">
          <span>Tick = mark as done. Untick = revert to pending.</span>
          <span>
@@ -3494,7 +3554,7 @@ function _signoffModal(opts){
            <button type="button" id="soSelNone" class="font-bold text-rose-600 hover:underline">Select none</button>
          </span>
        </div>
-       <div class="space-y-1.5 max-h-[55vh] overflow-y-auto pr-1">${rows}</div>
+       <div id="soList" class="space-y-1.5 max-h-[45vh] overflow-y-auto pr-1">${rows}</div>
      </div>`,
     async ()=>{
       const cbs = document.querySelectorAll('#modal .so-cb');
@@ -3513,12 +3573,13 @@ function _signoffModal(opts){
     },
     confirmLabel || 'Apply');
 
-  // Wire select-all / none after the modal renders
+  // Wire chips + select-all / none after the modal renders
   setTimeout(()=>{
+    _bindPropFilterChips('so', 'soList');
     const all = document.querySelector('#soSelAll');
     const none = document.querySelector('#soSelNone');
-    if(all) all.onclick = ()=> document.querySelectorAll('#modal .so-cb').forEach(cb=>cb.checked=true);
-    if(none) none.onclick = ()=> document.querySelectorAll('#modal .so-cb').forEach(cb=>cb.checked=false);
+    if(all) all.onclick = ()=> document.querySelectorAll('#soList [data-pid]:not([style*="none"]) .so-cb').forEach(cb=>cb.checked=true);
+    if(none) none.onclick = ()=> document.querySelectorAll('#soList [data-pid]:not([style*="none"]) .so-cb').forEach(cb=>cb.checked=false);
   }, 0);
 }
 
@@ -11934,22 +11995,31 @@ function _multiExportPickerModal(onConfirm){
     .sort((a,b)=>(a.condo+a.unit).localeCompare(b.condo+b.unit));
   if(!props.length){ toast('No active properties','warn'); return; }
   const rows = props.map(p=>`
-    <label class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[#E8F8FA] cursor-pointer">
+    <label class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[#E8F8FA] cursor-pointer" data-pid="${p.id}">
       <input type="checkbox" class="multi-exp-chk w-4 h-4 accent-[#007B8A]" value="${p.id}" checked>
       <span class="text-sm font-medium">${esc(p.condo)} ${esc(p.unit)}</span>
     </label>`).join('');
   openModal(`Export All — ${MONTHS_FULL[m-1]} ${y}`,`
-    <p class="text-sm text-[color:var(--muted)] mb-3">Select properties to export:</p>
+    ${_propFilterChipsHTML('mx')}
     <div class="flex gap-2 mb-2">
-      <button type="button" class="text-xs px-2 py-1 rounded bg-[#E8F8FA] text-[#007B8A] font-bold" onclick="document.querySelectorAll('.multi-exp-chk').forEach(c=>c.checked=true)">Select All</button>
-      <button type="button" class="text-xs px-2 py-1 rounded bg-[#E8F8FA] text-[#007B8A] font-bold" onclick="document.querySelectorAll('.multi-exp-chk').forEach(c=>c.checked=false)">Clear All</button>
+      <button type="button" class="text-xs px-2 py-1 rounded bg-[#E8F8FA] text-[#007B8A] font-bold" id="mxSelAll">Select All</button>
+      <button type="button" class="text-xs px-2 py-1 rounded bg-[#E8F8FA] text-[#007B8A] font-bold" id="mxSelNone">Clear All</button>
     </div>
-    <div class="space-y-1 max-h-72 overflow-y-auto border rounded-xl p-2 bg-[#F8FEFF]">${rows}</div>
+    <div id="mxList" class="space-y-1 max-h-64 overflow-y-auto border rounded-xl p-2 bg-[#F8FEFF]">${rows}</div>
   `, async ()=>{
-    const selected = [...document.querySelectorAll('.multi-exp-chk')].filter(c=>c.checked).map(c=>c.value);
+    const selected = [...document.querySelectorAll('#mxList .multi-exp-chk')]
+      .filter(c=>c.checked && c.closest('[data-pid]')?.style.display!=='none')
+      .map(c=>c.value);
     if(!selected.length) throw new Error('Select at least one property');
     await onConfirm(selected, y, m);
   }, {confirmText:'Export'});
+  setTimeout(()=>{
+    _bindPropFilterChips('mx', 'mxList');
+    const selAll  = document.getElementById('mxSelAll');
+    const selNone = document.getElementById('mxSelNone');
+    if(selAll)  selAll.onclick  = ()=> document.querySelectorAll('#mxList [data-pid]:not([style*="none"]) .multi-exp-chk').forEach(c=>c.checked=true);
+    if(selNone) selNone.onclick = ()=> document.querySelectorAll('#mxList [data-pid]:not([style*="none"]) .multi-exp-chk').forEach(c=>c.checked=false);
+  }, 0);
 }
 
 async function multiExportHTML(){
