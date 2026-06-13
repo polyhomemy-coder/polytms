@@ -430,7 +430,9 @@
   .flash-pulse{animation:flashPulse .35s ease-out;border-color:var(--brand) !important}
   .hidden-force{display:none !important}
   /* printable / export report preview */
-  #reportFrame{background:#fff;border-radius:14px;overflow:auto;border:1px solid var(--line)}
+  #reportFrame{background:#fff;border:none;display:block}
+  #reportFrameWrap{border:2px solid var(--line);border-radius:14px;background:#fff;transition:border-color .2s,box-shadow .2s}
+  #reportFrameWrap.has-open-notes{border-color:#EF4444;box-shadow:0 0 0 3px rgba(239,68,68,.18)}
   /* Dashboard hero stat tiles (gradient cards) */
   .hero-card{border-radius:18px;padding:18px 20px;color:#fff;box-shadow:0 4px 14px rgba(0,123,138,.14);position:relative;overflow:hidden;min-height:118px;display:flex;flex-direction:column;justify-content:flex-start}
   .hero-card::after{content:"";position:absolute;right:-30px;top:-30px;width:120px;height:120px;background:rgba(255,255,255,.08);border-radius:50%}
@@ -2063,11 +2065,8 @@
           </div>
         </div>
 
-      </div>
-      <div class="md:col-span-2">
-        <!-- Query Notes — lives above the report so the preview gets full width -->
-        <div id="annotationPanel" class="hidden mb-3"></div>
-        <div class="mb-3 card !p-3">
+        <!-- Query Notes — back in middle panel -->
+        <div class="mt-4 pt-4 border-t border-[color:var(--line)]">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2">
               <div class="text-xs font-bold uppercase tracking-wider text-[color:var(--brand)]">🚩 Query Notes</div>
@@ -2077,7 +2076,23 @@
           </div>
           <div id="annotationList" class="space-y-2"></div>
         </div>
-        <iframe id="reportFrame" class="w-full" style="min-height:92vh"></iframe>
+      </div>
+
+      <div class="md:col-span-2">
+        <!-- Open-note warning banner above the report -->
+        <div id="annotationPanel" class="hidden mb-3"></div>
+        <!-- Zoom controls -->
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-xs text-[color:var(--muted)] font-semibold">Zoom</span>
+          <button onclick="_rptZoom(-0.1)" class="px-2 py-0.5 rounded-lg text-sm font-bold bg-[#E8F8FA] text-[#007B8A] border border-[#B0DDE4] hover:bg-[#D0EEF3]">－</button>
+          <span id="rptZoomLabel" class="text-xs font-bold text-[color:var(--brand)] w-10 text-center">100%</span>
+          <button onclick="_rptZoom(0.1)" class="px-2 py-0.5 rounded-lg text-sm font-bold bg-[#E8F8FA] text-[#007B8A] border border-[#B0DDE4] hover:bg-[#D0EEF3]">＋</button>
+          <button onclick="_rptZoomReset()" class="px-2 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-500 hover:bg-slate-200 ml-1">Reset</button>
+        </div>
+        <!-- Report frame wrapper — red border when open query notes exist -->
+        <div id="reportFrameWrap" class="rounded-2xl overflow-hidden transition-all">
+          <iframe id="reportFrame" class="w-full block" style="border:none;height:600px"></iframe>
+        </div>
       </div>
     </div>
   </section>
@@ -11595,14 +11610,18 @@ async function buildReport(){
   const previewHtml = isDark ? html.replace('</head>', _reportDarkCSS()+'</head>') : html;
   const doc = $('#reportFrame').contentDocument;
   doc.open(); doc.write(previewHtml); doc.close();
-  // Preview-only zoom for the desktop view so the entire 1100px sheet fits
-  // inside the iframe without forcing the user to scroll. Applied via JS
-  // (not in the report's CSS) so the *exported* HTML stays at 100% zoom.
-  // Using CSS `zoom` so the iframe's scroll height shrinks with the content
-  // — `transform:scale()` would not, leaving an empty whitespace strip.
   if(state.reportView === 'desktop' && doc.body){
     doc.body.style.zoom = '0.82';
   }
+  // Auto-size iframe to full content height so it scrolls with the page
+  const _doResize = ()=>{
+    try{
+      const h = doc.body?.scrollHeight;
+      if(h){ $('#reportFrame').style.height = Math.round(h * _rptZoomLevel) + 'px'; }
+    } catch(_){}
+  };
+  setTimeout(_doResize, 120);
+  $('#reportFrame').onload = _doResize;
   $('#rptStatus').textContent='✓ Live preview ('+state.reportView+') · Click Export to download HTML.';
   renderReportSignoff();
   renderAnnotations();
@@ -11639,6 +11658,10 @@ function renderAnnotations(){
   const notes = _annotationsFor(propId, y, m);
   const open  = notes.filter(n=>!n.resolved);
   const done  = notes.filter(n=>n.resolved);
+
+  // Red border on report frame when there are open query notes
+  const wrap = $('#reportFrameWrap');
+  if(wrap) wrap.classList.toggle('has-open-notes', open.length > 0);
 
   // Update count badge
   if(countEl){
@@ -12025,6 +12048,29 @@ function renderReportSignoff(){
 
   const _mv = $('#btnManagerVerify');
   if(_mv) _mv.onclick = ()=>{ const mv2=$('#rptMonth')?.value; if(!mv2) return; const [yy,mm]=mv2.split('-').map(Number); openManagerVerifyModal(yy,mm,propId); };
+}
+
+// ── Report zoom ─────────────────────────────────────────────────────────────
+let _rptZoomLevel = 1;
+function _rptApplyZoom(){
+  const frame = $('#reportFrame');
+  const lbl   = $('#rptZoomLabel');
+  if(frame){ frame.style.transformOrigin='top left'; frame.style.transform=`scale(${_rptZoomLevel})`; frame.style.width=(100/_rptZoomLevel)+'%'; }
+  if(lbl) lbl.textContent = Math.round(_rptZoomLevel*100)+'%';
+  _rptAutoHeight();
+}
+function _rptZoom(delta){
+  _rptZoomLevel = Math.min(2, Math.max(0.3, +(_rptZoomLevel+delta).toFixed(1)));
+  _rptApplyZoom();
+}
+function _rptZoomReset(){ _rptZoomLevel=1; _rptApplyZoom(); }
+function _rptAutoHeight(){
+  const frame = $('#reportFrame');
+  if(!frame) return;
+  try{
+    const h = frame.contentDocument?.body?.scrollHeight;
+    if(h) frame.style.height = Math.round(h * _rptZoomLevel) + 'px';
+  } catch(_){}
 }
 
 function exportReport(){
