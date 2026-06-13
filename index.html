@@ -11736,7 +11736,15 @@ async function addAnnotation(){
   const secOpts = ANNOTATION_SECTIONS.map(s=>`<option value="${s}">${s}</option>`).join('');
   const panel = document.createElement('div');
   panel.id = 'annotationFloatPanel';
-  panel.style.cssText = 'position:fixed;top:120px;right:24px;width:310px;z-index:500;border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.22);';
+  // Default position: aligned with the middle (left) card, just below the Add button
+  const _addBtn = document.getElementById('btnAddAnnotation');
+  const _card   = _addBtn?.closest('.card');
+  const _cardR  = _card?.getBoundingClientRect();
+  const _btnR   = _addBtn?.getBoundingClientRect();
+  const _pLeft  = _cardR ? Math.round(_cardR.left) : 24;
+  const _pTop   = _btnR  ? Math.round(_btnR.bottom + 8) : 120;
+  const _pWidth = _cardR ? Math.round(_cardR.width) : 310;
+  panel.style.cssText = `position:fixed;top:${_pTop}px;left:${_pLeft}px;width:${_pWidth}px;z-index:500;border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.22);`;
   panel.innerHTML = `
     <div id="annotationFloatHandle" style="cursor:move;padding:10px 14px;background:var(--brand,#1a7a8a);color:#fff;display:flex;align-items:center;user-select:none;">
       <span style="font-size:13px;font-weight:700;flex:1;">🚩 Add Query Note</span>
@@ -12265,6 +12273,13 @@ function bindReportAutoPreview(){
   _reportBound = true;
 }
 function onReportTab(){ return document.querySelector('.tab-btn.active')?.dataset.tab==='report'; }
+
+// When the report iframe is clicked it steals focus from the main window,
+// breaking arrow-key navigation. Refocus the main window immediately so
+// keyboard shortcuts always work regardless of where the user clicked.
+window.addEventListener('blur', ()=>{
+  if(onReportTab()) setTimeout(()=>window.focus(), 0);
+});
 
 // Keyboard shortcuts on the Income Report tab:
 //   ↑ / ↓ → previous / next unit  (rptProp)
