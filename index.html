@@ -1498,11 +1498,11 @@
 
     <!-- Bottom block — month picker, demo badge, settings cog -->
     <div id="sbBottom">
-      <div class="sb-label">MONTH</div>
+      <div class="sb-label" style="color:#F4811F;font-weight:800;letter-spacing:.06em">📅 MONTH</div>
       <div id="monthPickerWrap" style="position:relative">
-        <button id="monthPickBtn" onclick="toggleMonthPicker()" style="width:100%;text-align:left;padding:7px 10px;border-radius:9px;border:1px solid var(--line);background:var(--card-bg);color:var(--ink);font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:space-between">
+        <button id="monthPickBtn" onclick="toggleMonthPicker()" style="width:100%;text-align:left;padding:9px 12px;border-radius:9px;border:2px solid #F4811F;background:linear-gradient(135deg,#FFF4E5,#FFE8C8);color:#B85C00;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(244,129,31,0.18)">
           <span id="monthPickLabel">—</span>
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#F4811F" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
         </button>
         <div id="monthPickerPanel" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:999;background:var(--card-bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:10px;min-width:200px">
           <!-- Year row -->
@@ -1765,6 +1765,10 @@
 
   <!-- INCOME (parent with sub-tabs: Collection, Ledger, Aircon, Extras) ===== -->
   <section class="tab-pane hidden-force" data-pane="income">
+    <div id="incomeOpBanner" class="flex items-center gap-3 mb-3 px-4 py-2.5 rounded-xl font-black text-white text-sm tracking-widest uppercase" style="background:linear-gradient(90deg,#F4811F,#e06510);box-shadow:0 3px 12px rgba(244,129,31,0.35)">
+      <span style="font-size:18px">📅</span>
+      <span id="incomeOpBannerText"></span>
+    </div>
     <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
       <div class="section-title">Income <span class="help ml-2" id="rentalMonthLbl"></span></div>
       <div id="subtabs" class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1 flex-wrap">
@@ -1973,6 +1977,10 @@
 
   <!-- EXPENSES =============================================== -->
   <section class="tab-pane hidden-force" data-pane="expenses">
+    <div id="expensesOpBanner" class="flex items-center gap-3 mb-3 px-4 py-2.5 rounded-xl font-black text-white text-sm tracking-widest uppercase" style="background:linear-gradient(90deg,#F4811F,#e06510);box-shadow:0 3px 12px rgba(244,129,31,0.35)">
+      <span style="font-size:18px">📅</span>
+      <span id="expensesOpBannerText"></span>
+    </div>
     <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
       <div class="section-title">Expenses <span class="help ml-2" id="expMonthLbl"></span></div>
       <div class="flex gap-2 items-center">
@@ -4731,6 +4739,9 @@ function fillPropertySelectors(){
   // month labels on panes
   const lbl = MONTHS_FULL[state.month-1]+' '+state.year;
   ['colMonthLbl','payMonthLbl','airMonthLbl','expMonthLbl','extMonthLbl','dashMonthLbl','rentalMonthLbl'].forEach(id=>{ const el=$('#'+id); if(el) el.textContent='('+lbl+')'; });
+  // Orange operation banners on Income and Expenses tabs
+  const bannerTxt = MONTHS_FULL[state.month-1].toUpperCase()+' '+state.year+' — OPERATION REPORT';
+  ['incomeOpBannerText','expensesOpBannerText'].forEach(id=>{ const el=$('#'+id); if(el) el.textContent=bannerTxt; });
   // report month dropdown
   buildMonthOptions($('#rptMonth'));
   if(!$('#rptIssue').value) $('#rptIssue').valueAsDate=new Date();
