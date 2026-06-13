@@ -4767,8 +4767,9 @@ function fillPropertySelectors(){
   ['colMonthLbl','payMonthLbl','airMonthLbl','expMonthLbl','extMonthLbl','dashMonthLbl','rentalMonthLbl'].forEach(id=>{ const el=$('#'+id); if(el) el.textContent='('+lbl+')'; });
   // Orange operation banners on Income and Expenses tabs
   const bannerMonth = MONTHS_FULL[state.month-1].toUpperCase();
-  const bannerSegment = '<b>'+bannerMonth+'<\/b> '+state.year+' — OPERATION REPORT';
-  const bannerSep = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;✶&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+  const bannerSegment = '<span style="font-size:1.15em;font-weight:900">'+bannerMonth+'</span>'
+    +'<span style="font-size:0.85em;font-weight:400"> '+state.year+' — OPERATION REPORT</span>';
+  const bannerSep = '<span style="font-size:0.85em;font-weight:400">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;✦&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>';
   const bannerFull = (bannerSegment + bannerSep).repeat(6);
   ['incomeOpBannerText','expensesOpBannerText'].forEach(id=>{ const el=$('#'+id); if(el) el.innerHTML=bannerFull; });
   // report month dropdown
