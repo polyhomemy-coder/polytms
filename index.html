@@ -2048,19 +2048,20 @@
           </div>
         </div>
 
-        <!-- Annotation / Query Notes -->
-        <div class="mt-4 pt-4 border-t border-[color:var(--line)]">
-          <div class="flex items-center justify-between mb-2">
-            <div class="text-xs font-bold uppercase tracking-wider text-[color:var(--brand)]">🚩 Query Notes</div>
-            <span id="annotationCount" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-600 hidden"></span>
-          </div>
-          <div id="annotationList" class="space-y-2 mb-2"></div>
-          <button id="btnAddAnnotation" class="w-full px-3 py-2 rounded-lg text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100">＋ Add Query Note</button>
-        </div>
       </div>
       <div class="md:col-span-2">
-        <!-- Annotation panel — shown above the report iframe when there are notes -->
+        <!-- Query Notes — lives above the report so the preview gets full width -->
         <div id="annotationPanel" class="hidden mb-3"></div>
+        <div class="mb-3 card !p-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <div class="text-xs font-bold uppercase tracking-wider text-[color:var(--brand)]">🚩 Query Notes</div>
+              <span id="annotationCount" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-600 hidden"></span>
+            </div>
+            <button id="btnAddAnnotation" class="px-3 py-1 rounded-lg text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100">＋ Add Query Note</button>
+          </div>
+          <div id="annotationList" class="space-y-2"></div>
+        </div>
         <iframe id="reportFrame" class="w-full" style="min-height:92vh"></iframe>
       </div>
     </div>
