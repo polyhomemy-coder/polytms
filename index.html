@@ -2026,12 +2026,16 @@
         </div>
         <label class="label mt-3">Layout</label>
         <div id="viewToggle" class="flex gap-1 bg-[#E8F8FA] rounded-xl p-1">
-          <button data-view="desktop" class="view-tab flex-1 px-3 py-2 rounded-lg text-sm font-bold active">🖥 Desktop</button>
           <button data-view="mobile"  class="view-tab flex-1 px-3 py-2 rounded-lg text-sm font-bold">📱 Mobile</button>
+          <button data-view="desktop" class="view-tab flex-1 px-3 py-2 rounded-lg text-sm font-bold active">🖥 Desktop</button>
         </div>
         <div class="flex gap-2 mt-4">
           <button class="btn-accent px-4 py-2.5 rounded-xl text-sm font-bold flex-1" onclick="exportReport()">⬇ Export HTML</button>
           <button id="btnExportPDF" class="btn-brand px-4 py-2.5 rounded-xl text-sm font-bold flex-1" onclick="exportReportPDF()">📄 Export PDF</button>
+        </div>
+        <div class="flex gap-2 mt-2">
+          <button class="btn-accent px-4 py-2.5 rounded-xl text-sm font-bold flex-1" onclick="multiExportHTML()">⬇ Multi HTML</button>
+          <button id="btnMultiExportPDF" class="btn-brand px-4 py-2.5 rounded-xl text-sm font-bold flex-1" onclick="multiExportPDF()">📄 Multi PDF</button>
         </div>
         <div id="rptStatus" class="help mt-3"></div>
 
@@ -4091,10 +4095,15 @@ function _rcIsDeleted(propId, y, m, description){
 // the income report "Rent-Comm Auto" is forced OFF for that property+month.
 function _rcAutoComKey(propId, y, m){ return `polyTMS_rc_autocom_off_${propId}_${y}_${m}`; }
 function _rcAutoComIsOff(propId, y, m){
+  // Check DB first (shared across all browsers), then localStorage fallback
+  const dbRow = _findReportStatus(propId, y, m);
+  if(dbRow && dbRow.autocom_off) return true;
   try { return localStorage.getItem(_rcAutoComKey(propId,y,m))==='1'; } catch(_){ return false; }
 }
 function _rcAutoComSetOff(propId, y, m){
   try { localStorage.setItem(_rcAutoComKey(propId,y,m),'1'); } catch(_){}
+  // Also persist to DB so other browsers see the OFF state immediately
+  setReportStatus(propId, y, m, {autocom_off: true}).catch(e=>console.warn('[autocom_off]',e));
 }
 // Apply saved autoCom state to the dropdown when switching property/month.
 // Always sets the value (ON or OFF) so switching never inherits a stale selection.
@@ -11916,6 +11925,79 @@ async function exportReportPDF(){
   }
 }
 
+// ── Multi-export: pick properties → export all as HTML or PDF ───────────────
+function _multiExportPickerModal(onConfirm){
+  const mv = $('#rptMonth')?.value;
+  if(!mv){ toast('Pick a month first','warn'); return; }
+  const [y, m] = mv.split('-').map(Number);
+  const props = (state.properties||[]).filter(p=>p.active!==false)
+    .sort((a,b)=>(a.condo+a.unit).localeCompare(b.condo+b.unit));
+  if(!props.length){ toast('No active properties','warn'); return; }
+  const rows = props.map(p=>`
+    <label class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[#E8F8FA] cursor-pointer">
+      <input type="checkbox" class="multi-exp-chk w-4 h-4 accent-[#007B8A]" value="${p.id}" checked>
+      <span class="text-sm font-medium">${esc(p.condo)} ${esc(p.unit)}</span>
+    </label>`).join('');
+  openModal(`Export All — ${MONTHS_FULL[m-1]} ${y}`,`
+    <p class="text-sm text-[color:var(--muted)] mb-3">Select properties to export:</p>
+    <div class="flex gap-2 mb-2">
+      <button type="button" class="text-xs px-2 py-1 rounded bg-[#E8F8FA] text-[#007B8A] font-bold" onclick="document.querySelectorAll('.multi-exp-chk').forEach(c=>c.checked=true)">Select All</button>
+      <button type="button" class="text-xs px-2 py-1 rounded bg-[#E8F8FA] text-[#007B8A] font-bold" onclick="document.querySelectorAll('.multi-exp-chk').forEach(c=>c.checked=false)">Clear All</button>
+    </div>
+    <div class="space-y-1 max-h-72 overflow-y-auto border rounded-xl p-2 bg-[#F8FEFF]">${rows}</div>
+  `, async ()=>{
+    const selected = [...document.querySelectorAll('.multi-exp-chk')].filter(c=>c.checked).map(c=>c.value);
+    if(!selected.length) throw new Error('Select at least one property');
+    await onConfirm(selected, y, m);
+  }, {confirmText:'Export'});
+}
+
+async function multiExportHTML(){
+  _multiExportPickerModal(async (propIds, y, m)=>{
+    let count = 0;
+    for(const propId of propIds){
+      try{
+        const ctx  = await gatherReportData(propId, y, m);
+        const html = renderReportDesktopHTML(ctx, {year:y, month:m, issueDate:todayISODateLocal(), autoFee:true, autoCom:true});
+        const P    = (state.properties||[]).find(p=>p.id===propId)||{};
+        const fname= `${P.condo||'property'}_${P.unit||''}_${MONTHS_FULL[m-1]}_${y}_income_report.html`
+          .replace(/\s+/g,'_').replace(/[^\w.\-]+/g,'_');
+        const blob = new Blob([html],{type:'text/html'});
+        const a    = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = fname;
+        document.body.appendChild(a); a.click(); a.remove();
+        count++;
+        await new Promise(r=>setTimeout(r,300)); // brief pause between downloads
+      } catch(e){ toast(`HTML export failed for one property: ${e.message}`,'bad'); }
+    }
+    toast(`✅ Exported ${count} HTML report${count!==1?'s':''}`, 'ok');
+  });
+}
+
+async function multiExportPDF(){
+  _multiExportPickerModal(async (propIds, y, m)=>{
+    const btn = $('#btnMultiExportPDF');
+    if(btn){ btn.disabled=true; btn.style.opacity='.6'; btn.textContent='⏳ Generating…'; }
+    let count = 0, failed = 0;
+    try{
+      for(const propId of propIds){
+        try{
+          await _downloadDesktopPDF(propId, y, m);
+          count++;
+          await new Promise(r=>setTimeout(r,400));
+        } catch(e){
+          failed++;
+          const P = (state.properties||[]).find(p=>p.id===propId)||{};
+          toast(`PDF failed: ${P.condo||''} ${P.unit||''} — ${e.message}`,'bad');
+        }
+      }
+      toast(`✅ Exported ${count} PDF${count!==1?'s':''}${failed?` (${failed} failed)`:''}`, failed?'warn':'ok');
+    } finally {
+      if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent='📄 Multi PDF'; }
+    }
+  });
+}
+
 // Auto-preview the income report whenever any input changes.
 let _reportBound = false;
 function bindReportAutoPreview(){
@@ -11973,6 +12055,8 @@ function bindReportAutoPreview(){
           }
           keys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){} });
         } catch(_){}
+        // Also clear in DB so other browsers stop blocking auto-insert
+        setReportStatus(propId, y, m, {autocom_off: false}).catch(e=>console.warn('[autocom_off clear]',e));
         toast('Rent-Comm Auto ON — commission will be restored for this unit & month ✓');
       }
     });
