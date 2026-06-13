@@ -8194,7 +8194,8 @@ function renderPayments(){
   // ----------------------------------------------------------------------
   let list = pid ? state.payments.filter(p=>p.property_id===pid)
     : state.payments.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
-  list = list.filter(p=>p.item_type !== 'carpark');
+  // Show all payment types including standalone carpark entries
+  // (cross-property carpark renters need to appear here so they can be viewed and deleted)
   // Sort: property, then rooms (canonical M > I > J > C > A > N > other)
   list = [...list].sort((a,b)=>{
     const pa = state.properties.find(x=>x.id===a.property_id);
