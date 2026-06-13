@@ -461,9 +461,9 @@
   @keyframes pieFadeIn{from{opacity:0;transform:scale(.92);transform-origin:center}to{opacity:1;transform:scale(1)}}
   @keyframes tableRowFade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
   @keyframes shimmer{0%,100%{box-shadow:0 4px 14px rgba(0,123,138,.14)}50%{box-shadow:0 6px 22px rgba(0,123,138,.22)}}
-  @keyframes opBannerScroll{0%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
+  @keyframes opBannerScroll{0%{transform:translateX(0)}100%{transform:translateX(-33.333%)}}
   .op-banner-track{overflow:hidden;flex:1;min-width:0}
-  .op-banner-text{display:inline-block;white-space:nowrap;animation:opBannerScroll 18s linear infinite}
+  .op-banner-text{display:inline-block;white-space:nowrap;animation:opBannerScroll 14.4s linear infinite}
   .anim-hero{animation:heroFadeUp .55s cubic-bezier(.2,.8,.2,1) both}
   .anim-bar  {animation:barGrow .9s cubic-bezier(.2,.8,.2,1) both}
   .anim-pie  {animation:pieFadeIn .55s ease-out both}
@@ -4748,7 +4748,8 @@ function fillPropertySelectors(){
   ['colMonthLbl','payMonthLbl','airMonthLbl','expMonthLbl','extMonthLbl','dashMonthLbl','rentalMonthLbl'].forEach(id=>{ const el=$('#'+id); if(el) el.textContent='('+lbl+')'; });
   // Orange operation banners on Income and Expenses tabs
   const bannerTxt = MONTHS_FULL[state.month-1].toUpperCase()+' '+state.year+' — OPERATION REPORT';
-  ['incomeOpBannerText','expensesOpBannerText'].forEach(id=>{ const el=$('#'+id); if(el) el.textContent=bannerTxt; });
+  const bannerFull = (bannerTxt+'    ★    ').repeat(3);
+  ['incomeOpBannerText','expensesOpBannerText'].forEach(id=>{ const el=$('#'+id); if(el) el.textContent=bannerFull; });
   // report month dropdown
   buildMonthOptions($('#rptMonth'));
   if(!$('#rptIssue').value) $('#rptIssue').valueAsDate=new Date();
