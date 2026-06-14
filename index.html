@@ -4616,9 +4616,9 @@ async function ensureBalanceForward(){
     const prevNett = await computeMonthNettWithChain(p, py, pm);
     const expectedAmt = prevNett < -0.005 ? +(-prevNett).toFixed(2) : 0;
     const desc = `Balance forward from ${MONTHS[pm-1]} ${py} (net rental loss)`;
-    // Look at any existing BF row for this (property, month).
+    // Look at any existing BF row for this (property, year, month).
     const existing = state.expenses.find(e=>
-      e.property_id===p.id && e.category==='balance_forward'
+      e.property_id===p.id && e.year===y && e.month===m && e.category==='balance_forward'
     );
     if(existing){
       // SYNC the amount if the source month's nett has changed since we
