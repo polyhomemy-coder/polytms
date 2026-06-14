@@ -12827,14 +12827,49 @@ async function saveAllReceipts(){
   // an early payment (e.g. paid 19 Mar for April rent) still goes into the
   // month the user has open. The receipt's paid_on date is preserved as-is
   // on the payment row for audit.
-  const rows = ready.map(r=>({
-    property_id:r.property_id, year:state.year, month:state.month,
-    item_type:r.item_type||'room',
-    room_code:(r.room||'').toUpperCase(),
-    amount: Number(r.amount)||0,
-    paid_on: r.date || null,
-    remark: `Imported from ${r.filename}`
-  }));
+  const rows = [];
+  for(const r of ready){
+    const amt      = Number(r.amount)||0;
+    const code     = (r.room||'').toUpperCase();
+    let kind       = null;
+    let remark     = `Imported from ${r.filename}`;
+    if(r.item_type !== 'carpark'){
+      const tenant = state.tenants.find(x=>
+        x.property_id===r.property_id &&
+        (x.room_code||'').toUpperCase()===code &&
+        x.active!==false
+      );
+      if(tenant){
+        // 2nd-month advance-covered detection (same logic as commitInlinePayment)
+        const pr = computeFirstMonthProRate(tenant);
+        if(pr){
+          const isSecondMonth =
+            (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
+            (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
+          if(isSecondMonth && Math.abs(amt - pr.total) < 0.5){
+            if(await confirmModal(
+              `RM ${fmt(amt)} matches ${tenant.name}'s 1st-month pro-rate (RM ${pr.total}).\n\n`+
+              `Treat as ADVANCE-COVERED — income report will show full RM ${(tenant.room_rental||0)+(tenant.carpark_rental||0)} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
+              `OK to record as advance-covered? Cancel = save as plain RM ${fmt(amt)} payment.`,
+              {confirmText:'Advance-Covered',cancelText:'Plain Payment',danger:false}
+            )){
+              kind = 'advance_covered_full';
+              remark = `Imported from ${r.filename} · 🔄 Advance-covered: cash RM ${fmt(amt)} = 1st-month pro-rate. Full RM ${(tenant.room_rental||0)+(tenant.carpark_rental||0)} income recognized.`;
+            }
+          }
+        }
+      }
+    }
+    rows.push({
+      property_id:r.property_id, year:state.year, month:state.month,
+      item_type:r.item_type||'room',
+      room_code:code,
+      amount: amt,
+      paid_on: r.date || null,
+      remark,
+      payment_kind: kind
+    });
+  }
   const {error} = await sb.from('rental_payments').insert(rows);
   if(error) return toast(error.message,'bad');
   toast('Saved '+rows.length+' payment(s)');
