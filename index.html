@@ -4022,11 +4022,9 @@ async function ensureBalanceForwardFor(propId, y, m){
   if(isReportLocked(propId, y, m)) return false;
   let py = y, pm = m - 1;
   if(pm < 1){ py = y - 1; pm = 12; }
-  // ANCHOR RULE: never auto-insert/sync a BF whose source month is before
-  // today's calendar month. The chain only cascades from the anchor month
-  // forward; pre-anchor months are treated as zero so default cleaning
-  // expenses don't pollute the first real month.
-  if(_bfIsBeforeAnchor(py, pm)) return false;
+  // SIGN-OFF GATE: only carry forward once the source month (py, pm) is fully
+  // signed off — both admin-checked AND manager-verified.
+  if(!_bfIsSignedOff(propId, py, pm)) return false;
   // Compute the EXPECTED amount based on previous month's chained nett.
   const prevNett = await computeMonthNettWithChain(p, py, pm);
   const expectedAmt = prevNett < -0.005 ? +(-prevNett).toFixed(2) : 0;
@@ -4168,22 +4166,22 @@ async function computeMonthNett(P, year, month){
 //
 // Applies to ALL property types (H2M and R2R) — any unresolved loss rolls
 // forward into the next month's expenses until it's cleared by income.
-async function computeMonthNettWithChain(P, year, month, depth=0){
-  if(depth > BF_CHAIN_MAX_DEPTH) return 0;
+async function computeMonthNettWithChain(P, year, month){
   const baseNett = await computeMonthNett(P, year, month);
   // Read just enough of this month's expenses to detect an existing BF row.
   const { data: expRows } = await sb.from('expenses').select('id,category')
     .eq('property_id',P.id).eq('year',year).eq('month',month);
   const hasBF = (expRows||[]).some(e=>e.category==='balance_forward');
   if(hasBF) return baseNett;
-  // Walk one month back (with year rollover) and chain — but ONLY if that
-  // previous month has been fully signed off (admin + manager). An unsigned
-  // month's loss stays put and does not cascade forward yet.
+  // Look back one month. Only chain if that month is fully signed off.
+  // We do NOT recurse further — BF rows from earlier months are already
+  // materialized in the DB by prior ensureBalanceForward runs, so the
+  // previous month's computeMonthNett() already includes any carried loss
+  // via the BF expense row. One level of look-back is sufficient.
   let py=year, pm=month-1; if(pm<1){ py--; pm=12; }
   if(!_bfIsSignedOff(P.id, py, pm)) return baseNett;
-  const prevNett = await computeMonthNettWithChain(P, py, pm, depth+1);
+  const prevNett = await computeMonthNett(P, py, pm);  // non-recursive — BF rows handle deeper chain
   if(prevNett >= -0.005) return baseNett;
-  // Implied BF reduces this month's nett by the unresolved loss
   return baseNett - (-prevNett);
 }
 
@@ -9026,12 +9024,9 @@ function renderExpenses(){
     // Surface the BF anchor rule so it's not mysterious when past months
     // don't show a Balance Forward row.
     const bfHint = cat==='balance_forward'
-      ? (function(){
-          const a = _bfAnchorYM();
-          return `<div class="card !p-3 mb-3 text-xs leading-relaxed bg-[#FFFBEB] border border-amber-200 text-amber-900">
-            <b>📌 Anchor month: ${MONTHS_FULL[a.m-1]} ${a.y}</b> (today). Balance Forward only auto-generates from the anchor month onwards — months before never roll losses into the chain. So a past month with a default cleaning expense will <i>not</i> produce a Balance Forward row in the anchor month. From the anchor forward, any month's negative nett rolls into the next month and keeps cascading until the balance is cleared by income.
-          </div>`;
-        })()
+      ? `<div class="card !p-3 mb-3 text-xs leading-relaxed bg-[#FFFBEB] border border-amber-200 text-amber-900">
+          <b>📌 Sign-off gated.</b> Balance Forward only auto-generates once the <i>previous</i> month's income report has been fully signed off — both <b>Admin ✓ Check</b> and <b>Manager ✓ Verify</b> must be done. Until both are completed, any negative nett stays in that month and does not cascade forward. Once signed off, the loss rolls into the next month's expenses automatically.
+        </div>`
       : '';
     // Always show the inline add row — buildExpenseSection already includes
     // a colgroup so widths line up whether the body is full or empty.
