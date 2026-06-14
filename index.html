@@ -4095,16 +4095,14 @@ async function ensureBalanceForwardFor(propId, y, m){
 // in localStorage to avoid re-creating a row that the user deleted.
 function _bfFlagKey(pid, y, m){ return `pf_bf_auto_${pid}_${y}_${m}`; }
 
-// Returns today's calendar month as {y, m} — the BF anchor. Months before
-// this point do not contribute to the carry-forward chain.
-function _bfAnchorYM(){
-  const d = new Date();
-  return { y: d.getFullYear(), m: d.getMonth() + 1 };
-}
-// True if (y, m) is strictly before the anchor month.
-function _bfIsBeforeAnchor(y, m){
-  const a = _bfAnchorYM();
-  return (y < a.y) || (y === a.y && m < a.m);
+// True if the income report for (property, y, m) has been fully signed off —
+// both admin-checked AND manager-verified. Only signed-off months can carry a
+// negative nett forward into the next month as a Balance Forward expense.
+// This replaces the old calendar-date anchor: we no longer auto-BF based on
+// "today's month" — instead, the act of completing both sign-offs IS the
+// trigger that unlocks BF for that month.
+function _bfIsSignedOff(propId, y, m){
+  return isReportLocked(propId, y, m); // admin_checked_at + manager_verified_at both set
 }
 
 // Max number of months ensureBalanceForward will walk backward when
@@ -4172,21 +4170,17 @@ async function computeMonthNett(P, year, month){
 // forward into the next month's expenses until it's cleared by income.
 async function computeMonthNettWithChain(P, year, month, depth=0){
   if(depth > BF_CHAIN_MAX_DEPTH) return 0;
-  // ANCHOR RULE: months strictly before today's calendar month contribute 0
-  // to the chain. Their losses (e.g. default cleaning expense) do NOT roll
-  // into the anchor month or anything after it. This naturally stops the
-  // recursion when we walk back past the anchor.
-  if(_bfIsBeforeAnchor(year, month)) return 0;
   const baseNett = await computeMonthNett(P, year, month);
   // Read just enough of this month's expenses to detect an existing BF row.
   const { data: expRows } = await sb.from('expenses').select('id,category')
     .eq('property_id',P.id).eq('year',year).eq('month',month);
   const hasBF = (expRows||[]).some(e=>e.category==='balance_forward');
   if(hasBF) return baseNett;
-  // Walk one month back (with year rollover) and chain — but only if that
-  // previous month is at or after the anchor.
+  // Walk one month back (with year rollover) and chain — but ONLY if that
+  // previous month has been fully signed off (admin + manager). An unsigned
+  // month's loss stays put and does not cascade forward yet.
   let py=year, pm=month-1; if(pm<1){ py--; pm=12; }
-  if(_bfIsBeforeAnchor(py, pm)) return baseNett;
+  if(!_bfIsSignedOff(P.id, py, pm)) return baseNett;
   const prevNett = await computeMonthNettWithChain(P, py, pm, depth+1);
   if(prevNett >= -0.005) return baseNett;
   // Implied BF reduces this month's nett by the unresolved loss
@@ -4601,11 +4595,11 @@ async function ensureBalanceForward(){
   // Previous month (with year rollover)
   let py = y, pm = m - 1;
   if(pm < 1){ py = y - 1; pm = 12; }
-  // ANCHOR RULE: never auto-insert a BF whose source month is before today's
-  // calendar month. Anchor month itself never has a BF auto-inserted (its
-  // "previous" is by definition pre-anchor). The first month that can carry
-  // forward is anchor + 1.
-  if(_bfIsBeforeAnchor(py, pm)) return false;
+  // SIGN-OFF GATE: BF is only auto-inserted for the current month (y, m) when
+  // the previous month (py, pm) has been fully signed off — both admin-checked
+  // AND manager-verified. Until then, the loss stays in the source month and
+  // does not cascade. Each property is checked individually below so a signed-
+  // off property gets its BF even if others in the same batch are still open.
   // Apply BF only to "Other Unit" properties — Own Unit losses are not carried forward.
   // unit_type='other_unit' (or legacy property_type='H2M') both get balance forward.
   const props = (state.properties||[]).filter(p=>
@@ -4618,6 +4612,8 @@ async function ensureBalanceForward(){
   for(const p of props){
     // Skip locked reports — never write through the lock with auto-BF.
     if(isReportLocked(p.id, y, m)) continue;
+    // Only carry forward once the previous month is fully signed off.
+    if(!_bfIsSignedOff(p.id, py, pm)) continue;
     // Compute the expected BF amount based on previous month's chained nett.
     const prevNett = await computeMonthNettWithChain(p, py, pm);
     const expectedAmt = prevNett < -0.005 ? +(-prevNett).toFixed(2) : 0;
