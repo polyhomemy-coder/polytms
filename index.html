@@ -6497,15 +6497,19 @@ async function _autoCreateFirstMonthProRate(t){
   }
   // Day-1 start (sd === 1) → no pro-rate; auto-record FULL month rental
   // so the tenant's income shows in the report immediately.
-  const roomFull = Number(t.room_rental||0);
-  const cpFull   = Number(t.carpark_rental||0);
-  const cpProp   = t.carpark_property_id || t.property_id;
-  const sameCp   = !!t.carpark && cpFull>0 && cpProp===t.property_id;
-  const total    = roomFull + (sameCp?cpFull:0);
+  const roomFull  = Number(t.room_rental||0);
+  const cpFull    = Number(t.carpark_rental||0);
+  const cpProp    = t.carpark_property_id  || t.property_id;
+  const sameCp    = !!t.carpark  && cpFull >0 && cpProp ===t.property_id;
+  const cp2Full   = Number(t.carpark2_rental||0);
+  const cp2Prop   = t.carpark2_property_id || t.property_id;
+  const sameCp2   = !!t.carpark2 && cp2Full>0 && cp2Prop===t.property_id;
+  const total     = roomFull + (sameCp?cpFull:0) + (sameCp2?cp2Full:0);
   if(total<=0) return;
-  const remark = sameCp
-    ? `🆕 New move-in (full ${monStr}): RM ${roomFull} room + RM ${cpFull} carpark = RM ${total}`
-    : `🆕 New move-in (full ${monStr}): RM ${roomFull}`;
+  const remarkParts = [`RM ${roomFull} room`];
+  if(sameCp)  remarkParts.push(`RM ${cpFull} carpark`);
+  if(sameCp2) remarkParts.push(`RM ${cp2Full} carpark2`);
+  const remark = `🆕 New move-in (full ${monStr}): ${remarkParts.join(' + ')} = RM ${total}`;
   const {error} = await sb.from('rental_payments').insert({
     property_id: t.property_id,
     year: sy, month: sm,
@@ -8362,14 +8366,17 @@ async function commitInlinePayment(tr){
           (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
           (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
         if(isSecondMonth && Math.abs(amt - pr.total) < 0.5){
+          const cpPropAC = tenant.carpark_property_id || tenant.property_id;
+          const sameCpAC = !!tenant.carpark && Number(tenant.carpark_rental||0)>0 && cpPropAC===pid;
+          const fullMonAC = Number(tenant.room_rental||0) + (sameCpAC ? Number(tenant.carpark_rental||0) : 0);
           if(await confirmModal(
-            `RM ${fmt(amt)} matches ${tenant.name}'s last-month pro-rate (RM ${pr.total}).\n\n`+
-            `Treat as ADVANCE-COVERED — income report will show full RM ${(tenant.room_rental||0)+(tenant.carpark_rental||0)} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
+            `RM ${fmt(amt)} matches ${tenant.name}'s 1st-month pro-rate (RM ${pr.total}).\n\n`+
+            `Treat as ADVANCE-COVERED — income report will show full RM ${fullMonAC} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
             `OK to record as advance-covered? Cancel = save as plain RM ${fmt(amt)} payment.`,
             {confirmText:'Advance-Covered',cancelText:'Plain Payment',danger:false}
           )){
             kind = 'advance_covered_full';
-            const note = `🔄 Advance-covered: cash RM ${fmt(amt)} = last-month pro-rate. Full RM ${(tenant.room_rental||0)+(tenant.carpark_rental||0)} income recognized.`;
+            const note = `🔄 Advance-covered: cash RM ${fmt(amt)} = 1st-month pro-rate. Full RM ${fullMonAC} income recognized.`;
             finalRem = rem ? (rem+' · '+note) : note;
           }
         }
@@ -10674,9 +10681,10 @@ function buildReportLineMap(P, ctx, roomTenancies){
         const denom = roomFull + (hasCp?cpFull:0) + (hasCp2?cp2Full:0);
         if(denom>0 && (hasCp||hasCp2)){
           roomShare = Math.ceil(amt * (roomFull/denom));
-          const cpShare = hasCp ? Math.ceil(amt*(cpFull/denom)) : 0;
+          const cpShare  = hasCp  ? Math.ceil(amt*(cpFull /denom)) : 0;
+          const cp2Share = hasCp2 ? Math.ceil(amt*(cp2Full/denom)) : 0;
           if(hasCp  && cpProp ===P.id) ensureLine('carpark', normCarpark(t.carpark)).rental  += cpShare;
-          if(hasCp2 && cp2Prop===P.id) ensureLine('carpark', normCarpark(t.carpark2)).rental += amt - roomShare - cpShare;
+          if(hasCp2 && cp2Prop===P.id) ensureLine('carpark', normCarpark(t.carpark2)).rental += cp2Share;
         }
         if(pr) _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
       }
@@ -12838,14 +12846,45 @@ async function saveAllReceipts(){
             (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
             (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
           if(isSecondMonth && Math.abs(amt - pr.total) < 0.5){
+            const cpPropAC  = tenant.carpark_property_id || tenant.property_id;
+            const sameCpAC  = !!tenant.carpark && Number(tenant.carpark_rental||0)>0 && cpPropAC===r.property_id;
+            const fullMonAC = Number(tenant.room_rental||0) + (sameCpAC ? Number(tenant.carpark_rental||0) : 0);
             if(await confirmModal(
               `RM ${fmt(amt)} matches ${tenant.name}'s 1st-month pro-rate (RM ${pr.total}).\n\n`+
-              `Treat as ADVANCE-COVERED — income report will show full RM ${(tenant.room_rental||0)+(tenant.carpark_rental||0)} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
+              `Treat as ADVANCE-COVERED — income report will show full RM ${fullMonAC} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
               `OK to record as advance-covered? Cancel = save as plain RM ${fmt(amt)} payment.`,
               {confirmText:'Advance-Covered',cancelText:'Plain Payment',danger:false}
             )){
               kind = 'advance_covered_full';
-              remark = `Imported from ${r.filename} · 🔄 Advance-covered: cash RM ${fmt(amt)} = 1st-month pro-rate. Full RM ${(tenant.room_rental||0)+(tenant.carpark_rental||0)} income recognized.`;
+              remark = `Imported from ${r.filename} · 🔄 Advance-covered: cash RM ${fmt(amt)} = 1st-month pro-rate. Full RM ${fullMonAC} income recognized.`;
+            }
+          }
+        }
+        // Last-month move-out pro-rate detection (same logic as commitInlinePayment)
+        if(!kind){
+          const lp = computeLastMonthProRate(tenant);
+          if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month){
+            const fullMonth = Number(tenant.room_rental||0) + (lp.sameCarpark?Number(tenant.carpark_rental||0):0);
+            const isProRate = Math.abs(amt - lp.total) < 0.5;
+            const isFull    = Math.abs(amt - fullMonth) < 0.5 && fullMonth > lp.total;
+            if(isProRate || isFull){
+              const scenarioLabel = isProRate
+                ? `Scenario A — receipt RM ${fmt(amt)} matches the move-out pro-rate (RM ${lp.total}).`
+                : `Scenario B — receipt RM ${fmt(amt)} is the full month (RM ${fullMonth}); only the pro-rate (RM ${lp.total}) is the actual income, excess RM ${fullMonth-lp.total} should be refunded to ${tenant.name}.`;
+              if(await confirmModal(
+                `${tenant.name} is moving out this month.\n\n${scenarioLabel}\n\nRecord income as pro-rate RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days?`,
+                {confirmText:'Record Pro-Rate',cancelText:'Cancel',danger:false}
+              )){
+                kind = 'last_month_prorate';
+                rows.push({
+                  property_id:r.property_id, year:state.year, month:state.month,
+                  item_type:r.item_type||'room', room_code:code,
+                  amount: lp.total, paid_on: r.date||null,
+                  remark: `Imported from ${r.filename} · 🚪 Move-out pro-rate: RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days.`,
+                  payment_kind: 'last_month_prorate'
+                });
+                continue; // skip the generic push below — already pushed with pro-rate amount
+              }
             }
           }
         }
@@ -12865,7 +12904,9 @@ async function saveAllReceipts(){
   if(error) return toast(error.message,'bad');
   toast('Saved '+rows.length+' payment(s)');
   closeReceiptUpload();
-  await loadPayments(); renderTab('payments');
+  await loadPayments();
+  await syncDerivedExpenses();
+  renderTab('payments');
 }
 
 // ============================================================
