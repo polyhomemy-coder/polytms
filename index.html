@@ -8776,7 +8776,7 @@ function renderAircon(){
     const trCls = [grpCls, isIsewa ? 'isewa-row' : ''].filter(Boolean).join(' ');
     return `<tr class="${trCls}">
       <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
-      <td class="font-bold">Room ${esc(r.room_code)}</td>
+      <td class="font-bold whitespace-nowrap">Room ${esc(r.room_code)}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td>${fmtDate(r.topped_up_on)}</td>
       <td>${displayRemark}${isewaTag}</td>
@@ -8814,12 +8814,12 @@ function renderAircon(){
   // many rows. table-fixed makes the colgroup widths actually authoritative.
   host.classList.add('table-fixed');
   host.innerHTML = `<colgroup>
-      <col style="width:26%">
-      <col style="width:70px">
-      <col style="width:100px">
-      <col style="width:120px">
+      <col style="width:22%">
+      <col style="width:60px">
+      <col style="width:95px">
+      <col style="width:115px">
       <col style="width:auto">
-      <col style="width:110px">
+      <col style="width:105px">
     </colgroup>
     <thead><tr>
       <th>Property</th><th>Room</th><th class="num">Amount</th><th>Topped up on</th><th>Remark</th><th></th>
