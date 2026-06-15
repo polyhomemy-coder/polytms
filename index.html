@@ -3359,7 +3359,12 @@ async function autoAssignIsewa(pendingList){
       if(isReportLocked(matched.id, yr, mo)) continue;
 
       // ── Insert aircon top-up ──────────────────────────────────────────────
-      const rem = `iSewa auto-import${p.reload_amount_kwh?` · Reload: ${p.reload_amount_kwh} kWh`:''}${p.tran_id?` · TranID: ${p.tran_id}`:''}`;
+      const fee = Number(p.tran_charged||0);
+      const rem = `iSewa auto-import`
+        + (p.reload_amount_kwh ? ` · Reload: ${p.reload_amount_kwh} kWh` : '')
+        + (p.tariff_rate       ? ` · Tariff: RM${p.tariff_rate}/kWh`     : '')
+        + (fee > 0             ? ` · Gross: RM${fmt(Number(p.tran_amount||0))} − Fee: RM${fmt(fee)}` : '')
+        + (p.tran_id           ? ` · TranID: ${p.tran_id}`               : '');
       const {error:insErr} = await sb.from('aircon_topups').insert({
         property_id: matched.id, year: yr, month: mo,
         room_code: roomCode, amount: amt,
@@ -8809,12 +8814,12 @@ function renderAircon(){
   // many rows. table-fixed makes the colgroup widths actually authoritative.
   host.classList.add('table-fixed');
   host.innerHTML = `<colgroup>
-      <col style="width:34%">
-      <col style="width:90px">
+      <col style="width:26%">
+      <col style="width:70px">
+      <col style="width:100px">
       <col style="width:120px">
-      <col style="width:130px">
       <col style="width:auto">
-      <col style="width:120px">
+      <col style="width:110px">
     </colgroup>
     <thead><tr>
       <th>Property</th><th>Room</th><th class="num">Amount</th><th>Topped up on</th><th>Remark</th><th></th>
