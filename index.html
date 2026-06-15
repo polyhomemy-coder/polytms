@@ -3268,6 +3268,19 @@ async function loadPendingIsewa(){
   }
 }
 
+// Convert a UTC ISO timestamp string to a Malaysia local date string (YYYY-MM-DD).
+// iSewa stores all timestamps in UTC. Malaysia is UTC+8, so a top-up at
+// 1:56 AM MYT = 5:56 PM UTC previous day — slicing the raw UTC string directly
+// gives the wrong date. Adding 8 h before slicing fixes this.
+function iSewaUTCtoMYTDate(ts){
+  if(!ts) return '';
+  const d = new Date(ts);
+  if(isNaN(d)) return String(ts).slice(0,10); // fallback: already a date string
+  // Shift by +8 hours
+  const myt = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+  return myt.toISOString().slice(0,10);
+}
+
 // ── iSewa Auto-Assign ─────────────────────────────────────────────────────────
 // Matches pending iSewa payments to properties using the raw fields:
 //   property_name_raw = "CGDB 15A-07-02"        (space-sep: "CondoName UnitCode")
@@ -3335,7 +3348,8 @@ async function autoAssignIsewa(pendingList){
       if(validRooms.length && !validRooms.includes(roomCode)) continue;
 
       // ── Determine year/month/date from payment timestamp ──────────────────
-      const rawDate = (p.time_stamp_raw||p.received_at||'').slice(0,10);
+      // Use MYT-corrected date — iSewa timestamps are UTC, Malaysia is UTC+8.
+      const rawDate = iSewaUTCtoMYTDate(p.time_stamp_raw||p.received_at||'');
       const yr  = rawDate ? Number(rawDate.slice(0,4)) : state.year;
       const mo  = rawDate ? Number(rawDate.slice(5,7)) : state.month;
       const amt = Number(p.tran_received||p.tran_amount||0);
@@ -8628,7 +8642,7 @@ function renderPendingIsewaBanner(){
   if(!list.length){ host.innerHTML=''; return; }
 
   const rows = list.map(p=>{
-    const d       = p.time_stamp_raw ? fmtDate(p.time_stamp_raw.slice(0,10)) : fmtDate((p.received_at||'').slice(0,10));
+    const d       = fmtDate(iSewaUTCtoMYTDate(p.time_stamp_raw||p.received_at||''));
     const gross   = Number(p.tran_amount||0);
     const fee     = Number(p.tran_charged||0);
     const net     = Number(p.tran_received||0) || (gross - fee) || gross;
@@ -8677,7 +8691,7 @@ function renderPendingIsewaBanner(){
 function openAssignIsewa(pendingId){
   const p = (state.pendingIsewa||[]).find(x=>x.id===pendingId);
   if(!p) return;
-  const rawDate  = (p.time_stamp_raw||p.received_at||'').slice(0,10);
+  const rawDate  = iSewaUTCtoMYTDate(p.time_stamp_raw||p.received_at||'');
   const defYear  = rawDate ? Number(rawDate.slice(0,4)) : state.year;
   const defMonth = rawDate ? Number(rawDate.slice(5,7)) : state.month;
 
