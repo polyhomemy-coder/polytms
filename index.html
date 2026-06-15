@@ -12414,19 +12414,24 @@ async function extractText(file){
 }
 
 // --- parsers ----------------------------------------------
-function parseAmount(text){
-  // STRICT rent range: 200 – 5000 only. Never return account/ref numbers.
-  const RENT_MIN = 200, RENT_MAX = 5000;
+function parseAmount(text, opts={}){
+  // Rent range: 50 – 5000. Lower bound 50 allows carpark-only payments.
+  const RENT_MIN = opts.min ?? 50, RENT_MAX = 5000;
   const inRange = n => n >= RENT_MIN && n <= RENT_MAX && isFinite(n);
   const parseN  = s => Number(String(s).replace(/,/g,''));
 
   // Normalise: collapse all whitespace variants to single space for easier matching
   const flat = text.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ');
 
-  // Pass 1: explicit "Amount" / "Transfer Amount" label followed by number or MYR+number
-  // Covers: "Transfer Amount (MYR) : 930.00"  "Amount MYR 750.00"  "Amount : 550"
-  const p1 = flat.match(/(?:Transfer\s+)?Amount\s*(?:\(MYR\))?\s*[:\s]\s*(?:MYR|RM)?\s*([\d,]+(?:\.\d{1,2})?)/i);
+  // Pass 1a: "Amount (RM) : 880.00" or "Amount (MYR) : 930.00" or "Transfer Amount MYR 750"
+  // Handles both (RM) and (MYR) parenthetical labels, colon-separated or space-separated.
+  const p1 = flat.match(/(?:Transfer\s+)?Amount\s*(?:\([MR][YM]?R?\))?\s*[:\s]\s*(?:MYR|RM)?\s*([\d,]+(?:\.\d{1,2})?)/i);
   if(p1){ const n=parseN(p1[1]); if(inRange(n)) return n; }
+
+  // Pass 1b: Chinese HLB receipt — "转账金额 (MYR) : 1,003.00"
+  // MYR followed by optional closing paren, then colon/spaces, then number.
+  const pCN = flat.match(/MYR[)\s]*[:\s]\s*([\d,]+(?:\.\d{1,2})?)/i);
+  if(pCN){ const n=parseN(pCN[1]); if(inRange(n)) return n; }
 
   // Pass 2: "MYR 550.00" or "RM 750" anywhere — NOT embedded in ref/account numbers
   // Uses negative lookbehind so "...ORM71606682" is skipped
@@ -12434,6 +12439,7 @@ function parseAmount(text){
   if(p2.length){
     const nums = p2.map(m=>parseN(m[1])).filter(inRange);
     if(nums.length){
+      // Prefer whole numbers (exact rent) over decimals; skip obvious account numbers
       const whole = nums.filter(n=>Number.isInteger(n));
       return whole.length ? whole[0] : nums[0];
     }
@@ -12447,16 +12453,15 @@ function parseAmount(text){
   }
 
   // Pass 4: standalone 3-4 digit number on its own line — last resort for image OCR
-  // The original multiline text is used here (not flat)
   for(const line of text.split(/[\n\r]+/)){
-    const m = line.trim().match(/^([\d,]{3,7}(?:\.\d{2})?)$/);
+    const m = line.trim().match(/^([\d,]{2,7}(?:\.\d{2})?)$/);
     if(m){ const n=parseN(m[1]); if(inRange(n)) return n; }
   }
 
   return null; // Never guess — leave blank so admin fills manually
 }
 function parseDate(text){
-  // "02 Apr 2026"
+  // "02 Apr 2026" or "2 June 2026"
   const m = text.match(/(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})/);
   if(m){
     const mo = MONTH_MAP[m[2].slice(0,3).toLowerCase()];
@@ -12465,30 +12470,57 @@ function parseDate(text){
   // "01/04/2026" or "01-04-2026"
   const m2 = text.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
   if(m2) return `${m2[3]}-${String(m2[2]).padStart(2,'0')}-${String(m2[1]).padStart(2,'0')}`;
+  // "Jun2026", "June 2026", "Jun 26", "June26" — month+year without day → use 1st
+  const m3 = text.match(/\b([A-Za-z]{3,9})\s*(\d{2,4})\b/);
+  if(m3){
+    const mo = MONTH_MAP[m3[1].slice(0,3).toLowerCase()];
+    if(mo){
+      const yr = m3[2].length===2 ? 2000+Number(m3[2]) : Number(m3[2]);
+      if(yr>=2020 && yr<=2099) return `${yr}-${String(mo).padStart(2,'0')}-01`;
+    }
+  }
+  // Month name only — infer current year (e.g. "JUNE" in filename)
+  const m4 = text.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i);
+  if(m4){
+    const mo = MONTH_MAP[m4[1].slice(0,3).toLowerCase()];
+    if(mo){ const yr = new Date().getFullYear(); return `${yr}-${String(mo).padStart(2,'0')}-01`; }
+  }
   return null;
 }
 function parseRoom(text){
-  // "Room M", "ROOM I", "Bilik M", "BILIK I" (Malay)
-  const m = text.match(/\b(?:Room|Bilik|Rm)\s*([AMCINJ])\b/i);
+  // "Room M", "02-02Room M", "ROOM C_JUNE" — no leading \b needed, trailing must not be alphanum
+  const m = text.match(/(?:Room|Bilik|Rm)\s*([A-Z])(?=[^A-Za-z0-9]|$)/i);
   if(m) return m[1].toUpperCase();
-  // "(i)", "(M)", "(A)" — room letter in parentheses in filename
-  const mp = text.match(/\(([AMCINJ])\)/i);
+  // "(I)", "(M)", "(A)" — room letter in parentheses
+  const mp = text.match(/\(([A-Z])\)/i);
   if(mp) return mp[1].toUpperCase();
-  // "BILIKI" / "BILIKM" (no space) — common in Malay bank transfers
-  const m3 = text.match(/\bBILIK([AMCINJ])\b/i);
+  // "BILIKI" / "BILIKM" (no space) — Malay bank transfers
+  const m3 = text.match(/\bBILIK([A-Z])(?=[^A-Za-z0-9]|$)/i);
   if(m3) return m3[1].toUpperCase();
-  // Filename pattern: "-I", "_I", " I" at word boundary before space/dot/end
-  const m2 = text.match(/[\-\s_]([AMCINJ])(?=[\s\.\-_]|$)/i);
+  // Payment detail ref: "9A 02-02M" — unit-code digits immediately followed by room letter
+  const mref = text.match(/\b\d{2}-\d{2,3}([A-Z])(?=[^A-Za-z0-9]|$)/i);
+  if(mref) return mref[1].toUpperCase();
+  // Filename: "-I", "_I" before space/dot/end
+  const m2 = text.match(/[\-_]([A-Z])(?=[\s\.\-_]|$)/i);
   return m2 ? m2[1].toUpperCase() : null;
 }
 function parseUnit(text){
-  // pattern A-38-11 / A 32-01 / A32-01  (trailing-letter allowed only if not followed by another letter)
-  const p1 = text.match(/\b([ABC])\s*[-\s]\s*(\d{1,2})\s*-\s*(\d{1,2}(?:[A-Z](?![A-Z]))?)(?=[^0-9]|$)/i);
-  if(p1) return (p1[1]+'-'+p1[2]+'-'+p1[3]).toUpperCase();
-  // pattern 12-09 / 24-03 / 7-3A / 29-11 / 17-20 — trailing-letter allowed only if not followed by another letter
+  // Full 3-part unit — handles all prefix styles and floor-with-letter:
+  //   A-08-16       single letter prefix
+  //   B-3A-01       single letter prefix, floor has letter suffix
+  //   A-23A-09      single letter prefix, floor has letter suffix
+  //   8B-03-02      digit(s)+letter prefix
+  //   13B-12-3A     digit(s)+letter prefix, unit has letter suffix
+  //   M1-02-12      letter+digit prefix
+  //   17B-21-06     2digit+letter prefix
+  //   17-B 21-06    same but hyphen between digits and letter in prefix
+  // Prefix: optional separator between digit(s) and letter is stripped on output
+  const p1 = text.match(/\b([A-Z]\d?|\d{1,2}[-\s]?[A-Z])\s*[-\s]\s*(\d{1,2}[A-Z]?)\s*-\s*(\d{1,2}(?:[A-Z](?![A-Z]))?)(?=[^0-9]|$)/i);
+  if(p1) return (p1[1].replace(/[\s-]/g,'')+'-'+p1[2]+'-'+p1[3]).toUpperCase();
+  // 2-part unit: 12-09 / 7-3A / 29-11
   const p2 = text.match(/\b(\d{1,2})\s*-\s*(\d{1,2}(?:[A-Z](?![A-Z]))?)(?=[^0-9]|$)/i);
   if(p2) return (p2[1]+'-'+p2[2]).toUpperCase();
-  // pattern 2403 (4 digits followed by non-digit) — convert to 24-03
+  // 4-digit compact: 2403 → 24-03
   const p3 = text.match(/\b(\d{4})(?=[^0-9]|$)/);
   if(p3) return (p3[1].slice(0,2)+'-'+p3[1].slice(2)).toUpperCase();
   return null;
