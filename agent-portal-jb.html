@@ -4,109 +4,170 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Polyhome JB — Agent Room Portal</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
-  :root {
-    --green:#16a34a;--green-light:#dcfce7;--green-dark:#166534;
-    --gray-mid:#e5e7eb;--gray-light:#f3f4f6;--text:#111827;--text-muted:#6b7280;
-    --brand:#7c3aed;--brand-light:#ede9fe;--brand-dark:#5b21b6;
-    --radius:12px;
-    --shadow:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
-    --shadow-md:0 4px 6px rgba(0,0,0,.07),0 2px 4px rgba(0,0,0,.06);
+  :root{
+    --brand:#007B8A;--brand2:#00B4CC;--accent:#F4811F;--accent2:#FF9A45;
+    --bg:#091922;--surface:#0D2331;--surface2:#0E2A3A;
+    --border:rgba(0,180,204,0.18);--border2:rgba(0,180,204,0.10);
+    --text:#D0ECF0;--muted:#5E8A94;--green:#10b981;--green-bg:rgba(16,185,129,.12);
+    --red:#f87171;--radius:14px;
   }
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8f7ff;color:var(--text);min-height:100vh;}
+  body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;
+    background-image:radial-gradient(circle,rgba(0,180,204,0.13) 1.2px,transparent 1.2px);
+    background-size:22px 22px;}
 
   /* HEADER */
-  .header{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;padding:20px 24px 24px;}
-  .header-inner{max-width:1100px;margin:0 auto;}
-  .header-top{display:flex;align-items:center;gap:12px;}
-  .logo{width:40px;height:40px;background:rgba(255,255,255,.2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;}
-  .brand-name{font-size:20px;font-weight:700;}
-  .brand-sub{font-size:12px;opacity:.7;margin-top:1px;}
-  .loc-badge{background:rgba(255,255,255,.2);border-radius:20px;padding:3px 12px;font-size:13px;font-weight:600;margin-left:auto;}
-  .stats-row{display:flex;gap:16px;margin-top:16px;flex-wrap:wrap;}
-  .stat{background:rgba(255,255,255,.15);border-radius:10px;padding:10px 16px;min-width:90px;}
-  .stat-num{font-size:22px;font-weight:700;line-height:1;}
-  .stat-label{font-size:11px;opacity:.75;margin-top:2px;text-transform:uppercase;letter-spacing:.5px;}
-  .last-updated{font-size:11px;opacity:.6;margin-top:10px;}
+  .header{background:linear-gradient(155deg,#091922 0%,#004C56 45%,#00626E 75%,#0090A3 100%);
+    padding:20px 16px 24px;position:relative;overflow:hidden;border-bottom:1px solid var(--border);}
+  .header::before{content:'';position:absolute;inset:0;
+    background-image:radial-gradient(circle,rgba(0,180,204,0.18) 1.2px,transparent 1.2px);
+    background-size:22px 22px;pointer-events:none;}
+  .header-glow{position:absolute;top:-60px;right:-60px;width:300px;height:300px;
+    background:radial-gradient(circle,rgba(0,180,204,.22),transparent 70%);pointer-events:none;}
+  .header-inner{max-width:1100px;margin:0 auto;position:relative;z-index:1;}
+  .header-top{display:flex;align-items:center;gap:14px;}
+  .logo{height:34px;display:flex;align-items:center;flex-shrink:0;}
+  .logo img{height:34px;width:auto;object-fit:contain;}
+  .brand-info{flex:1;}
+  .brand-sub{font-size:11px;opacity:.65;margin-top:2px;font-weight:500;letter-spacing:.3px;}
+  .loc-badge{background:rgba(244,129,31,.18);border:1px solid rgba(244,129,31,.35);
+    color:#FF9A45;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:700;
+    white-space:nowrap;flex-shrink:0;letter-spacing:.3px;}
+  .stats-row{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;}
+  .stat{background:rgba(0,0,0,.25);border:1px solid var(--border);backdrop-filter:blur(8px);
+    border-radius:12px;padding:10px 14px;flex:1;min-width:70px;}
+  .stat-num{font-size:22px;font-weight:800;line-height:1;color:#fff;}
+  .stat-num.accent{color:#00B4CC;}
+  .stat-num.orange{color:#FF9A45;}
+  .stat-label{font-size:10px;opacity:.65;margin-top:3px;text-transform:uppercase;letter-spacing:.6px;font-weight:600;}
+  .last-updated{font-size:10px;opacity:.45;margin-top:10px;font-weight:500;}
 
   /* FILTER BAR */
-  .filter-bar{background:#fff;border-bottom:1px solid var(--gray-mid);position:sticky;top:0;z-index:10;box-shadow:0 1px 3px rgba(0,0,0,.06);}
-  .filter-inner{max-width:1100px;margin:0 auto;padding:10px 24px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
-  .search-box{border:1.5px solid var(--gray-mid);border-radius:20px;padding:6px 14px;font-size:13px;outline:none;width:190px;}
-  .search-box:focus{border-color:var(--brand);}
-  .filter-btn{border:1.5px solid var(--gray-mid);background:#fff;border-radius:20px;padding:5px 13px;font-size:13px;cursor:pointer;color:var(--text-muted);font-weight:500;transition:all .15s;}
-  .filter-btn:hover{border-color:var(--brand);color:var(--brand);}
-  .filter-btn.active{background:var(--brand);border-color:var(--brand);color:#fff;}
-  .refresh-btn{margin-left:auto;border:1.5px solid var(--gray-mid);background:#fff;border-radius:20px;padding:5px 13px;font-size:12px;cursor:pointer;color:var(--text-muted);display:flex;align-items:center;gap:5px;}
-  .refresh-btn:hover{border-color:var(--brand);color:var(--brand);}
+  .filter-bar{background:rgba(9,25,34,.92);border-bottom:1px solid var(--border2);
+    position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);}
+  .filter-inner{max-width:1100px;margin:0 auto;padding:10px 12px;display:flex;gap:6px;
+    align-items:center;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  .filter-inner::-webkit-scrollbar{display:none;}
+  .search-box{background:var(--surface);border:1.5px solid var(--border);border-radius:20px;
+    padding:7px 14px;font-size:13px;outline:none;min-width:150px;flex-shrink:0;
+    color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;}
+  .search-box::placeholder{color:var(--muted);}
+  .search-box:focus{border-color:var(--brand2);box-shadow:0 0 0 3px rgba(0,180,204,.12);}
+  .filter-btn{background:var(--surface);border:1.5px solid var(--border2);border-radius:20px;
+    padding:6px 13px;font-size:12px;cursor:pointer;color:var(--muted);font-weight:600;
+    white-space:nowrap;flex-shrink:0;font-family:'Plus Jakarta Sans',sans-serif;
+    -webkit-tap-highlight-color:transparent;transition:all .15s;}
+  .filter-btn.active{background:rgba(0,123,138,.25);border-color:var(--brand2);color:var(--brand2);}
+  .refresh-btn{margin-left:auto;background:var(--surface);border:1.5px solid var(--border2);
+    border-radius:20px;padding:6px 12px;font-size:12px;cursor:pointer;color:var(--muted);
+    display:flex;align-items:center;gap:4px;white-space:nowrap;flex-shrink:0;
+    font-family:'Plus Jakarta Sans',sans-serif;}
+  .refresh-btn:hover{border-color:var(--brand2);color:var(--brand2);}
   .refresh-btn.spinning .spin-icon{animation:spin .7s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
 
   /* MAIN */
-  .main{max-width:1100px;margin:0 auto;padding:24px;}
+  .main{max-width:1100px;margin:0 auto;padding:20px 12px;}
   .condo-section{margin-bottom:32px;}
-  .condo-title{font-size:14px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-left:2px;}
-  .units-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px;}
+  .condo-title{font-size:11px;font-weight:700;color:var(--brand2);text-transform:uppercase;
+    letter-spacing:1.2px;margin-bottom:10px;padding-left:2px;opacity:.85;}
+  .units-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;}
 
   /* UNIT CARD */
-  .unit-card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;border:1.5px solid var(--gray-mid);transition:box-shadow .15s;}
-  .unit-card:hover{box-shadow:var(--shadow-md);}
-  .unit-card.has-vacant{border-color:#86efac;}
-  .unit-header{padding:12px 14px 8px;border-bottom:1px solid var(--gray-mid);display:flex;align-items:flex-start;gap:8px;}
-  .unit-num{width:26px;height:26px;background:var(--brand-light);color:var(--brand-dark);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px;}
-  .unit-info{flex:1;min-width:0;}
-  .unit-name{font-size:14px;font-weight:700;}
-  .vacant-badge{background:var(--green-light);color:var(--green-dark);border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0;margin-top:2px;}
+  .unit-card{background:var(--surface);border-radius:var(--radius);overflow:hidden;
+    border:1px solid var(--border2);transition:border-color .2s,box-shadow .2s;}
+  .unit-card:hover{border-color:var(--border);box-shadow:0 4px 20px rgba(0,0,0,.3);}
+  .unit-card.has-vacant{border-color:rgba(16,185,129,.3);}
+  .unit-card.has-vacant:hover{border-color:rgba(16,185,129,.55);}
+  .unit-header{padding:10px 12px;border-bottom:1px solid var(--border2);display:flex;align-items:center;gap:8px;
+    background:rgba(0,0,0,.15);}
+  .unit-num{width:24px;height:24px;background:rgba(0,180,204,.15);border:1px solid rgba(0,180,204,.3);
+    color:var(--brand2);border-radius:7px;display:flex;align-items:center;justify-content:center;
+    font-size:10px;font-weight:800;flex-shrink:0;}
+  .unit-name{font-size:13px;font-weight:700;flex:1;color:#fff;}
+  .vacant-badge{background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);
+    color:#34d399;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:700;white-space:nowrap;}
 
-  /* ROOM ROWS */
-  .rooms-list{padding:4px 0;}
-  .room-row{display:flex;align-items:flex-start;gap:8px;padding:7px 14px;border-bottom:1px solid #fafafa;}
-  .room-row:last-child{border-bottom:none;}
-  .room-lbl{font-size:11px;font-weight:700;width:52px;flex-shrink:0;padding-top:2px;color:var(--text-muted);}
-  .room-row.vacant .room-lbl{color:var(--green-dark);}
-  .room-body{flex:1;min-width:0;}
-  .vacant-tag{display:inline-flex;align-items:center;gap:4px;background:var(--green-light);color:var(--green-dark);border-radius:6px;padding:3px 9px;font-size:12px;font-weight:700;}
-  .nfr-tag{display:inline-block;background:var(--gray-light);color:#9ca3af;border-radius:6px;padding:3px 9px;font-size:12px;}
-  .tenant-chips{display:flex;gap:4px;flex-wrap:wrap;align-items:center;}
-  .chip-race{font-size:11px;font-weight:600;padding:2px 7px;border-radius:8px;}
-  .r-chinese{background:#fef9c3;color:#854d0e;}
-  .r-indian{background:#fce7f3;color:#9d174d;}
-  .r-malay{background:#d1fae5;color:#065f46;}
-  .r-other{background:#f3e8ff;color:#6b21a8;}
-  .chip-gender{font-size:11px;color:var(--text-muted);}
-  .chip-pax{font-size:10px;color:#9ca3af;padding:2px 5px;background:var(--gray-light);border-radius:5px;}
-  .chip-occ{font-size:11px;color:#374151;margin-top:2px;width:100%;}
+  /* ROOM TABLE */
+  .room-table{width:100%;border-collapse:collapse;}
+  .room-table thead th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;
+    color:var(--muted);padding:6px 10px 5px;background:rgba(0,0,0,.2);text-align:left;
+    border-bottom:1px solid var(--border2);}
+  .room-table thead th:first-child{width:64px;}
+  .room-table tbody tr{border-bottom:1px solid var(--border2);}
+  .room-table tbody tr:last-child{border-bottom:none;}
+  .room-table tbody tr:hover td{background:rgba(0,180,204,.04);}
+  .room-table tbody td{padding:8px 10px;font-size:12px;vertical-align:middle;}
+  .room-lbl{font-weight:700;color:var(--muted);font-size:11px;white-space:nowrap;letter-spacing:.2px;}
+
+  /* VACANT ROW */
+  .vacant-row td{background:rgba(16,185,129,.04);}
+  .vacant-row:hover td{background:rgba(16,185,129,.08) !important;}
+  .vacant-row .room-lbl{color:#34d399;}
+  .vacant-tag{display:inline-flex;align-items:center;gap:5px;
+    background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);
+    color:#34d399;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;}
+
+  /* DATA CHIPS */
+  .nationality{font-size:11px;color:var(--muted);white-space:nowrap;font-weight:500;}
+  .chip-race{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap;letter-spacing:.2px;}
+  .r-chinese{background:rgba(253,224,71,.12);color:#fde047;border:1px solid rgba(253,224,71,.2);}
+  .r-indian{background:rgba(244,129,31,.12);color:#FF9A45;border:1px solid rgba(244,129,31,.2);}
+  .r-malay{background:rgba(16,185,129,.12);color:#34d399;border:1px solid rgba(16,185,129,.2);}
+  .r-other{background:rgba(0,180,204,.12);color:var(--brand2);border:1px solid rgba(0,180,204,.2);}
+  .pax-badge{display:inline-block;font-size:11px;color:var(--brand2);
+    background:rgba(0,180,204,.1);border:1px solid rgba(0,180,204,.18);
+    border-radius:6px;padding:1px 7px;white-space:nowrap;font-weight:600;}
+  .occ-text{font-size:11px;color:var(--text);opacity:.85;}
 
   /* LOADING / ERROR */
-  .loading{text-align:center;padding:60px 24px;color:var(--text-muted);}
-  .spinner{width:36px;height:36px;border:3px solid var(--gray-mid);border-top-color:var(--brand);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px;}
-  .error-box{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:20px;color:#b91c1c;margin:24px;}
+  .loading{text-align:center;padding:60px 24px;color:var(--muted);}
+  .spinner{width:36px;height:36px;border:2.5px solid rgba(0,180,204,.2);border-top-color:var(--brand2);
+    border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px;}
+  .loading-text{font-size:13px;font-weight:500;opacity:.6;}
+  .error-box{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);
+    border-radius:10px;padding:20px;color:#f87171;margin:16px;font-size:13px;}
 
   /* FOOTER */
-  .footer{text-align:center;padding:20px;color:#9ca3af;font-size:11px;border-top:1px solid var(--gray-mid);background:#fff;margin-top:8px;}
+  .footer{text-align:center;padding:16px;color:var(--muted);font-size:11px;
+    border-top:1px solid var(--border2);margin-top:8px;opacity:.6;font-weight:500;}
 
-  @media(max-width:600px){.main{padding:14px;}.units-grid{grid-template-columns:1fr;}.filter-inner{padding:8px 14px;}.header{padding:14px 16px 18px;}}
+  /* MOBILE */
+  @media(max-width:640px){
+    .units-grid{grid-template-columns:1fr;}
+    .main{padding:12px 10px;}
+    .search-box{width:130px;}
+    .room-table thead{display:none;}
+    .room-table tbody tr{display:block;padding:8px 12px;border-bottom:1px solid var(--border2);}
+    .room-table tbody tr:last-child{border-bottom:none;}
+    .room-table tbody td{display:block;padding:2px 0;}
+    .room-table tbody td:first-child{margin-bottom:5px;}
+    .room-table tbody td[data-label]:before{content:attr(data-label)': ';font-size:9px;font-weight:700;
+      text-transform:uppercase;color:var(--muted);letter-spacing:.5px;}
+    .stats-row .stat{min-width:calc(50% - 5px);}
+  }
 </style>
 </head>
 <body>
 
 <div class="header">
+  <div class="header-glow"></div>
   <div class="header-inner">
     <div class="header-top">
-      <div class="logo">🏠</div>
-      <div>
-        <div class="brand-name">Polyhome Properties</div>
-        <div class="brand-sub">Agent Room Portal — For Professional Use</div>
+      <div class="logo"><img src="company_logo/polyhome_logo_white.png" alt="Polyhome"></div>
+      <div class="brand-info">
+        <div class="brand-sub">Agent Room Portal · For Professional Use</div>
       </div>
       <div class="loc-badge">📍 Johor Bahru</div>
     </div>
     <div class="stats-row" id="statsRow">
-      <div class="stat"><div class="stat-num">—</div><div class="stat-label">Units</div></div>
-      <div class="stat"><div class="stat-num">—</div><div class="stat-label">Condos</div></div>
-      <div class="stat"><div class="stat-num" style="color:#86efac">—</div><div class="stat-label">Vacant Rooms</div></div>
-      <div class="stat"><div class="stat-num">—</div><div class="stat-label">Total Rooms</div></div>
+      <div class="stat"><div class="stat-num accent">—</div><div class="stat-label">Units</div></div>
+      <div class="stat"><div class="stat-num accent">—</div><div class="stat-label">Condos</div></div>
+      <div class="stat"><div class="stat-num orange">—</div><div class="stat-label">Vacant</div></div>
+      <div class="stat"><div class="stat-num">—</div><div class="stat-label">Rooms</div></div>
     </div>
     <div class="last-updated" id="lastUpdated"></div>
   </div>
@@ -114,199 +175,144 @@
 
 <div class="filter-bar">
   <div class="filter-inner">
-    <input class="search-box" id="searchBox" placeholder="Search unit / condo / race…" oninput="render()">
+    <input class="search-box" id="searchBox" placeholder="Search unit / race / occupation…" oninput="render()">
     <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
-    <button class="filter-btn" onclick="setFilter('vacant',this)">🟢 Has Vacancy</button>
+    <button class="filter-btn" onclick="setFilter('vacant',this)">🟢 Vacant</button>
     <button class="filter-btn" onclick="setFilter('full',this)">🔴 Full</button>
     <button class="refresh-btn" id="refreshBtn" onclick="loadData()"><span class="spin-icon">↻</span> Refresh</button>
   </div>
 </div>
 
 <div class="main" id="main">
-  <div class="loading"><div class="spinner"></div>Loading live data…</div>
+  <div class="loading"><div class="spinner"></div><div class="loading-text">Loading live data…</div></div>
 </div>
 
-<div class="footer">Polyhome Properties Sdn. Bhd. · Agent use only · Data is live from TMS</div>
+<div class="footer">Polyhome Properties Sdn. Bhd. · Agent use only · Data refreshes live from TMS</div>
 
 <script>
 const SUPA_URL = 'https://nqnskbvgaajnxvjqzcck.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xbnNrYnZnYWFqbnh2anF6Y2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0Mjg2MzksImV4cCI6MjA5NDAwNDYzOX0.-XI0bnscd-Pnc2euw4hLt5nBoRpTUoW4FVII_KWg-Hs';
 const CITY = 'JB';
-
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
-let units = [];      // processed unit list
-let filter = 'all';
+let units = [], filter = 'all';
 
-/* ── FETCH ─────────────────────────────────────────────────── */
 async function loadData() {
   document.getElementById('refreshBtn').classList.add('spinning');
-  document.getElementById('main').innerHTML = '<div class="loading"><div class="spinner"></div>Loading live data…</div>';
-
+  document.getElementById('main').innerHTML = '<div class="loading"><div class="spinner"></div><div class="loading-text">Loading live data…</div></div>';
   try {
-    // 1. Properties for this city
-    const { data: props, error: e1 } = await sb
-      .from('agent_properties')
-      .select('id,condo,unit,room_codes')
-      .eq('city', CITY)
-      .order('condo').order('unit');
+    const { data: props, error: e1 } = await sb.from('agent_properties')
+      .select('id,condo,unit,room_codes').eq('city', CITY).order('condo').order('unit');
     if (e1) throw e1;
-
-    // 2. Active tenants for those properties
-    const propIds = (props||[]).map(p => p.id);
+    const propIds = (props||[]).map(p=>p.id);
     const { data: tenants, error: e2 } = propIds.length
-      ? await sb.from('agent_tenants')
-          .select('property_id,room_code,gender,race,occupation,no_of_staying')
-          .in('property_id', propIds)
+      ? await sb.from('agent_tenants').select('property_id,room_code,gender,race,occupation,no_of_staying').in('property_id', propIds)
       : { data: [], error: null };
     if (e2) throw e2;
-
-    // Index tenants by property_id → room_code
     const tenantMap = {};
     for (const t of (tenants||[])) {
-      const key = t.property_id + '|' + (t.room_code||'').toUpperCase();
+      const key = t.property_id+'|'+(t.room_code||'').toUpperCase();
       if (!tenantMap[key]) tenantMap[key] = [];
       tenantMap[key].push(t);
     }
-
-    // Build units array
-    units = (props||[]).map((p, i) => {
+    units = (props||[]).map((p,i) => {
       const codes = (p.room_codes||'').split(',').map(r=>r.trim().toUpperCase()).filter(Boolean);
       const rooms = codes.map(code => {
-        const key = p.id + '|' + code;
-        const ts = tenantMap[key] || [];
+        const ts = tenantMap[p.id+'|'+code] || [];
         if (!ts.length) return { room: code, vacant: true };
-        // Merge multi-pax (shouldn't happen but defensive)
-        const merged = {
-          room: code,
-          vacant: false,
-          gender: ts.map(t=>fmtGender(t.gender)).filter(Boolean).join(' / '),
-          race: ts.map(t=>(t.race||'').toLowerCase().trim()).filter(r=>r&&r!=='-').join(' / '),
-          occ: ts.map(t=>(t.occupation||'').trim()).filter(Boolean).join(' / '),
-          pax: ts.reduce((s,t)=>s+(parseInt(t.no_of_staying)||1),0),
-        };
-        return merged;
+        return { room: code, vacant: false,
+          race: ts.map(t=>(t.race||'').trim()).filter(r=>r&&r!=='-').join(' / '),
+          occ:  ts.map(t=>(t.occupation||'').trim()).filter(Boolean).join(' / '),
+          pax:  ts.reduce((s,t)=>s+(parseInt(t.no_of_staying)||1),0) };
       });
       return { no: i+1, community: p.condo, unit: p.unit, rooms };
     });
-
-    document.getElementById('lastUpdated').textContent = 'Updated: ' + new Date().toLocaleString('en-MY', {timeZone:'Asia/Kuala_Lumpur', hour12:false});
-    updateStats();
-    render();
+    document.getElementById('lastUpdated').textContent = 'Live · Updated '+new Date().toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur',hour12:false});
+    updateStats(); render();
   } catch(err) {
-    document.getElementById('main').innerHTML = `<div class="error-box">⚠️ Failed to load data: ${err.message||err}</div>`;
+    document.getElementById('main').innerHTML = `<div class="error-box">⚠️ Failed to load: ${err.message||err}</div>`;
   }
   document.getElementById('refreshBtn').classList.remove('spinning');
 }
 
-/* ── STATS ──────────────────────────────────────────────────── */
 function updateStats() {
-  const totalUnits = units.length;
   const condos = new Set(units.map(u=>u.community)).size;
   const totalRooms = units.reduce((a,u)=>a+u.rooms.length,0);
-  const vacantRooms = units.reduce((a,u)=>a+u.rooms.filter(r=>r.vacant).length,0);
+  const vacant = units.reduce((a,u)=>a+u.rooms.filter(r=>r.vacant).length,0);
   document.getElementById('statsRow').innerHTML = `
-    <div class="stat"><div class="stat-num">${totalUnits}</div><div class="stat-label">Units</div></div>
-    <div class="stat"><div class="stat-num">${condos}</div><div class="stat-label">Condos</div></div>
-    <div class="stat"><div class="stat-num" style="color:#86efac">${vacantRooms}</div><div class="stat-label">Vacant Rooms</div></div>
-    <div class="stat"><div class="stat-num">${totalRooms}</div><div class="stat-label">Total Rooms</div></div>`;
+    <div class="stat"><div class="stat-num accent">${units.length}</div><div class="stat-label">Units</div></div>
+    <div class="stat"><div class="stat-num accent">${condos}</div><div class="stat-label">Condos</div></div>
+    <div class="stat"><div class="stat-num orange">${vacant}</div><div class="stat-label">Vacant</div></div>
+    <div class="stat"><div class="stat-num">${totalRooms}</div><div class="stat-label">Rooms</div></div>`;
 }
 
-/* ── RENDER ─────────────────────────────────────────────────── */
-function raceClass(r) {
-  const l = (r||'').toLowerCase();
+function rc(r) {
+  const l=(r||'').toLowerCase();
   if(l.includes('chinese')) return 'r-chinese';
   if(l.includes('indian'))  return 'r-indian';
   if(l.includes('malay'))   return 'r-malay';
   return 'r-other';
 }
-function fmtGender(g) {
-  const l = (g||'').toLowerCase().trim();
-  if(!l||l==='0') return '';
-  if(l.includes('female')&&l.includes('male')) return '👫 Mixed';
-  if(l.includes('female')) return '👩 Female';
-  if(l.includes('male'))   return '👨 Male';
-  return g;
-}
 function tc(s){ return (s||'').replace(/\b\w/g,c=>c.toUpperCase()); }
 
 function renderRoom(r) {
   if (r.vacant) return `
-    <div class="room-row vacant">
-      <div class="room-lbl">Room ${r.room}</div>
-      <div class="room-body"><span class="vacant-tag">✅ AVAILABLE</span></div>
-    </div>`;
+    <tr class="vacant-row">
+      <td><span class="room-lbl">Room ${r.room}</span></td>
+      <td colspan="4"><span class="vacant-tag">✦ AVAILABLE</span></td>
+    </tr>`;
   return `
-    <div class="room-row">
-      <div class="room-lbl">Room ${r.room}</div>
-      <div class="room-body">
-        <div class="tenant-chips">
-          ${r.race ? `<span class="chip-race ${raceClass(r.race)}">${tc(r.race)}</span>` : ''}
-          ${r.gender ? `<span class="chip-gender">${r.gender}</span>` : ''}
-          ${r.pax > 1 ? `<span class="chip-pax">${r.pax} pax</span>` : ''}
-          ${r.occ ? `<div class="chip-occ">💼 ${tc(r.occ)}</div>` : ''}
-        </div>
-      </div>
-    </div>`;
+    <tr>
+      <td><span class="room-lbl">Room ${r.room}</span></td>
+      <td data-label="Nationality"><span class="nationality">Malaysian</span></td>
+      <td data-label="Race">${r.race?`<span class="chip-race ${rc(r.race)}">${tc(r.race)}</span>`:'—'}</td>
+      <td data-label="Pax"><span class="pax-badge">${r.pax} pax</span></td>
+      <td data-label="Occupation"><span class="occ-text">${r.occ?tc(r.occ):'—'}</span></td>
+    </tr>`;
 }
 
 function renderCard(u) {
-  const vacantCount = u.rooms.filter(r=>r.vacant).length;
+  const vc = u.rooms.filter(r=>r.vacant).length;
   return `
-    <div class="unit-card ${vacantCount>0?'has-vacant':''}">
+    <div class="unit-card ${vc>0?'has-vacant':''}">
       <div class="unit-header">
         <div class="unit-num">${u.no}</div>
-        <div class="unit-info">
-          <div class="unit-name">${u.community} · ${u.unit}</div>
-        </div>
-        ${vacantCount ? `<div class="vacant-badge">${vacantCount} Vacant</div>` : ''}
+        <div class="unit-name">${u.community} · ${u.unit}</div>
+        ${vc?`<div class="vacant-badge">${vc} Vacant</div>`:''}
       </div>
-      <div class="rooms-list">${u.rooms.map(renderRoom).join('')}</div>
+      <table class="room-table">
+        <thead><tr><th>Room</th><th>Nationality</th><th>Race</th><th>Pax</th><th>Occupation</th></tr></thead>
+        <tbody>${u.rooms.map(renderRoom).join('')}</tbody>
+      </table>
     </div>`;
 }
 
 function render() {
   const q = (document.getElementById('searchBox').value||'').toLowerCase();
-  const condoGroups = {};
-
+  const groups = {};
   units.forEach(u => {
-    const vacantCount = u.rooms.filter(r=>r.vacant).length;
-    const matchFilter =
-      filter === 'all' ||
-      (filter === 'vacant' && vacantCount > 0) ||
-      (filter === 'full' && vacantCount === 0);
-    const matchSearch = !q ||
-      u.community.toLowerCase().includes(q) ||
-      u.unit.toLowerCase().includes(q) ||
-      u.rooms.some(r => (r.race||'').includes(q) || (r.occ||'').toLowerCase().includes(q));
-    if (matchFilter && matchSearch) {
-      if (!condoGroups[u.community]) condoGroups[u.community] = [];
-      condoGroups[u.community].push(u);
-    }
+    const vc = u.rooms.filter(r=>r.vacant).length;
+    const ok = filter==='all' || (filter==='vacant'&&vc>0) || (filter==='full'&&vc===0);
+    const sq = !q || u.community.toLowerCase().includes(q) || u.unit.toLowerCase().includes(q) ||
+      u.rooms.some(r=>(r.race||'').toLowerCase().includes(q)||(r.occ||'').toLowerCase().includes(q));
+    if (ok&&sq) { if (!groups[u.community]) groups[u.community]=[]; groups[u.community].push(u); }
   });
-
   const main = document.getElementById('main');
-  if (!Object.keys(condoGroups).length) {
-    main.innerHTML = '<div class="loading">No units found</div>';
-    return;
-  }
-  main.innerHTML = Object.entries(condoGroups).map(([condo, us]) => `
+  if (!Object.keys(groups).length) { main.innerHTML='<div class="loading"><div class="loading-text">No units found</div></div>'; return; }
+  main.innerHTML = Object.entries(groups).map(([condo,us])=>`
     <div class="condo-section">
-      <div class="condo-title">🏢 ${condo}</div>
+      <div class="condo-title">▸ ${condo}</div>
       <div class="units-grid">${us.map(renderCard).join('')}</div>
     </div>`).join('');
 }
 
-function setFilter(f, btn) {
-  filter = f;
+function setFilter(f,btn) {
+  filter=f;
   document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  render();
+  btn.classList.add('active'); render();
 }
 
-// Load on start, then auto-refresh every 5 minutes
 loadData();
-setInterval(loadData, 5 * 60 * 1000);
+setInterval(loadData, 5*60*1000);
 </script>
 </body>
 </html>
- 
