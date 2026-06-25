@@ -4891,7 +4891,12 @@ function computeOccupancy(properties){
       if(tList.some(t=>String(t.room_code||'').toUpperCase()===r)) occRooms++;
     }
     for(const lot of lots){
-      if(tList.some(t=> normCarpark(t.carpark)===lot)) occCar++;
+      const occupied = activeTenants.some(t=>{
+        const cp1 = normCarpark(t.carpark)===lot && (t.carpark_property_id||t.property_id)===p.id;
+        const cp2 = normCarpark(t.carpark2||'')===lot && (t.carpark2_property_id||t.property_id)===p.id;
+        return cp1 || cp2;
+      });
+      if(occupied) occCar++;
     }
   }
   return { totalRooms, occRooms, totalCar, occCar };
@@ -9544,8 +9549,13 @@ function renderVacancies(){
     const tList = active.filter(t=>t.property_id===p.id);
     const vacRooms = rooms.filter(r=> !tList.some(t=>String(t.room_code||'').toUpperCase()===r))
       .map(r=>({ code:r, isCarpark:false, since: vacantSince(p, r, false) }));
-    const vacLots = lots.filter(l=>  !tList.some(t=> normCarpark(t.carpark)===l))
-      .map(l=>({ code:l, isCarpark:true, since: vacantSince(p, l, true) }));
+    // A carpark lot is occupied if ANY active tenant (from any property) has it assigned
+    // via carpark or carpark2, where the carpark_property_id (or fallback property_id) matches this property.
+    const vacLots = lots.filter(l=> !active.some(t=>{
+      const cp1Match = normCarpark(t.carpark)===l && (t.carpark_property_id||t.property_id)===p.id;
+      const cp2Match = normCarpark(t.carpark2||'')===l && (t.carpark2_property_id||t.property_id)===p.id;
+      return cp1Match || cp2Match;
+    })).map(l=>({ code:l, isCarpark:true, since: vacantSince(p, l, true) }));
     return { p, vacRooms, vacLots, rooms, lots };
   });
 
