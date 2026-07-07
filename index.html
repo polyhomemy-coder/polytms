@@ -1645,6 +1645,15 @@
         </div>
       </div>
 
+      <!-- RACE BREAKDOWN CHART -->
+      <div class="card mb-4">
+        <div class="flex items-baseline justify-between mb-3">
+          <div class="section-title">Tenant Race Breakdown</div>
+          <div class="help" id="dashRaceTotal">all active tenants</div>
+        </div>
+        <div id="dashRaceChart"><div class="text-slate-400 text-sm py-4 text-center">—</div></div>
+      </div>
+
       <div class="card">
         <div class="flex items-center justify-between">
           <div class="section-title">Monthly Overview</div>
@@ -5897,6 +5906,40 @@ function renderHelpManageDashboard(){
     } else {
       $('#dashRoomDonut').innerHTML = '<div class="text-slate-400 text-sm py-10 text-center">No rooms configured yet.</div>';
     }
+  }
+
+  // ===== RACE BREAKDOWN CHART =====
+  if($('#dashRaceChart')){
+    const activeTens = state.tenants.filter(t=>t.active!==false && props.some(p=>p.id===t.property_id));
+    const raceBuckets = { Chinese:0, Malay:0, Indian:0, Foreigner:0, Other:0 };
+    activeTens.forEach(t=>{
+      const r = (t.race||'').toLowerCase().trim();
+      if(r.includes('chinese'))       raceBuckets.Chinese++;
+      else if(r.includes('malay'))    raceBuckets.Malay++;
+      else if(r.includes('indian'))   raceBuckets.Indian++;
+      else if(r.includes('foreign')||r.includes('expat')||r.includes('myanmar')||r.includes('banglades')||r.includes('nepali')||r.includes('vietnam')||r.includes('indo')) raceBuckets.Foreigner++;
+      else if(r&&r!=='-')             raceBuckets.Other++;
+    });
+    const total = activeTens.length;
+    if($('#dashRaceTotal')) $('#dashRaceTotal').textContent = total + ' active tenant' + (total!==1?'s':'');
+    const colors = { Chinese:'#F59E0B', Malay:'#10B981', Indian:'#8B5CF6', Foreigner:'#0891B2', Other:'#94A3B8' };
+    const max = Math.max(...Object.values(raceBuckets), 1);
+    const rows = Object.entries(raceBuckets)
+      .filter(([,n])=>n>0)
+      .sort((a,b)=>b[1]-a[1])
+      .map(([label,n])=>{
+        const pct = Math.round(n/total*100);
+        const w   = Math.round(n/max*100);
+        const col = colors[label]||'#94A3B8';
+        return `<div class="bar-row">
+          <div class="bar-label">${label}</div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:${w}%;background:${col}"></div>
+            <div class="bar-value" style="color:var(--ink)">${n} <span style="font-weight:400;opacity:.6">(${pct}%)</span></div>
+          </div>
+        </div>`;
+      }).join('');
+    $('#dashRaceChart').innerHTML = rows || '<div class="text-slate-400 text-sm py-4 text-center">No race data recorded yet.</div>';
   }
 
   // Per-property stats (drives the table below).
