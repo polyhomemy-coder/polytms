@@ -240,7 +240,7 @@ function showCondos(){
   if(!allUnits.length){ main.innerHTML='<div class="loading"><div class="msg">No data</div></div>'; return; }
 
   const condoMap = {};
-  allUnits.forEach(u => {
+  allUnits.filter(u=>u.rooms.some(r=>r.vacant)).forEach(u => {
     if(!condoMap[u.community]) condoMap[u.community]={units:[],vacant:0};
     condoMap[u.community].units.push(u);
     condoMap[u.community].vacant += u.rooms.filter(r=>r.vacant).length;
@@ -249,8 +249,7 @@ function showCondos(){
   const btns = Object.entries(condoMap).map(([name,info])=>`
     <button class="condo-btn" onclick="showUnits('${name.replace(/'/g,"\\'")}')">
       <div>${name}</div>
-      <div class="unit-count">${info.units.length} unit${info.units.length>1?'s':''}</div>
-      ${info.vacant?`<div class="vac-count">${info.vacant} vacant</div>`:''}
+      <div class="vac-count">${info.vacant} vacant room${info.vacant>1?'s':''}</div>
     </button>`).join('');
 
   main.innerHTML = `<div class="selector"><div class="step-label">Select a Condo</div>
