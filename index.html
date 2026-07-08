@@ -1845,6 +1845,7 @@
         <div class="help">Per-room aircon credit top-ups for this month <span id="airMonthLbl" class="ml-2"></span></div>
         <div class="flex gap-2 items-center">
           <select id="airSelProp" class="input !w-auto !text-xs"></select>
+          <button class="px-4 py-2 rounded-xl text-sm font-bold border border-emerald-500 text-emerald-700 bg-emerald-50 hover:bg-emerald-100" onclick="exportAirconXlsx()">⬇ Export Excel</button>
           <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openAirModal()">+ Add Top-up</button>
         </div>
       </div>
@@ -8895,6 +8896,50 @@ function renderAircon(){
     });
     host._inlineBound = true;
   }
+}
+
+function exportAirconXlsx(){
+  const pid = $('#airSelProp').value;
+  let list = pid
+    ? state.aircon.filter(r=>r.property_id===pid)
+    : state.aircon.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
+  list = [...list].sort((a,b)=>{
+    const pa = state.properties.find(x=>x.id===a.property_id);
+    const pb = state.properties.find(x=>x.id===b.property_id);
+    const kA = pa ? pa.condo+' '+pa.unit : 'zzz';
+    const kB = pb ? pb.condo+' '+pb.unit : 'zzz';
+    const pc = kA.localeCompare(kB);
+    return pc || compareRoom(a.room_code, b.room_code);
+  });
+
+  const monthLabel = MONTHS[state.month-1]+' '+state.year;
+  const header = ['Property','Room','Amount (RM)','Topped Up On','Remark'];
+  const rows = list.map(r=>{
+    const p = state.properties.find(x=>x.id===r.property_id);
+    const propLabel = p ? p.condo+' · '+p.unit : '';
+    const remark = (r.remark||'').replace(/\s*·?\s*TranID:[^\s·]+/,'').trim();
+    return [propLabel, 'Room '+r.room_code, Number(r.amount||0), r.topped_up_on||'', remark];
+  });
+  const total = list.reduce((s,x)=>s+Number(x.amount||0),0);
+  rows.push(['','TOTAL', total, '', '']);
+
+  // Build CSV
+  const escape = v => {
+    const s = String(v==null?'':v);
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"'+s.replace(/"/g,'""')+'"' : s;
+  };
+  const csv = [header, ...rows].map(r=>r.map(escape).join(',')).join('\r\n');
+  const bom = '﻿'; // UTF-8 BOM so Excel opens correctly
+  const blob = new Blob([bom+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Aircon_Topups_${monthLabel.replace(' ','_')}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Exported '+list.length+' records');
 }
 
 // Commit the Aircon inline-add row → push into aircon_topups, persist, re-render.
