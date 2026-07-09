@@ -30,6 +30,7 @@
 <!-- Supabase JS — pinned to a specific minor version so a future v2.x
      breaking change can't take production down without warning. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <!-- PDF.js, Tesseract.js, html2pdf, PizZip, docxtemplater, FileSaver are
      all lazy-loaded on demand via loadScript() with pinned versions. -->
@@ -8913,33 +8914,57 @@ function exportAirconXlsx(){
   });
 
   const monthLabel = MONTHS[state.month-1]+' '+state.year;
-  const header = ['Property','Room','Amount (RM)','Topped Up On','Remark'];
-  const rows = list.map(r=>{
-    const p = state.properties.find(x=>x.id===r.property_id);
-    const propLabel = p ? p.condo+' · '+p.unit : '';
-    const remark = (r.remark||'').replace(/\s*·?\s*TranID:[^\s·]+/,'').trim();
-    return [propLabel, 'Room '+r.room_code, Number(r.amount||0), r.topped_up_on||'', remark];
-  });
   const total = list.reduce((s,x)=>s+Number(x.amount||0),0);
-  rows.push(['','TOTAL', total, '', '']);
 
-  // Build CSV
-  const escape = v => {
-    const s = String(v==null?'':v);
-    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"'+s.replace(/"/g,'""')+'"' : s;
-  };
-  const csv = [header, ...rows].map(r=>r.map(escape).join(',')).join('\r\n');
-  const bom = '﻿'; // UTF-8 BOM so Excel opens correctly
-  const blob = new Blob([bom+csv], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `Aircon_Topups_${monthLabel.replace(' ','_')}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast('Exported '+list.length+' records');
+  // Build rows
+  const dataRows = list.map(r=>{
+    const p = state.properties.find(x=>x.id===r.property_id);
+    const remark = (r.remark||'').replace(/\s*·?\s*TranID:[^\s·]+/,'').trim();
+    return {
+      'Property':     p ? p.condo+' · '+p.unit : '',
+      'Room':         'Room '+r.room_code,
+      'Amount (RM)':  Number(r.amount||0),
+      'Topped Up On': r.topped_up_on||'',
+      'Remark':       remark,
+    };
+  });
+  dataRows.push({ 'Property':'', 'Room':'TOTAL', 'Amount (RM)': total, 'Topped Up On':'', 'Remark':'' });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(dataRows, { header:['Property','Room','Amount (RM)','Topped Up On','Remark'] });
+
+  // Column widths
+  ws['!cols'] = [{ wch:30 }, { wch:10 }, { wch:14 }, { wch:15 }, { wch:60 }];
+
+  // Style header row bold + teal fill
+  const headerCols = ['A','B','C','D','E'];
+  headerCols.forEach(col=>{
+    const cell = ws[col+'1'];
+    if(!cell) return;
+    cell.s = {
+      font:{ bold:true, color:{ rgb:'FFFFFF' } },
+      fill:{ fgColor:{ rgb:'007B8A' } },
+      alignment:{ horizontal:'center' },
+    };
+  });
+
+  // Style TOTAL row bold
+  const totalRow = dataRows.length + 1; // +1 for header
+  ['A','B','C','D','E'].forEach(col=>{
+    const cell = ws[col+totalRow];
+    if(!cell) return;
+    cell.s = { font:{ bold:true } };
+  });
+
+  // Number format for Amount column
+  for(let i=2; i<=dataRows.length; i++){
+    const cell = ws['C'+i];
+    if(cell) cell.z = '#,##0.00';
+  }
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Aircon Top-ups');
+  XLSX.writeFile(wb, `Aircon_Topups_${monthLabel.replace(' ','_')}.xlsx`);
+  toast('Exported '+list.length+' record'+(list.length!==1?'s':'')+' → .xlsx');
 }
 
 // Commit the Aircon inline-add row → push into aircon_topups, persist, re-render.
