@@ -10700,8 +10700,13 @@ function tenancyForMonth(tenants, y, m){
   return tenants.filter(t=>{
     const s = t.agreement_start ? new Date(t.agreement_start) : null;
     const e = t.agreement_end   ? new Date(t.agreement_end)   : null;
+    // A moved-out tenant stops appearing once their move-out date is before
+    // the first day of the report month (agreement_end alone isn't reliable
+    // because tenants often move out mid-tenancy with end date still future).
+    const mo = t.move_out_date  ? new Date(t.move_out_date)   : null;
     if(s && s>last) return false;
-    if(e && e<first) return false;
+    if(mo && mo<first) return false;
+    if(!mo && e && e<first) return false;
     return true;
   });
 }
