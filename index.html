@@ -5396,14 +5396,11 @@ function renderAdminDashboard(){
       </tr>`).join('')
     )}`);
 
-  // Units with open (unresolved) query notes this month
-  const openNotes = (state.annotations||[]).filter(n=>n.year===y&&n.month===m&&!n.resolved);
+  // Open (unresolved) query notes this month, keyed by property
   const openNotesByProp = {};
-  openNotes.forEach(n=>{
-    if(!openNotesByProp[n.property_id]) openNotesByProp[n.property_id]=[];
-    openNotesByProp[n.property_id].push(n);
+  (state.annotations||[]).filter(n=>n.year===y&&n.month===m&&!n.resolved).forEach(n=>{
+    openNotesByProp[n.property_id] = (openNotesByProp[n.property_id]||0) + 1;
   });
-  const propsWithOpenNotes = props.filter(p=>openNotesByProp[p.id]);
 
   const paneSignoff = panel(`
     ${secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E')}
@@ -5412,30 +5409,14 @@ function renderAdminDashboard(){
         const rs=(state.reportStatus||[]).find(r=>r.property_id===p.id&&r.year===y&&r.month===m);
         const adminDone=rs&&rs.admin_checked_at, mgrDone=rs&&rs.manager_verified_at;
         const pill=(label,done)=>`<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${done?'rgba(16,185,129,.15)':'var(--th-bg)'};color:${done?'#059669':'var(--muted)'};">${done?'✓':' ○'} ${label}</span>`;
+        const openCount = openNotesByProp[p.id]||0;
+        const queryAlert = openCount ? `<span title="${openCount} open query note${openCount>1?'s':''}" style="font-size:13px;line-height:1" aria-label="open query notes">🚩</span>` : '';
         return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:10px;background:var(--th-bg);margin-bottom:5px">
-          <span style="font-size:12px;font-weight:700;color:var(--ink)">${esc(p.condo+' '+p.unit)}</span>
+          <span style="font-size:12px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">${esc(p.condo+' '+p.unit)}${queryAlert}</span>
           <div style="display:flex;gap:5px">${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
         </div>`;
       }).join('')
-    }
-    <div style="margin-top:16px">
-    ${secHead('🚩','Open Query Notes',propsWithOpenNotes.length||null,'background:#FEE2E2;color:#B91C1C')}
-    ${propsWithOpenNotes.length===0 ? emptyMsg('No open query notes this month ✓') :
-      propsWithOpenNotes.map(p=>{
-        const notes = openNotesByProp[p.id];
-        const noteList = notes.map(n=>`
-          <div style="font-size:11px;color:#7F1D1D;background:#FFF5F5;border-left:3px solid #FECACA;border-radius:0 6px 6px 0;padding:4px 8px;margin-top:4px;white-space:pre-wrap">${esc(n.section?'['+n.section+'] ':'') + esc(n.note)}</div>
-        `).join('');
-        return `<div style="padding:7px 10px;border-radius:10px;background:var(--th-bg);margin-bottom:5px">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <span style="font-size:12px;font-weight:700;color:var(--ink)">${esc(p.condo+' '+p.unit)}</span>
-            <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:#FEE2E2;color:#B91C1C">${notes.length} open</span>
-          </div>
-          ${noteList}
-        </div>`;
-      }).join('')
-    }
-    </div>`);
+    }`);
 
   const buildProRow = (t, isIn) => {
     const p = state.properties.find(x=>x.id===t.property_id);
