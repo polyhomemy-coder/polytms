@@ -5144,7 +5144,7 @@ function renderAdminDashboard(){
     {id:'carpark',   label:'🚗 Carpark'+badge(carparkList.length, false)},
     {id:'signoff',   label:'📋 Sign-off'+badge(reportPending.length, reportPending.length>0)},
     ...(state.role==='manager'||state.role==='admin' ? [{id:'users', label:'👥 Users'}] : []),
-    ...(state.role==='manager' ? [{id:'notices', label:'📢 Notices'}, {id:'backup', label:'🗄️ Backup'}] : []),
+    ...(state.role==='manager'||state.role==='admin' ? [{id:'notices', label:'📢 Notices'}, {id:'backup', label:'🗄️ Backup'}] : []),
   ];
 
   const tabBar = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
@@ -5396,6 +5396,15 @@ function renderAdminDashboard(){
       </tr>`).join('')
     )}`);
 
+  // Units with open (unresolved) query notes this month
+  const openNotes = (state.annotations||[]).filter(n=>n.year===y&&n.month===m&&!n.resolved);
+  const openNotesByProp = {};
+  openNotes.forEach(n=>{
+    if(!openNotesByProp[n.property_id]) openNotesByProp[n.property_id]=[];
+    openNotesByProp[n.property_id].push(n);
+  });
+  const propsWithOpenNotes = props.filter(p=>openNotesByProp[p.id]);
+
   const paneSignoff = panel(`
     ${secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E')}
     ${reportPending.length===0 ? emptyMsg('All reports launched this month ✓') :
@@ -5408,7 +5417,25 @@ function renderAdminDashboard(){
           <div style="display:flex;gap:5px">${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
         </div>`;
       }).join('')
-    }`);
+    }
+    <div style="margin-top:16px">
+    ${secHead('🚩','Open Query Notes',propsWithOpenNotes.length||null,'background:#FEE2E2;color:#B91C1C')}
+    ${propsWithOpenNotes.length===0 ? emptyMsg('No open query notes this month ✓') :
+      propsWithOpenNotes.map(p=>{
+        const notes = openNotesByProp[p.id];
+        const noteList = notes.map(n=>`
+          <div style="font-size:11px;color:#7F1D1D;background:#FFF5F5;border-left:3px solid #FECACA;border-radius:0 6px 6px 0;padding:4px 8px;margin-top:4px;white-space:pre-wrap">${esc(n.section?'['+n.section+'] ':'') + esc(n.note)}</div>
+        `).join('');
+        return `<div style="padding:7px 10px;border-radius:10px;background:var(--th-bg);margin-bottom:5px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:12px;font-weight:700;color:var(--ink)">${esc(p.condo+' '+p.unit)}</span>
+            <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:#FEE2E2;color:#B91C1C">${notes.length} open</span>
+          </div>
+          ${noteList}
+        </div>`;
+      }).join('')
+    }
+    </div>`);
 
   const buildProRow = (t, isIn) => {
     const p = state.properties.find(x=>x.id===t.property_id);
@@ -11862,7 +11889,7 @@ function renderAnnotations(){
         ${n.resolved?'<span style="font-size:10px;color:#065F46;font-weight:700">✓ Resolved</span>':'<span style="font-size:10px;color:#B91C1C;font-weight:700">🚩 Open</span>'}
         <span style="font-size:10px;color:var(--muted);margin-left:auto">${esc(n.created_by||'')} · ${fmtDate(n.created_at)}</span>
       </div>
-      <div style="font-size:12px;color:${noteClr};line-height:1.5">${esc(n.note)}</div>
+      <div style="font-size:12px;color:${noteClr};line-height:1.5;white-space:pre-wrap">${esc(n.note)}</div>
       ${replyHtml}
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
         ${resolveBtn}${replyBtn}${editBtn}${deleteBtn}
