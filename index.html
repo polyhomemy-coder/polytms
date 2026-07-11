@@ -12336,10 +12336,24 @@ async function multiExportPDF(){
 }
 
 // Auto-preview the income report whenever any input changes.
+// Debounced build — used for month/property selectors so rapid arrow-key
+// presses don't stack up multiple full DB round-trips in flight at once.
+let _buildReportTimer = null;
+function buildReportDebounced(ms=380){
+  clearTimeout(_buildReportTimer);
+  _buildReportTimer = setTimeout(()=>{ if(onReportTab()) buildReport(); }, ms);
+}
+
 let _reportBound = false;
 function bindReportAutoPreview(){
   if(_reportBound) return;
-  ['rptProp','rptMonth','rptIssue','rptAutoFee','rptAutoCom'].forEach(id=>{
+  // Month + property: debounced so keyboard navigation doesn't pile up DB calls
+  ['rptProp','rptMonth'].forEach(id=>{
+    const el = $('#'+id); if(!el) return;
+    el.addEventListener('change', buildReportDebounced);
+  });
+  // Other inputs (issue date, fee toggles): respond immediately
+  ['rptIssue','rptAutoFee','rptAutoCom'].forEach(id=>{
     const el = $('#'+id); if(!el) return;
     el.addEventListener('change', ()=>{ if(onReportTab()) buildReport(); });
   });
