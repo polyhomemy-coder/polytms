@@ -11889,7 +11889,7 @@ async function addAnnotation(){
   const _card   = _addBtn?.closest('.card');
   const _cardR  = _card?.getBoundingClientRect();
   const _pLeft  = _cardR ? Math.round(_cardR.left) : 24;
-  const _pTop   = _cardR ? Math.round(_cardR.top)  : 80;
+  const _pTop   = (_cardR ? Math.round(_cardR.top) : 80) + Math.round(window.innerHeight * 0.15);
   const _pWidth = _cardR ? Math.round(_cardR.width) : 310;
   panel.style.cssText = `position:fixed;top:${_pTop}px;left:${_pLeft}px;width:${_pWidth}px;z-index:500;border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.22);`;
   panel.innerHTML = `
