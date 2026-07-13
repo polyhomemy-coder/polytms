@@ -4038,7 +4038,19 @@ async function ensureCleaningExpensesFor(propId, y, m){
   return true;
 }
 
-async function ensureBalanceForwardFor(propId, y, m){
+// In-flight lock: concurrent callers for the same (property, year, month)
+// await the same promise instead of racing read-then-insert (which is what
+// produced duplicate "Balance forward" rows).
+const _bfInFlight = new Map();
+function ensureBalanceForwardFor(propId, y, m){
+  const key = propId+'|'+y+'|'+m;
+  if(_bfInFlight.has(key)) return _bfInFlight.get(key);
+  const job = _ensureBalanceForwardForInner(propId, y, m)
+    .finally(()=>_bfInFlight.delete(key));
+  _bfInFlight.set(key, job);
+  return job;
+}
+async function _ensureBalanceForwardForInner(propId, y, m){
   const p = (state.properties||[]).find(x=>x.id===propId);
   if(!p || p.active===false) return false;
   // Skip Own Unit properties — their losses don't roll forward
@@ -4057,7 +4069,14 @@ async function ensureBalanceForwardFor(propId, y, m){
   // Look at any existing BF row for this (property, month).
   const { data: exp } = await sb.from('expenses').select('id,category,amount')
     .eq('property_id',propId).eq('year',y).eq('month',m);
-  const existing = (exp||[]).find(e=>e.category==='balance_forward');
+  const bfRows = (exp||[]).filter(e=>e.category==='balance_forward');
+  // SELF-HEAL: if past races left duplicate BF rows, keep the first and
+  // delete the rest so the report stops double-counting.
+  if(bfRows.length > 1){
+    const dupIds = bfRows.slice(1).map(e=>e.id);
+    await sb.from('expenses').delete().in('id', dupIds);
+  }
+  const existing = bfRows[0];
   if(existing){
     // SYNC the amount if the source month's nett has changed since insert.
     const cur = Number(existing.amount||0);
@@ -4075,7 +4094,7 @@ async function ensureBalanceForwardFor(propId, y, m){
       if(error){ toast(error.message,'bad'); return false; }
       return true;
     }
-    return false;
+    return bfRows.length > 1; // true if we healed duplicates so caller reloads
   }
   // No existing row — honour user deletion via the localStorage flag.
   try { if(localStorage.getItem(_bfFlagKey(propId,y,m))==='1') return false; }
@@ -4630,63 +4649,17 @@ async function ensureBalanceForward(){
     (p.unit_type ? p.unit_type === 'other_unit' : String(p.property_type||'H2M').toUpperCase() === 'H2M')
   );
   if(!props.length) return false;
-  const rowsToInsert = [];
-  let updated = 0;
-  for(const p of props){
-    // Skip locked reports — never write through the lock with auto-BF.
-    if(isReportLocked(p.id, y, m)) continue;
-    // Only carry forward once the previous month is fully signed off.
-    if(!_bfIsSignedOff(p.id, py, pm)) continue;
-    // Compute the expected BF amount based on previous month's chained nett.
-    const prevNett = await computeMonthNettWithChain(p, py, pm);
-    const expectedAmt = prevNett < -0.005 ? +(-prevNett).toFixed(2) : 0;
-    const desc = `Balance forward from ${MONTHS[pm-1]} ${py} (net rental loss)`;
-    // Look at any existing BF row for this (property, year, month).
-    const existing = state.expenses.find(e=>
-      e.property_id===p.id && e.year===y && e.month===m && e.category==='balance_forward'
-    );
-    if(existing){
-      // SYNC the amount if the source month's nett has changed since we
-      // first inserted. This catches "I edited last month after BF was
-      // already auto-created" — without sync, the BF row stays stale.
-      const cur = Number(existing.amount||0);
-      if(expectedAmt > 0 && Math.abs(cur - expectedAmt) > 0.01){
-        const {error} = await sb.from('expenses').update({
-          amount: expectedAmt, description: desc,
-        }).eq('id', existing.id);
-        if(!error) updated++;
-      } else if(expectedAmt <= 0){
-        // Source month no longer negative — delete the stale BF row so the
-        // current month's expenses don't carry a fictional loss.
-        const {error} = await sb.from('expenses').delete().eq('id', existing.id);
-        if(!error) updated++;
-      }
-      continue;
-    }
-    // No existing row.
-    // Skip if we already auto-inserted for this (property, year, month) and
-    // the user later deleted the row — we honour their deletion.
-    try { if(localStorage.getItem(_bfFlagKey(p.id,y,m))==='1') continue; }
-    catch(_){}
-    if(expectedAmt <= 0) continue;
-    rowsToInsert.push({
-      property_id: p.id,
-      year: y, month: m,
-      category: 'balance_forward',
-      description: desc,
-      amount: expectedAmt,
-      expense_date: null
-    });
-  }
-  if(rowsToInsert.length){
-    const { error } = await sb.from('expenses').insert(rowsToInsert);
-    if(error){ toast(error.message,'bad'); return false; }
-    rowsToInsert.forEach(r=>{
-      try { localStorage.setItem(_bfFlagKey(r.property_id, r.year, r.month), '1'); }
-      catch(_){}
-    });
-  }
-  if(rowsToInsert.length || updated){ await loadExpenses(); return true; }
+  // Delegate to the single DB-checked, in-flight-locked writer so this batch
+  // path can never race buildReport()/syncDerivedExpenses() into duplicates.
+  // (Previously this function did its own read-then-insert against the
+  // in-memory state.expenses list, which could be stale.)
+  let changed = false;
+  await Promise.all(props.map(p =>
+    ensureBalanceForwardFor(p.id, y, m)
+      .then(ch=>{ if(ch) changed = true; })
+      .catch(e=>console.warn('[polyTMS] BF batch failed:', e))
+  ));
+  if(changed){ await loadExpenses(); return true; }
   return false;
 }
 
