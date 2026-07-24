@@ -1577,15 +1577,18 @@
       <div id="dashRaceChart"><div class="text-slate-400 text-sm py-4 text-center">—</div></div>
     </div>
 
-    <!-- Property type sub-tabs -->
-    <div id="dashTypeTabs" class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1 mb-3 w-fit">
-      <span class="subtab-btn active" data-dashtype="H2M">🏢 Help Manage</span>
-      <span class="subtab-btn" data-dashtype="R2R">🏠 Own Unit</span>
+    <!-- Manager sub-tabs -->
+    <div id="mgrSubTabs" class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1 mb-3 w-fit flex-wrap">
+      <span class="subtab-btn active" data-mgrsub="dashboard">📊 Dashboard</span>
+      <span class="subtab-btn" data-mgrsub="feelist">🧾 Management Fee Unit Listing</span>
+      <span class="subtab-btn" data-mgrsub="ownunit">🏠 Own Unit</span>
+      <span class="subtab-btn" data-mgrsub="assign">🏢 Property Assignment</span>
     </div>
     <!-- ====================================================== -->
-    <!-- HELP MANAGE (H2M) DASHBOARD VIEW                         -->
+    <!-- DASHBOARD VIEW — metrics across ALL properties matching   -->
+    <!-- the active sidebar filters (not limited to Help Manage)   -->
     <!-- ====================================================== -->
-    <div id="dashH2MView">
+    <div id="dashOverviewView">
       <!-- HERO TILES — top-line money metrics for the month (cyan + orange theme) -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div class="hero-card hero-cyan anim-hero" style="animation-delay:0s">
@@ -1649,15 +1652,20 @@
           <div class="help mt-0.5" id="stCarOccDetail">— / —</div>
         </div>
       </div>
+    </div>
 
+    <!-- ====================================================== -->
+    <!-- MANAGEMENT FEE UNIT LISTING — per-unit breakdown          -->
+    <!-- (Help Manage units only — Own Unit doesn't pay mgmt fee)  -->
+    <!-- ====================================================== -->
+    <div id="dashFeeListView" class="hidden-force">
       <div class="card">
         <div class="flex items-center justify-between">
-          <div class="section-title">Monthly Overview</div>
+          <div class="section-title">Management Fee Unit Listing</div>
           <div class="help" id="dashMonthLbl"></div>
         </div>
         <div class="divider"></div>
         <div id="dashTable"></div>
-        <div id="propAssignPanel" style="margin-top:12px"></div>
       </div>
     </div>
 
@@ -1702,6 +1710,15 @@
         <div class="overflow-x-auto" style="max-height:60vh">
           <div id="r2rMatrix"><div class="text-slate-400 text-sm py-10 text-center">No R2R units yet.</div></div>
         </div>
+      </div>
+    </div>
+
+    <!-- ====================================================== -->
+    <!-- PROPERTY ASSIGNMENT VIEW                                  -->
+    <!-- ====================================================== -->
+    <div id="dashAssignView" class="hidden-force">
+      <div class="card">
+        <div id="propAssignPanel"></div>
       </div>
     </div>
   </section>
@@ -2238,7 +2255,7 @@ let state = {
   rentStatusFilter: 'all',    // 'all' | 'paid' | 'unmatch' | 'unpaid'
   tenantQuery: '',            // free-text search on tenants tab
   expenseCat: 'all',          // 'all' | 'management_fee' | 'rent_commission' | 'cleaning' | 'maintenance' | 'other'
-  dashType: 'H2M',            // 'H2M' (Help Manage) or 'R2R' (Own Unit) — dashboard sub-tab filter
+  mgrSub: 'dashboard',        // 'dashboard' | 'feelist' | 'ownunit' | 'assign' — Manager tab sub-tab
   r2rYear: null,              // year shown in the R2R yearly matrix; null = follow state.year
   propSub: 'all',             // 'all' | 'vacancies' — Properties parent sub-pane
   propCityFilter: [],         // selected city values — empty = show all cities
@@ -3095,13 +3112,13 @@ document.addEventListener('click', e=>{
   renderCollection();
 });
 
-// --- Dashboard property-type sub-tabs ---
+// --- Manager tab sub-tabs ---
 document.addEventListener('click', e=>{
-  const btn = e.target.closest('#dashTypeTabs .subtab-btn');
+  const btn = e.target.closest('#mgrSubTabs .subtab-btn');
   if(!btn) return;
-  state.dashType = btn.dataset.dashtype;
-  document.querySelectorAll('#dashTypeTabs .subtab-btn').forEach(x=>
-    x.classList.toggle('active', x.dataset.dashtype===state.dashType));
+  state.mgrSub = btn.dataset.mgrsub;
+  document.querySelectorAll('#mgrSubTabs .subtab-btn').forEach(x=>
+    x.classList.toggle('active', x.dataset.mgrsub===state.mgrSub));
   renderDashboard();
 });
 
@@ -4792,9 +4809,9 @@ function fillPropertySelectors(){
 function renderTab(t){
   renderSidebarFilters();
   if(t==='dashboard'){
-    // Reflect state.dashType on the sub-tab buttons every time we render
-    document.querySelectorAll('#dashTypeTabs .subtab-btn').forEach(x=>
-      x.classList.toggle('active', x.dataset.dashtype===(state.dashType||'H2M')));
+    // Reflect state.mgrSub on the sub-tab buttons every time we render
+    document.querySelectorAll('#mgrSubTabs .subtab-btn').forEach(x=>
+      x.classList.toggle('active', x.dataset.mgrsub===(state.mgrSub||'dashboard')));
     renderDashboard();
   }
   if(t==='admin') renderAdminDashboard();
@@ -4990,14 +5007,27 @@ function renderGlobalCharts(){
 
 function renderDashboard(){
   renderGlobalCharts();
-  const dt = state.dashType || 'H2M';
+  const sub = state.mgrSub || 'dashboard';
   // Toggle which view the user sees
-  const h2mView = $('#dashH2MView');
-  const r2rView = $('#dashR2RView');
-  if(h2mView) h2mView.classList.toggle('hidden-force', dt!=='H2M');
-  if(r2rView) r2rView.classList.toggle('hidden-force', dt!=='R2R');
-  if(dt === 'R2R') return renderOwnUnitDashboard();
-  return renderHelpManageDashboard();
+  const overviewView = $('#dashOverviewView');
+  const feeListView  = $('#dashFeeListView');
+  const r2rView      = $('#dashR2RView');
+  const assignView   = $('#dashAssignView');
+  if(overviewView) overviewView.classList.toggle('hidden-force', sub!=='dashboard');
+  if(feeListView)  feeListView.classList.toggle('hidden-force',  sub!=='feelist');
+  if(r2rView)      r2rView.classList.toggle('hidden-force',      sub!=='ownunit');
+  if(assignView)   assignView.classList.toggle('hidden-force',   sub!=='assign');
+
+  if(sub === 'ownunit') return renderOwnUnitDashboard();
+  if(sub === 'feelist')  return renderManagementFeeUnitListing();
+  if(sub === 'assign'){
+    if(state.role === 'manager'){
+      const panel = document.getElementById('propAssignPanel');
+      if(panel) renderPropAssignPanel(panel);
+    }
+    return;
+  }
+  return renderDashboardMetrics();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5767,11 +5797,14 @@ function renderRateDonut(o){
 //  HELP MANAGE (H2M) DASHBOARD
 //  Top-line monthly money + 3 owner-side metrics + bar/donut + table.
 // ============================================================
-function renderHelpManageDashboard(){
-  const props = state.properties.filter(p=>{
-    const isH2M = p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M';
-    return isH2M && _propPassesGlobalFilter(p);
-  });
+// ============================================================
+//  DASHBOARD METRICS — hero tiles + secondary stats across ALL
+//  properties matching the active sidebar filters. No longer
+//  limited to Help Manage units (moved up from renderHelpManageDashboard
+//  so it sits at the same level as Payment Rate / Room Occupancy).
+// ============================================================
+function renderDashboardMetrics(){
+  const props = state.properties.filter(p=>p.active!==false && _propPassesGlobalFilter(p));
   const propIds = new Set(props.map(p=>p.id));
   const tenants = state.tenants.filter(t=>propIds.has(t.property_id) && t.active!==false);
   const payments = state.payments.filter(p=>propIds.has(p.property_id));
@@ -5913,19 +5946,25 @@ function renderHelpManageDashboard(){
   const carPct  = occ.totalCar   ? Math.round((occ.occCar /occ.totalCar )*100) : 0;
   $('#stCarOcc').textContent        = occ.totalCar   ? carPct +'%' : '—';
   $('#stCarOccDetail').textContent  = occ.occCar +' / '+occ.totalCar +' occupied';
+}
 
-  // Payment Rate — out of every tenant active *this* month, how many have a
-  // matching room rental payment recorded?
-  const monthTenants = tenancyForMonth(tenants, state.year, state.month)
-    .filter(t=>t.room_code);
-  const paidKeys = new Set(payments
-    .filter(p=>p.item_type==='room' && p.room_code)
-    .map(p=>p.property_id+'|'+String(p.room_code).toUpperCase()));
-  const paidCount = monthTenants.filter(t=>
-    paidKeys.has(t.property_id+'|'+String(t.room_code).toUpperCase())
-  ).length;
-  const dueCount = monthTenants.length;
-  const payPct = dueCount ? Math.round((paidCount/dueCount)*100) : 0;
+// ============================================================
+//  MANAGEMENT FEE UNIT LISTING — per-unit breakdown table.
+//  Help Manage units only (Own Unit properties don't pay a
+//  management fee, so they're excluded from this listing).
+// ============================================================
+function renderManagementFeeUnitListing(){
+  const props = state.properties.filter(p=>{
+    const isH2M = p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M';
+    return isH2M && _propPassesGlobalFilter(p);
+  });
+  const propIds = new Set(props.map(p=>p.id));
+  const tenants  = state.tenants.filter(t=>propIds.has(t.property_id) && t.active!==false);
+  const payments = state.payments.filter(p=>propIds.has(p.property_id));
+  const aircon   = state.aircon.filter(p=>propIds.has(p.property_id));
+  const expenses = state.expenses.filter(p=>propIds.has(p.property_id));
+  const extras   = state.extras.filter(p=>propIds.has(p.property_id));
+  const monthName = MONTHS[state.month-1] + ' ' + state.year;
 
   // Per-property stats (drives the table below).
   const propStats = props.map(p=>{
@@ -5964,12 +6003,6 @@ function renderHelpManageDashboard(){
   $('#dashTable').innerHTML = `<table class="data">
     <thead><tr><th>Condo</th><th>Unit</th><th>Owner</th><th>Occupancy</th><th class="num">Rental</th><th class="num">Air-Cond</th><th class="num">Extra</th><th class="num">Expenses</th><th class="num">Nett</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="9" class="text-center text-slate-400 py-10">No Help Manage properties yet.</td></tr>'}</tbody></table>`;
-
-  // Property assignment panel — manager only
-  if(state.role === 'manager'){
-    const panel = document.getElementById('propAssignPanel');
-    if(panel) renderPropAssignPanel(panel);
-  }
 }
 
 // ============================================================
@@ -6022,7 +6055,7 @@ async function renderOwnUnitDashboard(){
     })
   );
   // Bail if the user has switched year/property-type since we started
-  if(state._r2rRenderYear !== focusYear || state.dashType !== 'R2R') return;
+  if(state._r2rRenderYear !== focusYear || state.mgrSub !== 'ownunit') return;
 
   // Aggregate hero stats
   let yearTotal = 0, profMonths = 0, lossMonths = 0;
