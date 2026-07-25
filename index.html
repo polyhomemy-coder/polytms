@@ -590,17 +590,25 @@
      top-right ── */
   .dash-top-band{display:flex;gap:12px;align-items:stretch}
   .dash-compact .dash-map-wide{flex:0 0 22%;height:340px}
-  .dash-top-band-right{flex:1;display:flex;flex-direction:column;gap:12px}
-  .dash-top-band-right .hero-card,
-  .dash-top-band-right .stat-mini{flex:1;min-height:0;justify-content:center}
-  .dash-top-band-right .hero-card .hero-value{font-size:34px}
-  .dash-top-band-right .hero-card .hero-label{font-size:13px}
-  .dash-top-band-right .hero-card .hero-sub{font-size:11.5px}
-  .dash-top-band-right .stat-mini .text-2xl{font-size:40px;color:var(--brand2,#00B4CC)}
-  .dash-top-band-right .stat-mini .help{font-size:13px}
+  .dash-top-band-right{flex:1;display:flex;flex-direction:column;gap:10px}
+  /* Row 1 — the two highlighted KPIs, big */
+  .dash-top-band-hero{flex:2;display:flex;gap:12px;min-height:0}
+  .dash-top-band-hero .hero-card,
+  .dash-top-band-hero .stat-mini{flex:1;min-height:0;justify-content:center}
+  .dash-top-band-hero .hero-card .hero-value{font-size:34px}
+  .dash-top-band-hero .hero-card .hero-label{font-size:13px}
+  .dash-top-band-hero .hero-card .hero-sub{font-size:11.5px}
+  .dash-top-band-hero .stat-mini .text-2xl{font-size:40px;color:var(--brand2,#00B4CC)}
+  .dash-top-band-hero .stat-mini .help{font-size:13px}
+  /* Row 2 — Properties / Active Tenants / Total Rooms / Total Carparks, compact */
+  .dash-top-band-stats{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;min-height:0}
+  .dash-top-band-stats .stat-mini{min-height:0;display:flex;flex-direction:column;justify-content:center}
+  .dash-top-band-stats .stat-mini .text-2xl{font-size:20px}
+  .dash-top-band-stats .stat-mini .help{font-size:10px}
   @media (max-width:1024px){
     .dash-top-band{flex-direction:column}
     .dash-map-wide{flex:none;height:280px}
+    .dash-top-band-hero{flex-direction:column}
   }
   .hero-blue{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
   .hero-blue-light{background:linear-gradient(135deg,#007B8A,#00B4CC)}
@@ -1754,15 +1762,27 @@
           <div class="dash-map-attrib">Map: Hellerick / Wikimedia Commons, CC BY-SA 3.0</div>
         </div>
         <div class="dash-top-band-right">
-          <div class="hero-card hero-orange anim-hero hero-highlight" style="animation-delay:.1s">
-            <div class="hero-label">Management Fee</div>
-            <div class="hero-value" id="stMgmt">RM –</div>
-            <div class="hero-sub" id="stMgmtSub">in this month</div>
+          <div class="dash-top-band-hero">
+            <div class="hero-card hero-orange anim-hero hero-highlight" style="animation-delay:.1s">
+              <div class="hero-label">Management Fee</div>
+              <div class="hero-value" id="stMgmt">RM –</div>
+              <div class="hero-sub" id="stMgmtSub">in this month</div>
+            </div>
+            <div class="card stat-mini stat-mini-highlight">
+              <div class="help">🏠 R2R This Month Income</div>
+              <div class="text-2xl font-extrabold mt-1" id="stR2RIncome">–</div>
+              <div class="help mt-0.5" id="stR2RIncomeSub">— units</div>
+            </div>
           </div>
-          <div class="card stat-mini stat-mini-highlight">
-            <div class="help">🏠 R2R This Month Income</div>
-            <div class="text-2xl font-extrabold mt-1" id="stR2RIncome">–</div>
-            <div class="help mt-0.5" id="stR2RIncomeSub">— units</div>
+          <div class="dash-top-band-stats">
+            <div class="card stat-mini">
+              <div class="help">Properties</div>
+              <div class="text-2xl font-extrabold mt-1" id="stProps">–</div>
+              <div class="help mt-0.5" id="stPropsByCity">— by city</div>
+            </div>
+            <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
+            <div class="card stat-mini"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
+            <div class="card stat-mini"><div class="help">Total Carparks</div><div class="text-2xl font-extrabold mt-1" id="stTotalCarparks">–</div></div>
           </div>
         </div>
       </div>
@@ -1836,18 +1856,6 @@
           <div class="hero-value" id="stDeposit">RM –</div>
           <div class="hero-sub" id="stDepositSub">room + carpark</div>
         </div>
-      </div>
-
-      <!-- SECONDARY METRICS — remaining property/tenant counts -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div class="card stat-mini">
-          <div class="help">Properties</div>
-          <div class="text-2xl font-extrabold mt-1" id="stProps">–</div>
-          <div class="help mt-0.5" id="stPropsByCity">— by city</div>
-        </div>
-        <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
-        <div class="card stat-mini"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
-        <div class="card stat-mini"><div class="help">Total Carparks</div><div class="text-2xl font-extrabold mt-1" id="stTotalCarparks">–</div></div>
       </div>
     </div>
 
