@@ -1552,31 +1552,6 @@
   <!-- DASHBOARD ============================================== -->
   <section class="tab-pane" data-pane="dashboard">
 
-    <!-- GLOBAL CHARTS — all properties (H2M + R2R), always visible -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-      <div class="card">
-        <div class="flex items-baseline justify-between mb-2">
-          <div class="section-title">Payment Rate</div>
-          <div class="help" id="dashPayDonutCaption">this month</div>
-        </div>
-        <div id="dashPayDonut" class="py-2"><div class="text-slate-400 text-sm py-10 text-center">—</div></div>
-      </div>
-      <div class="card">
-        <div class="flex items-baseline justify-between mb-2">
-          <div class="section-title">Room Occupancy</div>
-          <div class="help">all properties · live</div>
-        </div>
-        <div id="dashRoomDonut" class="py-2"><div class="text-slate-400 text-sm py-10 text-center">—</div></div>
-      </div>
-    </div>
-    <div class="card mb-4">
-      <div class="flex items-baseline justify-between mb-3">
-        <div class="section-title">Tenant Race Breakdown</div>
-        <div class="help" id="dashRaceTotal">all active tenants</div>
-      </div>
-      <div id="dashRaceChart"><div class="text-slate-400 text-sm py-4 text-center">—</div></div>
-    </div>
-
     <!-- Manager sub-tabs -->
     <div id="mgrSubTabs" class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1 mb-3 w-fit flex-wrap">
       <span class="subtab-btn active" data-mgrsub="dashboard">📊 Dashboard</span>
@@ -1589,6 +1564,31 @@
     <!-- the active sidebar filters (not limited to Help Manage)   -->
     <!-- ====================================================== -->
     <div id="dashOverviewView">
+      <!-- GLOBAL CHARTS — all properties (H2M + R2R) -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <div class="card">
+          <div class="flex items-baseline justify-between mb-2">
+            <div class="section-title">Payment Rate</div>
+            <div class="help" id="dashPayDonutCaption">this month</div>
+          </div>
+          <div id="dashPayDonut" class="py-2"><div class="text-slate-400 text-sm py-10 text-center">—</div></div>
+        </div>
+        <div class="card">
+          <div class="flex items-baseline justify-between mb-2">
+            <div class="section-title">Room Occupancy</div>
+            <div class="help">all properties · live</div>
+          </div>
+          <div id="dashRoomDonut" class="py-2"><div class="text-slate-400 text-sm py-10 text-center">—</div></div>
+        </div>
+      </div>
+      <div class="card mb-4">
+        <div class="flex items-baseline justify-between mb-3">
+          <div class="section-title">Tenant Race Breakdown</div>
+          <div class="help" id="dashRaceTotal">all active tenants</div>
+        </div>
+        <div id="dashRaceChart"><div class="text-slate-400 text-sm py-4 text-center">—</div></div>
+      </div>
+
       <!-- HERO TILES — top-line money metrics for the month (cyan + orange theme) -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div class="hero-card hero-cyan anim-hero" style="animation-delay:0s">
@@ -5006,7 +5006,6 @@ function renderGlobalCharts(){
 }
 
 function renderDashboard(){
-  renderGlobalCharts();
   const sub = state.mgrSub || 'dashboard';
   // Toggle which view the user sees
   const overviewView = $('#dashOverviewView');
@@ -5027,6 +5026,9 @@ function renderDashboard(){
     }
     return;
   }
+  // Payment Rate / Room Occupancy / Race Breakdown now live inside the
+  // Dashboard sub-tab, so only compute them when that sub-tab is active.
+  renderGlobalCharts();
   return renderDashboardMetrics();
 }
 
