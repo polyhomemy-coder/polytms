@@ -462,6 +462,10 @@
   .dash-compact .bar-row .bar-value{font-size:10.5px}
   .dash-compact .stat-mini .text-2xl{font-size:18px}
   .dash-compact .stat-mini .help{font-size:10px}
+  .dash-compact .dash-chart-card{aspect-ratio:16/14;display:flex;flex-direction:column}
+  .dash-compact .dash-chart-card>div:last-child{flex:1;display:flex;flex-direction:column;justify-content:center}
+  .hero-blue{background:linear-gradient(135deg,#1E3A8A,#2563EB 55%,#3B82F6)}
+  .hero-blue-light{background:linear-gradient(135deg,#2563EB,#60A5FA)}
   .hero-cyan{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
   .hero-cyan-light{background:linear-gradient(135deg,#0AA3B8,#3CC5D6)}
   .hero-orange{background:linear-gradient(135deg,#D96A0A,#F4811F 55%,#FF9A45)}
@@ -1587,22 +1591,29 @@
     <!-- ====================================================== -->
     <div id="dashOverviewView" class="dash-compact">
       <!-- GLOBAL CHARTS — all properties (H2M + R2R) -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3">
-        <div class="card">
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-3">
+        <div class="card dash-chart-card">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Payment Rate</div>
             <div class="help" id="dashPayDonutCaption">this month</div>
           </div>
           <div id="dashPayDonut" class="py-1"><div class="text-slate-400 text-sm py-6 text-center">—</div></div>
         </div>
-        <div class="card">
+        <div class="card dash-chart-card">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Room Occupancy</div>
             <div class="help">all properties · live</div>
           </div>
           <div id="dashRoomDonut" class="py-1"><div class="text-slate-400 text-sm py-6 text-center">—</div></div>
         </div>
-        <div class="card">
+        <div class="card dash-chart-card">
+          <div class="flex items-baseline justify-between mb-1">
+            <div class="section-title">Carpark Occupancy</div>
+            <div class="help">all properties · live</div>
+          </div>
+          <div id="dashCarDonut" class="py-1"><div class="text-slate-400 text-sm py-6 text-center">—</div></div>
+        </div>
+        <div class="card dash-chart-card">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Tenant Race Breakdown</div>
             <div class="help" id="dashRaceTotal">all active tenants</div>
@@ -1613,12 +1624,12 @@
 
       <!-- HERO TILES — all money + owner metrics in one compact row -->
       <div class="grid grid-cols-4 lg:grid-cols-8 gap-2 mb-3">
-        <div class="hero-card hero-cyan anim-hero" style="animation-delay:0s">
+        <div class="hero-card hero-blue anim-hero" style="animation-delay:0s">
           <div class="hero-label">Rental Collected <span class="pulse-dot ml-1"></span></div>
           <div class="hero-value" id="stRent">RM –</div>
           <div class="hero-sub" id="stRentSub">in this month</div>
         </div>
-        <div class="hero-card hero-cyan-light anim-hero" style="animation-delay:.05s">
+        <div class="hero-card hero-blue-light anim-hero" style="animation-delay:.05s">
           <div class="hero-label">A/C Top-ups</div>
           <div class="hero-value" id="stAir">RM –</div>
           <div class="hero-sub" id="stAirSub">in this month</div>
@@ -1633,7 +1644,7 @@
           <div class="hero-value" id="stExp">RM –</div>
           <div class="hero-sub" id="stExpSub">in this month</div>
         </div>
-        <div class="hero-card hero-cyan anim-hero" style="animation-delay:.2s">
+        <div class="hero-card hero-blue anim-hero" style="animation-delay:.2s">
           <div class="hero-label">💼 Owner Issued</div>
           <div class="hero-value" id="stOwnIssued">RM –</div>
           <div class="hero-sub" id="stOwnIssuedSub">paid out</div>
@@ -1643,7 +1654,7 @@
           <div class="hero-value" id="stOwnDue">RM –</div>
           <div class="hero-sub" id="stOwnDueSub">carried by owners</div>
         </div>
-        <div class="hero-card hero-cyan-light anim-hero" style="animation-delay:.3s">
+        <div class="hero-card hero-blue-light anim-hero" style="animation-delay:.3s">
           <div class="hero-label">🔁 Bal. Repayment</div>
           <div class="hero-value" id="stBalRepay">RM –</div>
           <div class="hero-sub" id="stBalRepaySub">this month's gross loss</div>
@@ -1665,9 +1676,9 @@
         <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
         <div class="card stat-mini"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
         <div class="card stat-mini">
-          <div class="help">Carpark Occupancy</div>
-          <div class="text-2xl font-extrabold mt-1" id="stCarOcc">–</div>
-          <div class="help mt-0.5" id="stCarOccDetail">— / —</div>
+          <div class="help">🏠 R2R This Month Income</div>
+          <div class="text-2xl font-extrabold mt-1" id="stR2RIncome">–</div>
+          <div class="help mt-0.5" id="stR2RIncomeSub">— units</div>
         </div>
       </div>
     </div>
@@ -4976,8 +4987,8 @@ function renderGlobalCharts(){
     if(dueCount){
       $('#dashPayDonut').innerHTML = renderRateDonut({
         pct: payPct,
-        primaryColor: payPct>=90 ? '#10B981' : payPct>=70 ? '#00B4CC' : '#F4811F',
-        restColor: '#FEE7CC', primaryLabel:'Paid', restLabel:'Unpaid',
+        primaryColor: '#2563EB',
+        restColor: '#FCD9B8', primaryLabel:'Paid', restLabel:'Unpaid',
         primaryCount: paidCount, restCount: dueCount-paidCount,
         bottomLine: paidCount+' / '+dueCount+' paid',
       });
@@ -4993,13 +5004,29 @@ function renderGlobalCharts(){
     if(occ.totalRooms){
       $('#dashRoomDonut').innerHTML = renderRateDonut({
         pct: roomPct,
-        primaryColor: roomPct>=90 ? '#10B981' : roomPct>=70 ? '#00B4CC' : '#F4811F',
-        restColor: '#E2EEF1', primaryLabel:'Occupied', restLabel:'Vacant',
+        primaryColor: '#2563EB',
+        restColor: '#FCD9B8', primaryLabel:'Occupied', restLabel:'Vacant',
         primaryCount: occ.occRooms, restCount: occ.totalRooms-occ.occRooms,
         bottomLine: occ.occRooms+' / '+occ.totalRooms+' occupied',
       });
     } else {
       $('#dashRoomDonut').innerHTML = '<div class="text-slate-400 text-sm py-10 text-center">No rooms configured yet.</div>';
+    }
+
+    // Carpark Occupancy — all properties
+    if($('#dashCarDonut')){
+      const carPct = occ.totalCar ? Math.round((occ.occCar/occ.totalCar)*100) : 0;
+      if(occ.totalCar){
+        $('#dashCarDonut').innerHTML = renderRateDonut({
+          pct: carPct,
+          primaryColor: '#F4811F',
+          restColor: '#BFDBFE', primaryLabel:'Occupied', restLabel:'Vacant',
+          primaryCount: occ.occCar, restCount: occ.totalCar-occ.occCar,
+          bottomLine: occ.occCar+' / '+occ.totalCar+' occupied',
+        });
+      } else {
+        $('#dashCarDonut').innerHTML = '<div class="text-slate-400 text-sm py-10 text-center">No carparks configured yet.</div>';
+      }
     }
   }
 
@@ -5016,7 +5043,7 @@ function renderGlobalCharts(){
     });
     const total = allTenants.length;
     if($('#dashRaceTotal')) $('#dashRaceTotal').textContent = total+' active tenant'+(total!==1?'s':'');
-    const colors = { Chinese:'#F59E0B', Malay:'#10B981', Indian:'#8B5CF6', Foreigner:'#0891B2', Other:'#94A3B8' };
+    const colors = { Chinese:'#2563EB', Malay:'#F4811F', Indian:'#60A5FA', Foreigner:'#FCB070', Other:'#94A3B8' };
     const max = Math.max(...Object.values(raceBuckets), 1);
     const rows = Object.entries(raceBuckets)
       .filter(([,n])=>n>0).sort((a,b)=>b[1]-a[1])
@@ -5972,12 +5999,22 @@ function renderDashboardMetrics(){
   if($('#stDeposit'))    $('#stDeposit').textContent    = 'RM ' + fmt(totalDeposit);
   if($('#stDepositSub')) $('#stDepositSub').textContent = tenants.length+' active tenant'+(tenants.length===1?'':'s');
 
-  // Occupancy
-  const occ = computeOccupancy(props);
-  const roomPct = occ.totalRooms ? Math.round((occ.occRooms/occ.totalRooms)*100) : 0;
-  const carPct  = occ.totalCar   ? Math.round((occ.occCar /occ.totalCar )*100) : 0;
-  $('#stCarOcc').textContent        = occ.totalCar   ? carPct +'%' : '—';
-  $('#stCarOccDetail').textContent  = occ.occCar +' / '+occ.totalCar +' occupied';
+  // R2R (Own Unit) this month's total income — sum of income+aircon+extra-expenses
+  // across R2R properties matching the sidebar filters. Uses the already-loaded
+  // month-scoped state slices (no extra DB round trip) for a fast, sync render.
+  const r2rProps = state.properties.filter(p=>{
+    const isR2R = p.model ? p.model === 'R2R' : String(p.property_type||'H2M').toUpperCase() === 'R2R';
+    return isR2R && p.active!==false && _propPassesGlobalFilter(p);
+  });
+  const r2rIncome = r2rProps.reduce((sum,p)=>{
+    const pay = state.payments.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
+    const air = state.aircon.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
+    const ext = state.extras.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
+    const exp = state.expenses.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
+    return sum + pay + air + ext - exp;
+  }, 0);
+  if($('#stR2RIncome'))    $('#stR2RIncome').textContent    = 'RM ' + fmt(r2rIncome);
+  if($('#stR2RIncomeSub')) $('#stR2RIncomeSub').textContent = r2rProps.length+' unit'+(r2rProps.length===1?'':'s')+' · '+monthName;
 }
 
 // ============================================================
