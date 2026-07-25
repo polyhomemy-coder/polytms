@@ -489,12 +489,6 @@
   .dash-compact .bar-row .bar-track{height:22px}
   .dash-compact .bar-row .bar-value{font-size:11.5px}
 
-  /* Highlighted KPIs — Management Fee (hero row) & R2R Income (secondary row) */
-  .dash-compact .hero-card.hero-highlight .hero-value{font-size:25px}
-  .dash-compact .hero-card.hero-highlight .hero-label{font-size:11px;font-weight:800}
-  .dash-compact .stat-mini-highlight .text-2xl{font-size:34px}
-  .dash-compact .stat-mini-highlight .help{font-size:11.5px;font-weight:700}
-
   /* ══════════════════════════════════════════════════════════════
      HUD THEME — sci-fi command-center look, DARK MODE ONLY.
      Light mode keeps the original cyan/orange card look untouched.
@@ -597,20 +591,27 @@
   .dash-top-band-stats .stat-mini .text-2xl{font-size:22px}
   .dash-top-band-stats .stat-mini .help{font-size:10.5px}
   .dash-top-band-right{flex:1;display:flex;flex-direction:column;min-height:0}
-  /* The two highlighted KPIs, big */
-  .dash-top-band-hero{flex:1;display:flex;gap:12px;min-height:0}
-  .dash-top-band-hero .hero-card,
-  .dash-top-band-hero .stat-mini{flex:1;min-height:0;justify-content:center}
-  .dash-top-band-hero .hero-card .hero-value{font-size:34px}
-  .dash-top-band-hero .hero-card .hero-label{font-size:13px}
-  .dash-top-band-hero .hero-card .hero-sub{font-size:11.5px}
-  .dash-top-band-hero .stat-mini .text-2xl{font-size:40px;color:var(--brand2,#00B4CC)}
-  .dash-top-band-hero .stat-mini .help{font-size:13px}
+  /* Vertical profit summary — Management Fee, Own R2R Income, Bal.
+     Repayment, Approx. Gross Profit, an editable Salaries & Wages entry,
+     then Approx. Net Profit. */
+  .dash-profit-summary{flex:1;display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .dash-profit-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0}
+  .dash-profit-label{font-size:13px;font-weight:700;color:var(--ink)}
+  .dash-profit-value{font-size:17px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .dash-profit-subtotal{border-top:1.5px dashed var(--line);margin-top:2px;padding-top:9px}
+  .dash-profit-subtotal .dash-profit-value{color:var(--brand2,#00B4CC)}
+  .dash-profit-input-row .dash-profit-input{
+    width:130px;text-align:right;font-size:15px;font-weight:700;
+    padding:5px 8px;border-radius:8px;border:1.5px solid var(--line);
+    background:var(--input-bg,#fff);color:var(--ink);
+  }
+  .dash-profit-total{border-top:2px solid var(--brand2,#00B4CC);margin-top:2px;padding-top:10px}
+  .dash-profit-total .dash-profit-label{font-size:14.5px}
+  .dash-profit-total .dash-profit-value{font-size:22px;color:var(--accent,#F4811F)}
   @media (max-width:1024px){
     .dash-top-band{flex-direction:column}
     .dash-map-wide{flex:none;height:280px}
     .dash-top-band-stats{flex-direction:row}
-    .dash-top-band-hero{flex-direction:column}
   }
   .hero-blue{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
   .hero-blue-light{background:linear-gradient(135deg,#007B8A,#00B4CC)}
@@ -1774,16 +1775,30 @@
           <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
         </div>
         <div class="dash-top-band-right">
-          <div class="dash-top-band-hero">
-            <div class="hero-card hero-orange anim-hero hero-highlight" style="animation-delay:.1s">
-              <div class="hero-label">Management Fee</div>
-              <div class="hero-value" id="stMgmt">RM –</div>
-              <div class="hero-sub" id="stMgmtSub">in this month</div>
+          <div class="card dash-profit-summary">
+            <div class="dash-profit-row">
+              <span class="dash-profit-label">Management Fee</span>
+              <span class="dash-profit-value" id="stMgmt">RM –</span>
             </div>
-            <div class="card stat-mini stat-mini-highlight">
-              <div class="help">🏠 Own R2R Income</div>
-              <div class="text-2xl font-extrabold mt-1" id="stR2RIncome">–</div>
-              <div class="help mt-0.5" id="stR2RIncomeSub">— units</div>
+            <div class="dash-profit-row">
+              <span class="dash-profit-label">🏠 Own R2R Income</span>
+              <span class="dash-profit-value" id="stR2RIncome">RM –</span>
+            </div>
+            <div class="dash-profit-row">
+              <span class="dash-profit-label">🔁 Bal. Repayment</span>
+              <span class="dash-profit-value" id="stBalRepay">RM –</span>
+            </div>
+            <div class="dash-profit-row dash-profit-subtotal">
+              <span class="dash-profit-label">Approx. Gross Profit</span>
+              <span class="dash-profit-value" id="pfGross">RM –</span>
+            </div>
+            <div class="dash-profit-row dash-profit-input-row">
+              <label class="dash-profit-label" for="pfSalaries">Salaries and Wages</label>
+              <input type="number" id="pfSalaries" class="dash-profit-input" placeholder="0.00" step="0.01" min="0">
+            </div>
+            <div class="dash-profit-row dash-profit-total">
+              <span class="dash-profit-label">Approx. Net Profit</span>
+              <span class="dash-profit-value" id="pfNet">RM –</span>
             </div>
           </div>
         </div>
@@ -1822,7 +1837,7 @@
       </div>
 
       <!-- HERO TILES — remaining money + owner metrics -->
-      <div class="grid grid-cols-4 lg:grid-cols-7 gap-2 mb-3">
+      <div class="grid grid-cols-3 lg:grid-cols-6 gap-2 mb-3">
         <div class="hero-card hero-blue anim-hero" style="animation-delay:0s">
           <div class="hero-label">Rental Collected <span class="pulse-dot ml-1"></span></div>
           <div class="hero-value" id="stRent">RM –</div>
@@ -1847,11 +1862,6 @@
           <div class="hero-label">⚠ Owner Due</div>
           <div class="hero-value" id="stOwnDue">RM –</div>
           <div class="hero-sub" id="stOwnDueSub">carried by owners</div>
-        </div>
-        <div class="hero-card hero-blue-light anim-hero" style="animation-delay:.3s">
-          <div class="hero-label">🔁 Bal. Repayment</div>
-          <div class="hero-value" id="stBalRepay">RM –</div>
-          <div class="hero-sub" id="stBalRepaySub">this month's gross loss</div>
         </div>
         <div class="hero-card hero-orange-light anim-hero" style="animation-delay:.35s">
           <div class="hero-label">🏦 Deposit Held</div>
@@ -6188,14 +6198,11 @@ function renderDashboardMetrics(){
   if($('#stDeposit'))    $('#stDeposit').textContent    = 'RM ' + fmt(totalDeposit);
   if($('#stDepositSub')) $('#stDepositSub').textContent = tenants.length+' active tenant'+(tenants.length===1?'':'s');
 
-  // Own R2R Income — sum of income+aircon+extra-expenses across every
-  // property flagged as "Own Unit" / "R2R", whichever field carries that
-  // flag. Older rows use `unit_type='own_unit'`, others use `model='R2R'`,
-  // and the oldest rows fall back to the legacy `property_type='R2R'` —
-  // OR'ing all three catches every own/R2R unit regardless of which field
-  // was set when the property was created.
+  // Own R2R Income — strictly properties that are BOTH model='R2R' AND
+  // unit_type='own_unit'. Model and Unit Type are two independent filter
+  // dimensions (see sidebar), so this must be an AND, not an OR.
   const r2rProps = state.properties.filter(p=>{
-    const isR2R = p.unit_type === 'own_unit' || p.model === 'R2R' || String(p.property_type||'').toUpperCase() === 'R2R';
+    const isR2R = p.model === 'R2R' && p.unit_type === 'own_unit';
     return isR2R && p.active!==false && _propPassesGlobalFilter(p);
   });
   const r2rIncome = r2rProps.reduce((sum,p)=>{
@@ -6207,6 +6214,43 @@ function renderDashboardMetrics(){
   }, 0);
   if($('#stR2RIncome'))    $('#stR2RIncome').textContent    = 'RM ' + fmt(r2rIncome);
   if($('#stR2RIncomeSub')) $('#stR2RIncomeSub').textContent = r2rProps.length+' unit'+(r2rProps.length===1?'':'s')+' · '+monthName;
+
+  // ===== Approx. Gross / Net Profit summary =====
+  // Gross Profit = Management Fee + Own R2R Income + Bal. Repayment.
+  const grossProfit = mgmt + r2rIncome + (balRepayHasData ? balRepay : 0);
+  const pfGrossEl = $('#pfGross');
+  if(pfGrossEl){
+    pfGrossEl.textContent = 'RM ' + fmt(grossProfit);
+    pfGrossEl.dataset.value = grossProfit;
+  }
+  // Salaries and Wages is a manual monthly entry — persisted in localStorage
+  // per (year, month) since there's no backing DB column for it.
+  const salariesInput = $('#pfSalaries');
+  if(salariesInput){
+    if(document.activeElement !== salariesInput){
+      let saved = '';
+      try { saved = localStorage.getItem(`polyTMS_salaries_${state.year}_${state.month}`) || ''; } catch(_){}
+      salariesInput.value = saved;
+    }
+    if(!salariesInput._profitBound){
+      salariesInput._profitBound = true;
+      salariesInput.addEventListener('input', ()=>{
+        try { localStorage.setItem(`polyTMS_salaries_${state.year}_${state.month}`, salariesInput.value||''); } catch(_){}
+        updateDashProfitNet();
+      });
+    }
+  }
+  updateDashProfitNet();
+}
+
+// Net Profit = Approx. Gross Profit − Salaries and Wages. Reads the gross
+// figure from the DOM (dataset.value) rather than a captured closure
+// variable, so it stays correct after the month/filter changes and the
+// input's event listener (bound once) recomputes against fresh data.
+function updateDashProfitNet(){
+  const gross    = Number($('#pfGross')?.dataset.value) || 0;
+  const salaries = Number($('#pfSalaries')?.value) || 0;
+  if($('#pfNet')) $('#pfNet').textContent = 'RM ' + fmt(gross - salaries);
 }
 
 // ============================================================
