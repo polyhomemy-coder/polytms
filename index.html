@@ -1732,27 +1732,43 @@
             <div class="section-title">Unit Map</div>
             <div class="help" id="dashMapTotal">— units</div>
           </div>
-          <svg viewBox="0 0 220 340" xmlns="http://www.w3.org/2000/svg">
-            <path d="M110,12 C128,12 140,28 143,50 C146,72 138,88 148,105
-                     C160,122 168,116 172,138 C176,162 162,170 166,192
-                     C170,216 184,220 178,244 C172,268 158,262 152,286
-                     C146,308 134,316 126,332 C120,342 112,338 108,326
-                     C100,308 90,312 82,296 C74,280 78,266 66,254
-                     C54,242 50,224 58,208 C66,192 54,180 58,162
-                     C62,144 50,134 54,116 C58,98 46,90 50,72
-                     C54,54 68,44 74,30 C82,16 96,12 110,12 Z"
-              fill="rgba(0,180,204,.10)" stroke="var(--brand2,#00B4CC)" stroke-width="1.6" stroke-dasharray="3 2"/>
+          <svg viewBox="0 0 200 340" xmlns="http://www.w3.org/2000/svg">
+            <!-- Simplified but proportionate outline of Peninsular Malaysia:
+                 narrow Kedah/Perlis neck in the north, widest around the
+                 Pahang/Terengganu bulge on the east coast, tapering to the
+                 Johor point in the south. -->
+            <path d="M78,8
+                     C68,10 60,18 58,32
+                     C55,46 62,54 56,68
+                     C50,82 44,96 46,114
+                     C48,132 40,146 44,164
+                     C48,182 56,192 54,208
+                     C52,224 62,234 66,250
+                     C70,266 82,276 88,292
+                     C94,308 100,316 108,326
+                     C114,332 122,330 128,322
+                     C134,314 130,302 138,290
+                     C146,278 152,262 158,246
+                     C164,230 168,212 166,194
+                     C164,176 156,164 158,146
+                     C160,128 152,112 148,94
+                     C144,76 134,64 128,50
+                     C122,36 108,24 96,16
+                     C90,12 84,8 78,8 Z"
+              fill="rgba(0,180,204,.10)" stroke="var(--brand2,#00B4CC)" stroke-width="1.6"/>
+            <!-- Penang Island -->
+            <ellipse cx="49" cy="60" rx="5.5" ry="8" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
             <g class="dash-map-pin" id="dashMapKLPin">
-              <circle cx="96" cy="120" r="7" fill="var(--brand2,#00B4CC)" opacity=".28"/>
-              <circle cx="96" cy="120" r="4.5" fill="var(--brand2,#00B4CC)"/>
-              <text x="106" y="117" font-size="12" font-weight="800" fill="var(--ink)">KL</text>
-              <text x="106" y="130" font-size="10" font-weight="700" fill="var(--muted)" id="dashMapKLCount">— units</text>
+              <circle cx="66" cy="158" r="7" fill="var(--brand2,#00B4CC)" opacity=".28"/>
+              <circle cx="66" cy="158" r="4.5" fill="var(--brand2,#00B4CC)"/>
+              <text x="76" y="155" font-size="12" font-weight="800" fill="var(--ink)">KL</text>
+              <text x="76" y="168" font-size="10" font-weight="700" fill="var(--muted)" id="dashMapKLCount">— units</text>
             </g>
             <g class="dash-map-pin" id="dashMapJBPin">
-              <circle cx="128" cy="296" r="7" fill="var(--accent,#F4811F)" opacity=".28"/>
-              <circle cx="128" cy="296" r="4.5" fill="var(--accent,#F4811F)"/>
-              <text x="138" y="293" font-size="12" font-weight="800" fill="var(--ink)">JB</text>
-              <text x="138" y="306" font-size="10" font-weight="700" fill="var(--muted)" id="dashMapJBCount">— units</text>
+              <circle cx="110" cy="320" r="7" fill="var(--accent,#F4811F)" opacity=".28"/>
+              <circle cx="110" cy="320" r="4.5" fill="var(--accent,#F4811F)"/>
+              <text x="120" y="308" font-size="12" font-weight="800" fill="var(--ink)">JB</text>
+              <text x="120" y="321" font-size="10" font-weight="700" fill="var(--muted)" id="dashMapJBCount">— units</text>
             </g>
           </svg>
         </div>
