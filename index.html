@@ -448,22 +448,44 @@
   .dash-compact .hero-card .hero-label{font-size:9.5px;letter-spacing:.2px}
   .dash-compact .hero-card .hero-value{font-size:17px;margin-top:5px}
   .dash-compact .hero-card .hero-sub{font-size:9px;margin-top:2px}
-  .dash-compact #dashPayDonut svg,
-  .dash-compact #dashRoomDonut svg{max-width:112px!important}
-  .dash-compact #dashPayDonut .w-full.max-w-\[240px\],
-  .dash-compact #dashRoomDonut .w-full.max-w-\[240px\]{max-width:100%;flex:1;min-width:0;font-size:11px;margin-top:0}
-  .dash-compact #dashPayDonut .anim-pie,
-  .dash-compact #dashRoomDonut .anim-pie{flex-direction:row;align-items:center;gap:10px;justify-content:flex-start}
-  .dash-compact #dashPayDonut svg,
-  .dash-compact #dashRoomDonut svg{flex-shrink:0}
-  .dash-compact .bar-row{margin-bottom:4px}
-  .dash-compact .bar-row .bar-label{font-size:11px;width:80px}
-  .dash-compact .bar-row .bar-track{height:16px}
-  .dash-compact .bar-row .bar-value{font-size:10.5px}
   .dash-compact .stat-mini .text-2xl{font-size:18px}
   .dash-compact .stat-mini .help{font-size:10px}
-  .dash-compact .dash-chart-card{aspect-ratio:16/15.5;display:flex;flex-direction:column}
-  .dash-compact .dash-chart-card>div:last-child{flex:1;display:flex;flex-direction:column;justify-content:center}
+  /* Top chart row — fixed height so all 4 cards line up exactly, no dead space */
+  .dash-compact .dash-chart-card{
+    height:184px;display:flex;flex-direction:column;overflow:hidden;
+    border-top:3px solid var(--dash-accent,#00B4CC);
+    background:linear-gradient(180deg,rgba(0,180,204,.05),transparent 60%);
+  }
+  .dash-compact .dash-chart-card.accent-orange{
+    --dash-accent:#F4811F;
+    background:linear-gradient(180deg,rgba(244,129,31,.06),transparent 60%);
+  }
+  .dash-compact .dash-chart-card>.dash-chart-body{flex:1;display:flex;flex-direction:column;justify-content:center;min-height:0}
+  .dash-compact #dashPayDonut svg,
+  .dash-compact #dashRoomDonut svg,
+  .dash-compact #dashCarDonut svg{max-width:118px!important;flex-shrink:0}
+  /* Grid instead of flex-row: deterministic placement regardless of content
+     width — svg spans both rows in col 1, legend + caption stack in col 2. */
+  .dash-compact #dashPayDonut .anim-pie,
+  .dash-compact #dashRoomDonut .anim-pie,
+  .dash-compact #dashCarDonut .anim-pie{
+    display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;
+    column-gap:12px;align-items:center;
+  }
+  .dash-compact #dashPayDonut .anim-pie svg,
+  .dash-compact #dashRoomDonut .anim-pie svg,
+  .dash-compact #dashCarDonut .anim-pie svg{grid-row:1/3;grid-column:1}
+  .dash-compact #dashPayDonut .w-full.max-w-\[240px\],
+  .dash-compact #dashRoomDonut .w-full.max-w-\[240px\],
+  .dash-compact #dashCarDonut .w-full.max-w-\[240px\]{grid-column:2;grid-row:1;max-width:100%;min-width:0;font-size:11px;margin-top:0}
+  .dash-compact #dashPayDonut .anim-pie>.text-xs,
+  .dash-compact #dashRoomDonut .anim-pie>.text-xs,
+  .dash-compact #dashCarDonut .anim-pie>.text-xs{grid-column:2;grid-row:2;margin-top:2px!important}
+  .dash-compact .bar-row{margin-bottom:6px}
+  .dash-compact .bar-row:last-child{margin-bottom:0}
+  .dash-compact .bar-row .bar-label{font-size:11px;width:64px}
+  .dash-compact .bar-row .bar-track{height:17px}
+  .dash-compact .bar-row .bar-value{font-size:10.5px}
   .hero-blue{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
   .hero-blue-light{background:linear-gradient(135deg,#007B8A,#00B4CC)}
   .hero-cyan{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
@@ -1597,28 +1619,28 @@
             <div class="section-title">Payment Rate</div>
             <div class="help" id="dashPayDonutCaption">this month</div>
           </div>
-          <div id="dashPayDonut" class="py-1"><div class="text-slate-400 text-sm py-6 text-center">—</div></div>
+          <div id="dashPayDonut" class="dash-chart-body"><div class="text-slate-400 text-sm text-center">—</div></div>
         </div>
         <div class="card dash-chart-card">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Room Occupancy</div>
             <div class="help">all properties · live</div>
           </div>
-          <div id="dashRoomDonut" class="py-1"><div class="text-slate-400 text-sm py-6 text-center">—</div></div>
+          <div id="dashRoomDonut" class="dash-chart-body"><div class="text-slate-400 text-sm text-center">—</div></div>
         </div>
-        <div class="card dash-chart-card">
+        <div class="card dash-chart-card accent-orange">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Carpark Occupancy</div>
             <div class="help">all properties · live</div>
           </div>
-          <div id="dashCarDonut" class="py-1"><div class="text-slate-400 text-sm py-6 text-center">—</div></div>
+          <div id="dashCarDonut" class="dash-chart-body"><div class="text-slate-400 text-sm text-center">—</div></div>
         </div>
         <div class="card dash-chart-card">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Tenant Race Breakdown</div>
             <div class="help" id="dashRaceTotal">all active tenants</div>
           </div>
-          <div id="dashRaceChart"><div class="text-slate-400 text-sm py-4 text-center">—</div></div>
+          <div id="dashRaceChart" class="dash-chart-body"><div class="text-slate-400 text-sm text-center">—</div></div>
         </div>
       </div>
 
