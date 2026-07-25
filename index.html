@@ -487,6 +487,26 @@
   .dash-compact .bar-row .bar-track{height:17px}
   .dash-compact .bar-row .bar-value{font-size:10.5px}
 
+  /* ── Fill the screen: dashboard stretches to viewport height, and the
+     last row (secondary metrics) absorbs whatever space is left over
+     instead of leaving it blank below the fold. ── */
+  #dashOverviewView.dash-compact{
+    display:flex;flex-direction:column;
+    min-height:calc(100vh - 190px);
+  }
+  #dashOverviewView.dash-compact .dash-fill-row{
+    flex:1;grid-template-rows:1fr;min-height:120px;
+  }
+  #dashOverviewView.dash-compact .dash-fill-row .stat-mini{
+    display:flex;flex-direction:column;justify-content:center;
+  }
+  /* Highlighted KPIs — Management Fee (hero row) & R2R Income (secondary row) */
+  .dash-compact .hero-card.hero-highlight{min-height:82px}
+  .dash-compact .hero-card.hero-highlight .hero-value{font-size:21px}
+  .dash-compact .hero-card.hero-highlight .hero-label{font-size:10.5px;font-weight:800}
+  .dash-compact .stat-mini-highlight .text-2xl{font-size:30px}
+  .dash-compact .stat-mini-highlight .help{font-size:11px;font-weight:700}
+
   /* ══════════════════════════════════════════════════════════════
      HUD THEME — sci-fi command-center look, DARK MODE ONLY.
      Light mode keeps the original cyan/orange card look untouched.
@@ -1786,7 +1806,7 @@
           <div class="hero-value" id="stAir">RM –</div>
           <div class="hero-sub" id="stAirSub">in this month</div>
         </div>
-        <div class="hero-card hero-orange anim-hero" style="animation-delay:.1s">
+        <div class="hero-card hero-orange anim-hero hero-highlight" style="animation-delay:.1s">
           <div class="hero-label">Management Fee</div>
           <div class="hero-value" id="stMgmt">RM –</div>
           <div class="hero-sub" id="stMgmtSub">in this month</div>
@@ -1818,8 +1838,8 @@
         </div>
       </div>
 
-      <!-- SECONDARY METRICS -->
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <!-- SECONDARY METRICS — flex-grows to absorb any leftover screen height -->
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-2 dash-fill-row">
         <div class="card stat-mini">
           <div class="help">Properties</div>
           <div class="text-2xl font-extrabold mt-1" id="stProps">–</div>
@@ -1828,7 +1848,7 @@
         <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
         <div class="card stat-mini"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
         <div class="card stat-mini"><div class="help">Total Carparks</div><div class="text-2xl font-extrabold mt-1" id="stTotalCarparks">–</div></div>
-        <div class="card stat-mini">
+        <div class="card stat-mini stat-mini-highlight">
           <div class="help">🏠 R2R This Month Income</div>
           <div class="text-2xl font-extrabold mt-1" id="stR2RIncome">–</div>
           <div class="help mt-0.5" id="stR2RIncomeSub">— units</div>
