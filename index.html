@@ -462,10 +462,10 @@
   .dash-compact .bar-row .bar-value{font-size:10.5px}
   .dash-compact .stat-mini .text-2xl{font-size:18px}
   .dash-compact .stat-mini .help{font-size:10px}
-  .dash-compact .dash-chart-card{aspect-ratio:16/14;display:flex;flex-direction:column}
+  .dash-compact .dash-chart-card{aspect-ratio:16/15.5;display:flex;flex-direction:column}
   .dash-compact .dash-chart-card>div:last-child{flex:1;display:flex;flex-direction:column;justify-content:center}
-  .hero-blue{background:linear-gradient(135deg,#1E3A8A,#2563EB 55%,#3B82F6)}
-  .hero-blue-light{background:linear-gradient(135deg,#2563EB,#60A5FA)}
+  .hero-blue{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
+  .hero-blue-light{background:linear-gradient(135deg,#007B8A,#00B4CC)}
   .hero-cyan{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
   .hero-cyan-light{background:linear-gradient(135deg,#0AA3B8,#3CC5D6)}
   .hero-orange{background:linear-gradient(135deg,#D96A0A,#F4811F 55%,#FF9A45)}
@@ -1667,7 +1667,7 @@
       </div>
 
       <!-- SECONDARY METRICS -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
         <div class="card stat-mini">
           <div class="help">Properties</div>
           <div class="text-2xl font-extrabold mt-1" id="stProps">–</div>
@@ -1675,6 +1675,7 @@
         </div>
         <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
         <div class="card stat-mini"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
+        <div class="card stat-mini"><div class="help">Total Carparks</div><div class="text-2xl font-extrabold mt-1" id="stTotalCarparks">–</div></div>
         <div class="card stat-mini">
           <div class="help">🏠 R2R This Month Income</div>
           <div class="text-2xl font-extrabold mt-1" id="stR2RIncome">–</div>
@@ -4987,8 +4988,8 @@ function renderGlobalCharts(){
     if(dueCount){
       $('#dashPayDonut').innerHTML = renderRateDonut({
         pct: payPct,
-        primaryColor: '#2563EB',
-        restColor: '#FCD9B8', primaryLabel:'Paid', restLabel:'Unpaid',
+        primaryColor: '#00B4CC',
+        restColor: '#FEE7CC', primaryLabel:'Paid', restLabel:'Unpaid',
         primaryCount: paidCount, restCount: dueCount-paidCount,
         bottomLine: paidCount+' / '+dueCount+' paid',
       });
@@ -5004,8 +5005,8 @@ function renderGlobalCharts(){
     if(occ.totalRooms){
       $('#dashRoomDonut').innerHTML = renderRateDonut({
         pct: roomPct,
-        primaryColor: '#2563EB',
-        restColor: '#FCD9B8', primaryLabel:'Occupied', restLabel:'Vacant',
+        primaryColor: '#00B4CC',
+        restColor: '#FEE7CC', primaryLabel:'Occupied', restLabel:'Vacant',
         primaryCount: occ.occRooms, restCount: occ.totalRooms-occ.occRooms,
         bottomLine: occ.occRooms+' / '+occ.totalRooms+' occupied',
       });
@@ -5020,7 +5021,7 @@ function renderGlobalCharts(){
         $('#dashCarDonut').innerHTML = renderRateDonut({
           pct: carPct,
           primaryColor: '#F4811F',
-          restColor: '#BFDBFE', primaryLabel:'Occupied', restLabel:'Vacant',
+          restColor: '#CDEEF3', primaryLabel:'Occupied', restLabel:'Vacant',
           primaryCount: occ.occCar, restCount: occ.totalCar-occ.occCar,
           bottomLine: occ.occCar+' / '+occ.totalCar+' occupied',
         });
@@ -5043,7 +5044,7 @@ function renderGlobalCharts(){
     });
     const total = allTenants.length;
     if($('#dashRaceTotal')) $('#dashRaceTotal').textContent = total+' active tenant'+(total!==1?'s':'');
-    const colors = { Chinese:'#2563EB', Malay:'#F4811F', Indian:'#60A5FA', Foreigner:'#FCB070', Other:'#94A3B8' };
+    const colors = { Chinese:'#007B8A', Malay:'#F4811F', Indian:'#00B4CC', Foreigner:'#FF9A45', Other:'#94A3B8' };
     const max = Math.max(...Object.values(raceBuckets), 1);
     const rows = Object.entries(raceBuckets)
       .filter(([,n])=>n>0).sort((a,b)=>b[1]-a[1])
@@ -5890,6 +5891,10 @@ function renderDashboardMetrics(){
   // Total Rooms = sum of every configured room across the filtered properties
   const totalRooms = props.reduce((s,p)=>s+parseRoomCodes(p.room_codes).length, 0);
   $('#stTotalRooms').textContent = totalRooms;
+
+  // Total Carparks = sum of every configured carpark lot across the filtered properties
+  const totalCarparks = props.reduce((s,p)=>s+parseCarparkLots(p.carpark_lots).length, 0);
+  if($('#stTotalCarparks')) $('#stTotalCarparks').textContent = totalCarparks;
 
   // Money totals for the current month
   const rent = payments.filter(p=>p.item_type==='room').reduce((s,p)=>s+Number(p.amount||0),0);
