@@ -440,6 +440,28 @@
   .hero-card .hero-label{font-size:12px;font-weight:700;opacity:.92;letter-spacing:.4px;text-transform:uppercase;position:relative;z-index:1}
   .hero-card .hero-value{font-size:28px;font-weight:800;margin-top:10px;line-height:1.05;position:relative;z-index:1;font-variant-numeric:tabular-nums}
   .hero-card .hero-sub{font-size:11px;opacity:.85;margin-top:4px;position:relative;z-index:1}
+  /* ── Compact Manager Dashboard — fit the whole view on one 16:9 screen ── */
+  .dash-compact .card{padding:12px 14px;border-radius:14px}
+  .dash-compact .section-title{font-size:13px}
+  .dash-compact .help{font-size:10.5px}
+  .dash-compact .hero-card{padding:10px 12px;border-radius:12px;min-height:74px}
+  .dash-compact .hero-card .hero-label{font-size:9.5px;letter-spacing:.2px}
+  .dash-compact .hero-card .hero-value{font-size:17px;margin-top:5px}
+  .dash-compact .hero-card .hero-sub{font-size:9px;margin-top:2px}
+  .dash-compact #dashPayDonut svg,
+  .dash-compact #dashRoomDonut svg{max-width:112px!important}
+  .dash-compact #dashPayDonut .w-full.max-w-\[240px\],
+  .dash-compact #dashRoomDonut .w-full.max-w-\[240px\]{max-width:100%;flex:1;min-width:0;font-size:11px;margin-top:0}
+  .dash-compact #dashPayDonut .anim-pie,
+  .dash-compact #dashRoomDonut .anim-pie{flex-direction:row;align-items:center;gap:10px;justify-content:flex-start}
+  .dash-compact #dashPayDonut svg,
+  .dash-compact #dashRoomDonut svg{flex-shrink:0}
+  .dash-compact .bar-row{margin-bottom:4px}
+  .dash-compact .bar-row .bar-label{font-size:11px;width:80px}
+  .dash-compact .bar-row .bar-track{height:16px}
+  .dash-compact .bar-row .bar-value{font-size:10.5px}
+  .dash-compact .stat-mini .text-2xl{font-size:18px}
+  .dash-compact .stat-mini .help{font-size:10px}
   .hero-cyan{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
   .hero-cyan-light{background:linear-gradient(135deg,#0AA3B8,#3CC5D6)}
   .hero-orange{background:linear-gradient(135deg,#D96A0A,#F4811F 55%,#FF9A45)}
@@ -1563,90 +1585,86 @@
     <!-- DASHBOARD VIEW — metrics across ALL properties matching   -->
     <!-- the active sidebar filters (not limited to Help Manage)   -->
     <!-- ====================================================== -->
-    <div id="dashOverviewView">
+    <div id="dashOverviewView" class="dash-compact">
       <!-- GLOBAL CHARTS — all properties (H2M + R2R) -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3">
         <div class="card">
-          <div class="flex items-baseline justify-between mb-2">
+          <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Payment Rate</div>
             <div class="help" id="dashPayDonutCaption">this month</div>
           </div>
-          <div id="dashPayDonut" class="py-2"><div class="text-slate-400 text-sm py-10 text-center">—</div></div>
+          <div id="dashPayDonut" class="py-1"><div class="text-slate-400 text-sm py-6 text-center">—</div></div>
         </div>
         <div class="card">
-          <div class="flex items-baseline justify-between mb-2">
+          <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Room Occupancy</div>
             <div class="help">all properties · live</div>
           </div>
-          <div id="dashRoomDonut" class="py-2"><div class="text-slate-400 text-sm py-10 text-center">—</div></div>
+          <div id="dashRoomDonut" class="py-1"><div class="text-slate-400 text-sm py-6 text-center">—</div></div>
         </div>
-      </div>
-      <div class="card mb-4">
-        <div class="flex items-baseline justify-between mb-3">
-          <div class="section-title">Tenant Race Breakdown</div>
-          <div class="help" id="dashRaceTotal">all active tenants</div>
+        <div class="card">
+          <div class="flex items-baseline justify-between mb-1">
+            <div class="section-title">Tenant Race Breakdown</div>
+            <div class="help" id="dashRaceTotal">all active tenants</div>
+          </div>
+          <div id="dashRaceChart"><div class="text-slate-400 text-sm py-4 text-center">—</div></div>
         </div>
-        <div id="dashRaceChart"><div class="text-slate-400 text-sm py-4 text-center">—</div></div>
       </div>
 
-      <!-- HERO TILES — top-line money metrics for the month (cyan + orange theme) -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      <!-- HERO TILES — all money + owner metrics in one compact row -->
+      <div class="grid grid-cols-4 lg:grid-cols-8 gap-2 mb-3">
         <div class="hero-card hero-cyan anim-hero" style="animation-delay:0s">
           <div class="hero-label">Rental Collected <span class="pulse-dot ml-1"></span></div>
           <div class="hero-value" id="stRent">RM –</div>
           <div class="hero-sub" id="stRentSub">in this month</div>
         </div>
-        <div class="hero-card hero-cyan-light anim-hero" style="animation-delay:.06s">
+        <div class="hero-card hero-cyan-light anim-hero" style="animation-delay:.05s">
           <div class="hero-label">A/C Top-ups</div>
           <div class="hero-value" id="stAir">RM –</div>
           <div class="hero-sub" id="stAirSub">in this month</div>
         </div>
-        <div class="hero-card hero-orange anim-hero" style="animation-delay:.12s">
+        <div class="hero-card hero-orange anim-hero" style="animation-delay:.1s">
           <div class="hero-label">Management Fee</div>
           <div class="hero-value" id="stMgmt">RM –</div>
           <div class="hero-sub" id="stMgmtSub">in this month</div>
         </div>
-        <div class="hero-card hero-orange-light anim-hero" style="animation-delay:.18s">
+        <div class="hero-card hero-orange-light anim-hero" style="animation-delay:.15s">
           <div class="hero-label">Total Expenses</div>
           <div class="hero-value" id="stExp">RM –</div>
           <div class="hero-sub" id="stExpSub">in this month</div>
         </div>
-      </div>
-
-      <!-- H2M-SPECIFIC HERO CARDS — owner-side payouts & balance + total deposit -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <div class="hero-card hero-cyan anim-hero" style="animation-delay:.24s">
-          <div class="hero-label">💼 Owner Rental Issued</div>
+        <div class="hero-card hero-cyan anim-hero" style="animation-delay:.2s">
+          <div class="hero-label">💼 Owner Issued</div>
           <div class="hero-value" id="stOwnIssued">RM –</div>
-          <div class="hero-sub" id="stOwnIssuedSub">positive net incomes paid out</div>
+          <div class="hero-sub" id="stOwnIssuedSub">paid out</div>
         </div>
-        <div class="hero-card hero-orange anim-hero" style="animation-delay:.30s">
-          <div class="hero-label">⚠ Owner Balance Due</div>
+        <div class="hero-card hero-orange anim-hero" style="animation-delay:.25s">
+          <div class="hero-label">⚠ Owner Due</div>
           <div class="hero-value" id="stOwnDue">RM –</div>
-          <div class="hero-sub" id="stOwnDueSub">cumulative loss carried by owners</div>
+          <div class="hero-sub" id="stOwnDueSub">carried by owners</div>
         </div>
-        <div class="hero-card hero-cyan-light anim-hero" style="animation-delay:.36s">
-          <div class="hero-label">🔁 Balance Repayment</div>
+        <div class="hero-card hero-cyan-light anim-hero" style="animation-delay:.3s">
+          <div class="hero-label">🔁 Bal. Repayment</div>
           <div class="hero-value" id="stBalRepay">RM –</div>
-          <div class="hero-sub" id="stBalRepaySub">this month's gross loss (excl. BF)</div>
+          <div class="hero-sub" id="stBalRepaySub">this month's gross loss</div>
         </div>
-        <div class="hero-card hero-orange-light anim-hero" style="animation-delay:.42s">
-          <div class="hero-label">🏦 Total Deposit Collected</div>
+        <div class="hero-card hero-orange-light anim-hero" style="animation-delay:.35s">
+          <div class="hero-label">🏦 Deposit Held</div>
           <div class="hero-value" id="stDeposit">RM –</div>
-          <div class="hero-sub" id="stDepositSub">room + carpark deposits held</div>
+          <div class="hero-sub" id="stDepositSub">room + carpark</div>
         </div>
       </div>
 
       <!-- SECONDARY METRICS -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <div class="card">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div class="card stat-mini">
           <div class="help">Properties</div>
           <div class="text-2xl font-extrabold mt-1" id="stProps">–</div>
           <div class="help mt-0.5" id="stPropsByCity">— by city</div>
         </div>
-        <div class="card"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
-        <div class="card"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
-        <div class="card">
+        <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
+        <div class="card stat-mini"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
+        <div class="card stat-mini">
           <div class="help">Carpark Occupancy</div>
           <div class="text-2xl font-extrabold mt-1" id="stCarOcc">–</div>
           <div class="help mt-0.5" id="stCarOccDetail">— / —</div>
@@ -4930,14 +4948,26 @@ function animateNumber(el, target, opts){
 function renderGlobalCharts(){
   const allProps = state.properties.filter(p=>p.active!==false && _propPassesGlobalFilter(p));
   const allPropIds = new Set(allProps.map(p=>p.id));
+  // Room Occupancy / Race Breakdown reflect the LIVE snapshot — active
+  // tenants only.
   const allTenants = state.tenants.filter(t=>allPropIds.has(t.property_id) && t.active!==false);
+
+  // Payment Rate is scoped to the selected month, so a tenant who has since
+  // moved out must still count if their tenancy overlapped that month.
+  // Moved-out tenants aren't fetched at boot (perf), so lazy-load them once
+  // — same pattern the Admin tab uses — then re-render when they land.
+  if(!state._movedOutLoaded){
+    state._movedOutLoaded = true;
+    loadTenants({includeMovedOut:true}).then(()=>{ if(onDashboardTab()) renderGlobalCharts(); }).catch(()=>{});
+  }
+  const allTenantsForMonth = state.tenants.filter(t=>allPropIds.has(t.property_id));
 
   // Payment Rate — all properties
   const allPayments = state.payments.filter(p=>allPropIds.has(p.property_id));
   const monthName = MONTHS[state.month-1] + ' ' + state.year;
   if($('#dashPayDonutCaption')) $('#dashPayDonutCaption').textContent = monthName;
   if($('#dashPayDonut')){
-    const monthTenants = tenancyForMonth(allTenants, state.year, state.month).filter(t=>t.room_code);
+    const monthTenants = tenancyForMonth(allTenantsForMonth, state.year, state.month).filter(t=>t.room_code);
     const paidKeys = new Set(allPayments.filter(p=>p.item_type==='room'&&p.room_code)
       .map(p=>p.property_id+'|'+String(p.room_code).toUpperCase()));
     const paidCount = monthTenants.filter(t=>paidKeys.has(t.property_id+'|'+String(t.room_code).toUpperCase())).length;
@@ -12450,6 +12480,7 @@ function bindReportAutoPreview(){
   _reportBound = true;
 }
 function onReportTab(){ return document.querySelector('.tab-btn.active')?.dataset.tab==='report'; }
+function onDashboardTab(){ return document.querySelector('.tab-btn.active')?.dataset.tab==='dashboard'; }
 
 // When the report iframe is clicked it steals focus from the main window,
 // breaking arrow-key navigation. Refocus the main window immediately so
