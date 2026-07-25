@@ -589,10 +589,16 @@
   /* ── Top band: map on the left, Management Fee + R2R Income stacked
      top-right ── */
   .dash-top-band{display:flex;gap:12px;align-items:stretch}
-  .dash-compact .dash-map-wide{flex:0 0 22%;height:340px}
-  .dash-top-band-right{flex:1;display:flex;flex-direction:column;gap:10px}
-  /* Row 1 — the two highlighted KPIs, big */
-  .dash-top-band-hero{flex:2;display:flex;gap:12px;min-height:0}
+  .dash-compact .dash-map-wide{flex:0 0 20%;height:340px}
+  /* Vertical stat column — sits directly beside the map, in the requested
+     order: Properties, Total Rooms, Total Carparks, Active Tenants */
+  .dash-top-band-stats{flex:0 0 15%;display:flex;flex-direction:column;gap:8px;min-height:0}
+  .dash-top-band-stats .stat-mini{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+  .dash-top-band-stats .stat-mini .text-2xl{font-size:22px}
+  .dash-top-band-stats .stat-mini .help{font-size:10.5px}
+  .dash-top-band-right{flex:1;display:flex;flex-direction:column;min-height:0}
+  /* The two highlighted KPIs, big */
+  .dash-top-band-hero{flex:1;display:flex;gap:12px;min-height:0}
   .dash-top-band-hero .hero-card,
   .dash-top-band-hero .stat-mini{flex:1;min-height:0;justify-content:center}
   .dash-top-band-hero .hero-card .hero-value{font-size:34px}
@@ -600,14 +606,10 @@
   .dash-top-band-hero .hero-card .hero-sub{font-size:11.5px}
   .dash-top-band-hero .stat-mini .text-2xl{font-size:40px;color:var(--brand2,#00B4CC)}
   .dash-top-band-hero .stat-mini .help{font-size:13px}
-  /* Row 2 — Properties / Active Tenants / Total Rooms / Total Carparks, compact */
-  .dash-top-band-stats{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;min-height:0}
-  .dash-top-band-stats .stat-mini{min-height:0;display:flex;flex-direction:column;justify-content:center}
-  .dash-top-band-stats .stat-mini .text-2xl{font-size:20px}
-  .dash-top-band-stats .stat-mini .help{font-size:10px}
   @media (max-width:1024px){
     .dash-top-band{flex-direction:column}
     .dash-map-wide{flex:none;height:280px}
+    .dash-top-band-stats{flex-direction:row}
     .dash-top-band-hero{flex-direction:column}
   }
   .hero-blue{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
@@ -1761,6 +1763,16 @@
           </div>
           <div class="dash-map-attrib">Map: Hellerick / Wikimedia Commons, CC BY-SA 3.0</div>
         </div>
+        <div class="dash-top-band-stats">
+          <div class="card stat-mini">
+            <div class="help">Properties</div>
+            <div class="text-2xl font-extrabold mt-1" id="stProps">–</div>
+            <div class="help mt-0.5" id="stPropsByCity">— by city</div>
+          </div>
+          <div class="card stat-mini"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
+          <div class="card stat-mini"><div class="help">Total Carparks</div><div class="text-2xl font-extrabold mt-1" id="stTotalCarparks">–</div></div>
+          <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
+        </div>
         <div class="dash-top-band-right">
           <div class="dash-top-band-hero">
             <div class="hero-card hero-orange anim-hero hero-highlight" style="animation-delay:.1s">
@@ -1769,20 +1781,10 @@
               <div class="hero-sub" id="stMgmtSub">in this month</div>
             </div>
             <div class="card stat-mini stat-mini-highlight">
-              <div class="help">🏠 R2R This Month Income</div>
+              <div class="help">🏠 Own R2R Income</div>
               <div class="text-2xl font-extrabold mt-1" id="stR2RIncome">–</div>
               <div class="help mt-0.5" id="stR2RIncomeSub">— units</div>
             </div>
-          </div>
-          <div class="dash-top-band-stats">
-            <div class="card stat-mini">
-              <div class="help">Properties</div>
-              <div class="text-2xl font-extrabold mt-1" id="stProps">–</div>
-              <div class="help mt-0.5" id="stPropsByCity">— by city</div>
-            </div>
-            <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
-            <div class="card stat-mini"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
-            <div class="card stat-mini"><div class="help">Total Carparks</div><div class="text-2xl font-extrabold mt-1" id="stTotalCarparks">–</div></div>
           </div>
         </div>
       </div>
@@ -6186,11 +6188,14 @@ function renderDashboardMetrics(){
   if($('#stDeposit'))    $('#stDeposit').textContent    = 'RM ' + fmt(totalDeposit);
   if($('#stDepositSub')) $('#stDepositSub').textContent = tenants.length+' active tenant'+(tenants.length===1?'':'s');
 
-  // R2R (Own Unit) this month's total income — sum of income+aircon+extra-expenses
-  // across R2R properties matching the sidebar filters. Uses the already-loaded
-  // month-scoped state slices (no extra DB round trip) for a fast, sync render.
+  // Own R2R Income — sum of income+aircon+extra-expenses across every
+  // property flagged as "Own Unit" / "R2R", whichever field carries that
+  // flag. Older rows use `unit_type='own_unit'`, others use `model='R2R'`,
+  // and the oldest rows fall back to the legacy `property_type='R2R'` —
+  // OR'ing all three catches every own/R2R unit regardless of which field
+  // was set when the property was created.
   const r2rProps = state.properties.filter(p=>{
-    const isR2R = p.model ? p.model === 'R2R' : String(p.property_type||'H2M').toUpperCase() === 'R2R';
+    const isR2R = p.unit_type === 'own_unit' || p.model === 'R2R' || String(p.property_type||'').toUpperCase() === 'R2R';
     return isR2R && p.active!==false && _propPassesGlobalFilter(p);
   });
   const r2rIncome = r2rProps.reduce((sum,p)=>{
