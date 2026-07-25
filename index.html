@@ -579,6 +579,22 @@
   .dash-map-pin{cursor:default}
   .dash-map-pin circle{transition:r .2s ease}
   .dash-map-pin:hover circle{r:9}
+  /* ── Top band: map on the left, Management Fee + R2R Income stacked
+     top-right ── */
+  .dash-top-band{display:flex;gap:12px;align-items:stretch}
+  .dash-compact .dash-map-wide{flex:0 0 22%;height:340px}
+  .dash-top-band-right{flex:1;display:flex;flex-direction:column;gap:12px}
+  .dash-top-band-right .hero-card,
+  .dash-top-band-right .stat-mini{flex:1;min-height:0;justify-content:center}
+  .dash-top-band-right .hero-card .hero-value{font-size:34px}
+  .dash-top-band-right .hero-card .hero-label{font-size:13px}
+  .dash-top-band-right .hero-card .hero-sub{font-size:11.5px}
+  .dash-top-band-right .stat-mini .text-2xl{font-size:40px}
+  .dash-top-band-right .stat-mini .help{font-size:13px}
+  @media (max-width:1024px){
+    .dash-top-band{flex-direction:column}
+    .dash-map-wide{flex:none;height:280px}
+  }
   .hero-blue{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
   .hero-blue-light{background:linear-gradient(135deg,#007B8A,#00B4CC)}
   .hero-cyan{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
@@ -1705,8 +1721,83 @@
     <!-- the active sidebar filters (not limited to Help Manage)   -->
     <!-- ====================================================== -->
     <div id="dashOverviewView" class="dash-compact">
+      <!-- TOP BAND — Unit Map on the left; Management Fee + R2R Income (the
+           two highlighted KPIs) stacked at the top right -->
+      <div class="dash-top-band mb-3">
+        <div class="card dash-chart-card dash-map-card dash-map-wide">
+          <div class="flex items-baseline justify-between mb-1">
+            <div class="section-title">Unit Map</div>
+            <div class="help" id="dashMapTotal">— units</div>
+          </div>
+          <svg viewBox="0 0 300 500" xmlns="http://www.w3.org/2000/svg">
+            <!-- Peninsular Malaysia outline, traced to match the shape and
+                 proportions of the standard West Malaysia reference map:
+                 broad Kedah/Perlis shoulder in the north, a relatively
+                 straight west coast, the Pahang/Terengganu/Kelantan bulge
+                 on the east coast, and a long taper down to Johor with a
+                 scatter of small islands off the southern tip. -->
+            <path d="M118,4
+                     C132,4 146,10 156,22 C168,36 176,54 182,72
+                     C188,92 196,108 206,124 C214,138 210,150 202,158
+                     C194,166 196,178 204,188 C214,200 216,214 210,228
+                     C204,242 208,254 216,264 C224,276 222,290 212,300
+                     C204,308 206,318 214,326 C220,334 218,346 208,352
+                     C200,358 202,368 208,376 C214,384 210,394 200,398
+                     C192,402 190,410 194,418 C198,426 192,434 182,436
+                     C174,438 170,444 172,452 C174,460 168,466 160,466
+                     C154,466 150,472 150,478 C150,484 146,488 140,488
+                     C134,488 130,482 128,476 C126,470 120,468 114,470
+                     C106,472 100,466 100,458 C100,452 96,448 90,448
+                     C82,448 78,442 78,434 C78,428 74,424 68,424
+                     C60,424 56,416 58,408 C60,400 56,394 48,392
+                     C40,390 36,382 40,374 C44,366 40,358 32,354
+                     C24,350 22,340 28,332 C34,324 30,314 22,308
+                     C14,302 14,290 22,282 C28,276 26,266 18,260
+                     C10,254 10,242 18,234 C24,228 22,218 14,210
+                     C6,202 8,190 18,182 C26,176 24,164 14,156
+                     C6,150 6,138 16,130 C24,124 22,112 12,104
+                     C4,98 6,86 16,80 C24,74 22,62 14,54
+                     C8,48 10,38 20,32 C30,26 34,18 44,14
+                     C56,8 68,4 82,4
+                     C94,4 106,4 118,4 Z"
+              fill="rgba(0,180,204,.10)" stroke="var(--brand2,#00B4CC)" stroke-width="2"/>
+            <!-- Penang Island -->
+            <ellipse cx="16" cy="98" rx="7" ry="11" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1.2"/>
+            <!-- Langkawi + small southern islands, purely decorative -->
+            <ellipse cx="4" cy="60" rx="4" ry="6" fill="rgba(0,180,204,.10)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
+            <circle cx="146" cy="478" r="3.5" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
+            <circle cx="162" cy="486" r="3" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
+            <circle cx="176" cy="480" r="2.5" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
+            <g class="dash-map-pin" id="dashMapKLPin">
+              <circle cx="94" cy="234" r="9" fill="var(--brand2,#00B4CC)" opacity=".28"/>
+              <circle cx="94" cy="234" r="5.5" fill="var(--brand2,#00B4CC)"/>
+              <text x="108" y="230" font-size="16" font-weight="800" fill="var(--ink)">KL</text>
+              <text x="108" y="248" font-size="13" font-weight="700" fill="var(--muted)" id="dashMapKLCount">— units</text>
+            </g>
+            <g class="dash-map-pin" id="dashMapJBPin">
+              <circle cx="140" cy="462" r="9" fill="var(--accent,#F4811F)" opacity=".28"/>
+              <circle cx="140" cy="462" r="5.5" fill="var(--accent,#F4811F)"/>
+              <text x="154" y="446" font-size="16" font-weight="800" fill="var(--ink)">JB</text>
+              <text x="154" y="464" font-size="13" font-weight="700" fill="var(--muted)" id="dashMapJBCount">— units</text>
+            </g>
+          </svg>
+        </div>
+        <div class="dash-top-band-right">
+          <div class="hero-card hero-orange anim-hero hero-highlight" style="animation-delay:.1s">
+            <div class="hero-label">Management Fee</div>
+            <div class="hero-value" id="stMgmt">RM –</div>
+            <div class="hero-sub" id="stMgmtSub">in this month</div>
+          </div>
+          <div class="card stat-mini stat-mini-highlight">
+            <div class="help">🏠 R2R This Month Income</div>
+            <div class="text-2xl font-extrabold mt-1" id="stR2RIncome">–</div>
+            <div class="help mt-0.5" id="stR2RIncomeSub">— units</div>
+          </div>
+        </div>
+      </div>
+
       <!-- GLOBAL CHARTS — all properties (H2M + R2R) -->
-      <div class="grid grid-cols-1 lg:grid-cols-5 gap-3 mb-3">
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-3">
         <div class="card dash-chart-card">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Payment Rate</div>
@@ -1735,55 +1826,10 @@
           </div>
           <div id="dashRaceChart" class="dash-chart-body"><div class="text-slate-400 text-sm text-center">—</div></div>
         </div>
-        <div class="card dash-chart-card dash-map-card">
-          <div class="flex items-baseline justify-between mb-1">
-            <div class="section-title">Unit Map</div>
-            <div class="help" id="dashMapTotal">— units</div>
-          </div>
-          <svg viewBox="0 0 200 340" xmlns="http://www.w3.org/2000/svg">
-            <!-- Simplified but proportionate outline of Peninsular Malaysia:
-                 narrow Kedah/Perlis neck in the north, widest around the
-                 Pahang/Terengganu bulge on the east coast, tapering to the
-                 Johor point in the south. -->
-            <path d="M78,8
-                     C68,10 60,18 58,32
-                     C55,46 62,54 56,68
-                     C50,82 44,96 46,114
-                     C48,132 40,146 44,164
-                     C48,182 56,192 54,208
-                     C52,224 62,234 66,250
-                     C70,266 82,276 88,292
-                     C94,308 100,316 108,326
-                     C114,332 122,330 128,322
-                     C134,314 130,302 138,290
-                     C146,278 152,262 158,246
-                     C164,230 168,212 166,194
-                     C164,176 156,164 158,146
-                     C160,128 152,112 148,94
-                     C144,76 134,64 128,50
-                     C122,36 108,24 96,16
-                     C90,12 84,8 78,8 Z"
-              fill="rgba(0,180,204,.10)" stroke="var(--brand2,#00B4CC)" stroke-width="1.6"/>
-            <!-- Penang Island -->
-            <ellipse cx="49" cy="60" rx="5.5" ry="8" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
-            <g class="dash-map-pin" id="dashMapKLPin">
-              <circle cx="66" cy="158" r="7" fill="var(--brand2,#00B4CC)" opacity=".28"/>
-              <circle cx="66" cy="158" r="4.5" fill="var(--brand2,#00B4CC)"/>
-              <text x="76" y="155" font-size="12" font-weight="800" fill="var(--ink)">KL</text>
-              <text x="76" y="168" font-size="10" font-weight="700" fill="var(--muted)" id="dashMapKLCount">— units</text>
-            </g>
-            <g class="dash-map-pin" id="dashMapJBPin">
-              <circle cx="110" cy="320" r="7" fill="var(--accent,#F4811F)" opacity=".28"/>
-              <circle cx="110" cy="320" r="4.5" fill="var(--accent,#F4811F)"/>
-              <text x="120" y="308" font-size="12" font-weight="800" fill="var(--ink)">JB</text>
-              <text x="120" y="321" font-size="10" font-weight="700" fill="var(--muted)" id="dashMapJBCount">— units</text>
-            </g>
-          </svg>
-        </div>
       </div>
 
-      <!-- HERO TILES — all money + owner metrics in one compact row -->
-      <div class="grid grid-cols-4 lg:grid-cols-8 gap-2 mb-3">
+      <!-- HERO TILES — remaining money + owner metrics -->
+      <div class="grid grid-cols-4 lg:grid-cols-7 gap-2 mb-3">
         <div class="hero-card hero-blue anim-hero" style="animation-delay:0s">
           <div class="hero-label">Rental Collected <span class="pulse-dot ml-1"></span></div>
           <div class="hero-value" id="stRent">RM –</div>
@@ -1793,11 +1839,6 @@
           <div class="hero-label">A/C Top-ups</div>
           <div class="hero-value" id="stAir">RM –</div>
           <div class="hero-sub" id="stAirSub">in this month</div>
-        </div>
-        <div class="hero-card hero-orange anim-hero hero-highlight" style="animation-delay:.1s">
-          <div class="hero-label">Management Fee</div>
-          <div class="hero-value" id="stMgmt">RM –</div>
-          <div class="hero-sub" id="stMgmtSub">in this month</div>
         </div>
         <div class="hero-card hero-orange-light anim-hero" style="animation-delay:.15s">
           <div class="hero-label">Total Expenses</div>
@@ -1826,8 +1867,8 @@
         </div>
       </div>
 
-      <!-- SECONDARY METRICS — flex-grows to absorb any leftover screen height -->
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <!-- SECONDARY METRICS — remaining property/tenant counts -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
         <div class="card stat-mini">
           <div class="help">Properties</div>
           <div class="text-2xl font-extrabold mt-1" id="stProps">–</div>
@@ -1836,11 +1877,6 @@
         <div class="card stat-mini"><div class="help">Active Tenants</div><div class="text-2xl font-extrabold mt-1" id="stTenants">–</div></div>
         <div class="card stat-mini"><div class="help">Total Rooms</div><div class="text-2xl font-extrabold mt-1" id="stTotalRooms">–</div></div>
         <div class="card stat-mini"><div class="help">Total Carparks</div><div class="text-2xl font-extrabold mt-1" id="stTotalCarparks">–</div></div>
-        <div class="card stat-mini stat-mini-highlight">
-          <div class="help">🏠 R2R This Month Income</div>
-          <div class="text-2xl font-extrabold mt-1" id="stR2RIncome">–</div>
-          <div class="help mt-0.5" id="stR2RIncomeSub">— units</div>
-        </div>
       </div>
     </div>
 
