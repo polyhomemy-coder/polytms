@@ -573,12 +573,19 @@
     color:#EAFBFF;font-family:'Courier New',ui-monospace,monospace;
     text-shadow:0 0 8px rgba(0,229,255,.5);
   }
-  /* ── West Malaysia map card — KL vs JB unit distribution ── */
+  /* ── West Malaysia map card — real Wikimedia map + percentage-positioned
+     KL/JB pins overlaid on top ── */
   .dash-map-card{display:flex;flex-direction:column}
-  .dash-map-card svg{flex:1;min-height:0}
-  .dash-map-pin{cursor:default}
-  .dash-map-pin circle{transition:r .2s ease}
-  .dash-map-pin:hover circle{r:9}
+  .dash-map-imgwrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+  .dash-map-img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
+  .dash-map-attrib{font-size:8px;color:var(--muted);text-align:right;margin-top:2px;opacity:.7}
+  .dash-map-pin{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px;cursor:default}
+  .dash-map-dot{width:11px;height:11px;border-radius:50%;transition:transform .2s ease}
+  .dash-map-pin:hover .dash-map-dot{transform:scale(1.25)}
+  .dash-map-lbl{font-size:11px;font-weight:800;line-height:1.15;text-align:center;color:var(--ink);
+    background:var(--card-bg,#fff);padding:1px 5px;border-radius:5px;white-space:nowrap;
+    box-shadow:0 1px 4px rgba(0,0,0,.18)}
+  .dash-map-lbl small{font-weight:700;font-size:9.5px;color:var(--muted)}
   /* ── Top band: map on the left, Management Fee + R2R Income stacked
      top-right ── */
   .dash-top-band{display:flex;gap:12px;align-items:stretch}
@@ -589,7 +596,7 @@
   .dash-top-band-right .hero-card .hero-value{font-size:34px}
   .dash-top-band-right .hero-card .hero-label{font-size:13px}
   .dash-top-band-right .hero-card .hero-sub{font-size:11.5px}
-  .dash-top-band-right .stat-mini .text-2xl{font-size:40px}
+  .dash-top-band-right .stat-mini .text-2xl{font-size:40px;color:var(--brand2,#00B4CC)}
   .dash-top-band-right .stat-mini .help{font-size:13px}
   @media (max-width:1024px){
     .dash-top-band{flex-direction:column}
@@ -1729,58 +1736,22 @@
             <div class="section-title">Unit Map</div>
             <div class="help" id="dashMapTotal">— units</div>
           </div>
-          <svg viewBox="0 0 300 500" xmlns="http://www.w3.org/2000/svg">
-            <!-- Peninsular Malaysia outline, traced to match the shape and
-                 proportions of the standard West Malaysia reference map:
-                 broad Kedah/Perlis shoulder in the north, a relatively
-                 straight west coast, the Pahang/Terengganu/Kelantan bulge
-                 on the east coast, and a long taper down to Johor with a
-                 scatter of small islands off the southern tip. -->
-            <path d="M118,4
-                     C132,4 146,10 156,22 C168,36 176,54 182,72
-                     C188,92 196,108 206,124 C214,138 210,150 202,158
-                     C194,166 196,178 204,188 C214,200 216,214 210,228
-                     C204,242 208,254 216,264 C224,276 222,290 212,300
-                     C204,308 206,318 214,326 C220,334 218,346 208,352
-                     C200,358 202,368 208,376 C214,384 210,394 200,398
-                     C192,402 190,410 194,418 C198,426 192,434 182,436
-                     C174,438 170,444 172,452 C174,460 168,466 160,466
-                     C154,466 150,472 150,478 C150,484 146,488 140,488
-                     C134,488 130,482 128,476 C126,470 120,468 114,470
-                     C106,472 100,466 100,458 C100,452 96,448 90,448
-                     C82,448 78,442 78,434 C78,428 74,424 68,424
-                     C60,424 56,416 58,408 C60,400 56,394 48,392
-                     C40,390 36,382 40,374 C44,366 40,358 32,354
-                     C24,350 22,340 28,332 C34,324 30,314 22,308
-                     C14,302 14,290 22,282 C28,276 26,266 18,260
-                     C10,254 10,242 18,234 C24,228 22,218 14,210
-                     C6,202 8,190 18,182 C26,176 24,164 14,156
-                     C6,150 6,138 16,130 C24,124 22,112 12,104
-                     C4,98 6,86 16,80 C24,74 22,62 14,54
-                     C8,48 10,38 20,32 C30,26 34,18 44,14
-                     C56,8 68,4 82,4
-                     C94,4 106,4 118,4 Z"
-              fill="rgba(0,180,204,.10)" stroke="var(--brand2,#00B4CC)" stroke-width="2"/>
-            <!-- Penang Island -->
-            <ellipse cx="16" cy="98" rx="7" ry="11" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1.2"/>
-            <!-- Langkawi + small southern islands, purely decorative -->
-            <ellipse cx="4" cy="60" rx="4" ry="6" fill="rgba(0,180,204,.10)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
-            <circle cx="146" cy="478" r="3.5" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
-            <circle cx="162" cy="486" r="3" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
-            <circle cx="176" cy="480" r="2.5" fill="rgba(0,180,204,.14)" stroke="var(--brand2,#00B4CC)" stroke-width="1"/>
-            <g class="dash-map-pin" id="dashMapKLPin">
-              <circle cx="94" cy="234" r="9" fill="var(--brand2,#00B4CC)" opacity=".28"/>
-              <circle cx="94" cy="234" r="5.5" fill="var(--brand2,#00B4CC)"/>
-              <text x="108" y="230" font-size="16" font-weight="800" fill="var(--ink)">KL</text>
-              <text x="108" y="248" font-size="13" font-weight="700" fill="var(--muted)" id="dashMapKLCount">— units</text>
-            </g>
-            <g class="dash-map-pin" id="dashMapJBPin">
-              <circle cx="140" cy="462" r="9" fill="var(--accent,#F4811F)" opacity=".28"/>
-              <circle cx="140" cy="462" r="5.5" fill="var(--accent,#F4811F)"/>
-              <text x="154" y="446" font-size="16" font-weight="800" fill="var(--ink)">JB</text>
-              <text x="154" y="464" font-size="13" font-weight="700" fill="var(--muted)" id="dashMapJBCount">— units</text>
-            </g>
-          </svg>
+          <!-- Real West Malaysia location map (Wikimedia Commons). Pins are
+               positioned by percentage using the map's known equirectangular
+               bounds (lat 0–8°N, lon 99–106°E) converted from KL and JB's
+               actual coordinates — not eyeballed. -->
+          <div class="dash-map-imgwrap">
+            <img class="dash-map-img" src="https://upload.wikimedia.org/wikipedia/commons/7/70/West_Malaysia_location_map.svg" alt="West Malaysia map">
+            <div class="dash-map-pin" id="dashMapKLPin" style="left:38.4%;top:60.8%">
+              <span class="dash-map-dot" style="background:var(--brand2,#00B4CC);box-shadow:0 0 0 5px rgba(0,180,204,.25)"></span>
+              <span class="dash-map-lbl">KL<br><small id="dashMapKLCount">— units</small></span>
+            </div>
+            <div class="dash-map-pin" id="dashMapJBPin" style="left:67.7%;top:81.3%">
+              <span class="dash-map-dot" style="background:var(--accent,#F4811F);box-shadow:0 0 0 5px rgba(244,129,31,.25)"></span>
+              <span class="dash-map-lbl">JB<br><small id="dashMapJBCount">— units</small></span>
+            </div>
+          </div>
+          <div class="dash-map-attrib">Map: Hellerick / Wikimedia Commons, CC BY-SA 3.0</div>
         </div>
         <div class="dash-top-band-right">
           <div class="hero-card hero-orange anim-hero hero-highlight" style="animation-delay:.1s">
