@@ -486,6 +486,84 @@
   .dash-compact .bar-row .bar-label{font-size:11px;width:64px}
   .dash-compact .bar-row .bar-track{height:17px}
   .dash-compact .bar-row .bar-value{font-size:10.5px}
+
+  /* ══════════════════════════════════════════════════════════════
+     HUD THEME — sci-fi command-center look for the Dashboard sub-tab
+     ══════════════════════════════════════════════════════════════ */
+  #dashOverviewView.dash-compact{
+    background:
+      radial-gradient(circle,rgba(0,229,255,.16) 1.2px,transparent 1.2px),
+      radial-gradient(ellipse at 20% 0%,rgba(0,180,204,.14),transparent 55%),
+      radial-gradient(ellipse at 90% 100%,rgba(244,129,31,.10),transparent 55%),
+      linear-gradient(155deg,#050B14 0%,#08141F 45%,#0A1B26 100%);
+    background-size:22px 22px,100% 100%,100% 100%,100% 100%;
+    border-radius:18px;padding:16px;margin:0 -2px;
+    box-shadow:inset 0 0 60px rgba(0,229,255,.05);
+  }
+  .dash-compact .card{
+    background:linear-gradient(165deg,rgba(12,28,40,.92),rgba(6,16,26,.95));
+    border:1px solid rgba(0,229,255,.22);
+    box-shadow:0 0 0 1px rgba(0,229,255,.05) inset,0 4px 18px rgba(0,0,0,.45);
+  }
+  .dash-compact .section-title{
+    color:#B6F3FF;font-family:'Courier New',ui-monospace,monospace;
+    letter-spacing:1.1px;text-transform:uppercase;text-shadow:0 0 10px rgba(0,229,255,.55);
+  }
+  .dash-compact .help{color:#5C90A3}
+  .dash-compact .dash-chart-card{
+    border-top:2px solid var(--dash-accent,#00E5FF);
+    background:
+      linear-gradient(165deg,rgba(12,28,40,.92),rgba(6,16,26,.95)),
+      radial-gradient(circle at 50% 0%,rgba(0,229,255,.10),transparent 65%);
+    box-shadow:0 0 18px rgba(0,229,255,.08),0 4px 18px rgba(0,0,0,.45);
+  }
+  .dash-compact .dash-chart-card.accent-orange{
+    --dash-accent:#FF9A45;
+    background:
+      linear-gradient(165deg,rgba(12,28,40,.92),rgba(6,16,26,.95)),
+      radial-gradient(circle at 50% 0%,rgba(244,129,31,.14),transparent 65%);
+    box-shadow:0 0 18px rgba(244,129,31,.10),0 4px 18px rgba(0,0,0,.45);
+  }
+  /* Donut ring text glows cyan regardless of the app's light/dark theme —
+     CSS beats the inline `fill` presentation attribute the JS sets. */
+  .dash-compact .dash-chart-card svg text:first-of-type{fill:#EAFBFF!important;text-shadow:0 0 8px rgba(0,229,255,.8)}
+  .dash-compact .dash-chart-card svg text:last-of-type{fill:#5FD4E8!important}
+  .dash-compact .dash-chart-card .text-slate-700,
+  .dash-compact .dash-chart-card .text-slate-800{color:#D6F6FF!important}
+  .dash-compact .dash-chart-card .text-slate-500,
+  .dash-compact .dash-chart-card .border-slate-100{color:#4C7A8C!important;border-color:rgba(0,229,255,.14)!important}
+  .dash-compact .bar-row .bar-track{background:rgba(0,229,255,.08);box-shadow:inset 0 0 6px rgba(0,0,0,.4)}
+  .dash-compact .bar-row .bar-value{color:#EAFBFF;text-shadow:0 0 6px rgba(0,229,255,.5)}
+  .dash-compact .bar-row .bar-label{color:#9FD8E8}
+  .dash-compact .hero-card{
+    background:linear-gradient(165deg,rgba(12,28,40,.94),rgba(6,16,26,.97))!important;
+    border:1px solid rgba(0,229,255,.28);
+    box-shadow:0 0 14px rgba(0,229,255,.10),0 4px 14px rgba(0,0,0,.4);
+  }
+  .dash-compact .hero-card.hero-orange,
+  .dash-compact .hero-card.hero-orange-light{
+    border-color:rgba(255,154,69,.35);
+    box-shadow:0 0 14px rgba(255,154,69,.14),0 4px 14px rgba(0,0,0,.4);
+  }
+  .dash-compact .hero-card::after{display:none}
+  .dash-compact .hero-card .hero-label{color:#7FC9DE;letter-spacing:.6px}
+  .dash-compact .hero-card.hero-orange .hero-label,
+  .dash-compact .hero-card.hero-orange-light .hero-label{color:#FFC28A}
+  .dash-compact .hero-card .hero-value{
+    color:#EAFBFF;font-family:'Courier New',ui-monospace,monospace;
+    text-shadow:0 0 10px rgba(0,229,255,.55);
+  }
+  .dash-compact .hero-card.hero-orange .hero-value,
+  .dash-compact .hero-card.hero-orange-light .hero-value{text-shadow:0 0 10px rgba(255,154,69,.6)}
+  .dash-compact .hero-card .hero-sub{color:#5C90A3}
+  .dash-compact .stat-mini{
+    background:linear-gradient(165deg,rgba(12,28,40,.92),rgba(6,16,26,.95));
+    border:1px solid rgba(0,229,255,.18);
+  }
+  .dash-compact .stat-mini .text-2xl{
+    color:#EAFBFF;font-family:'Courier New',ui-monospace,monospace;
+    text-shadow:0 0 8px rgba(0,229,255,.5);
+  }
   .hero-blue{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
   .hero-blue-light{background:linear-gradient(135deg,#007B8A,#00B4CC)}
   .hero-cyan{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
