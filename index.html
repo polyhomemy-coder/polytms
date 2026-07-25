@@ -488,9 +488,10 @@
   .dash-compact .bar-row .bar-value{font-size:10.5px}
 
   /* ══════════════════════════════════════════════════════════════
-     HUD THEME — sci-fi command-center look for the Dashboard sub-tab
+     HUD THEME — sci-fi command-center look, DARK MODE ONLY.
+     Light mode keeps the original cyan/orange card look untouched.
      ══════════════════════════════════════════════════════════════ */
-  #dashOverviewView.dash-compact{
+  html[data-theme="dark"] #dashOverviewView.dash-compact{
     background:
       radial-gradient(circle,rgba(0,229,255,.16) 1.2px,transparent 1.2px),
       radial-gradient(ellipse at 20% 0%,rgba(0,180,204,.14),transparent 55%),
@@ -500,70 +501,76 @@
     border-radius:18px;padding:16px;margin:0 -2px;
     box-shadow:inset 0 0 60px rgba(0,229,255,.05);
   }
-  .dash-compact .card{
+  html[data-theme="dark"] .dash-compact .card{
     background:linear-gradient(165deg,rgba(12,28,40,.92),rgba(6,16,26,.95));
     border:1px solid rgba(0,229,255,.22);
     box-shadow:0 0 0 1px rgba(0,229,255,.05) inset,0 4px 18px rgba(0,0,0,.45);
   }
-  .dash-compact .section-title{
+  html[data-theme="dark"] .dash-compact .section-title{
     color:#B6F3FF;font-family:'Courier New',ui-monospace,monospace;
     letter-spacing:1.1px;text-transform:uppercase;text-shadow:0 0 10px rgba(0,229,255,.55);
   }
-  .dash-compact .help{color:#5C90A3}
-  .dash-compact .dash-chart-card{
+  html[data-theme="dark"] .dash-compact .help{color:#5C90A3}
+  html[data-theme="dark"] .dash-compact .dash-chart-card{
     border-top:2px solid var(--dash-accent,#00E5FF);
     background:
       linear-gradient(165deg,rgba(12,28,40,.92),rgba(6,16,26,.95)),
       radial-gradient(circle at 50% 0%,rgba(0,229,255,.10),transparent 65%);
     box-shadow:0 0 18px rgba(0,229,255,.08),0 4px 18px rgba(0,0,0,.45);
   }
-  .dash-compact .dash-chart-card.accent-orange{
+  html[data-theme="dark"] .dash-compact .dash-chart-card.accent-orange{
     --dash-accent:#FF9A45;
     background:
       linear-gradient(165deg,rgba(12,28,40,.92),rgba(6,16,26,.95)),
       radial-gradient(circle at 50% 0%,rgba(244,129,31,.14),transparent 65%);
     box-shadow:0 0 18px rgba(244,129,31,.10),0 4px 18px rgba(0,0,0,.45);
   }
-  /* Donut ring text glows cyan regardless of the app's light/dark theme —
-     CSS beats the inline `fill` presentation attribute the JS sets. */
-  .dash-compact .dash-chart-card svg text:first-of-type{fill:#EAFBFF!important;text-shadow:0 0 8px rgba(0,229,255,.8)}
-  .dash-compact .dash-chart-card svg text:last-of-type{fill:#5FD4E8!important}
-  .dash-compact .dash-chart-card .text-slate-700,
-  .dash-compact .dash-chart-card .text-slate-800{color:#D6F6FF!important}
-  .dash-compact .dash-chart-card .text-slate-500,
-  .dash-compact .dash-chart-card .border-slate-100{color:#4C7A8C!important;border-color:rgba(0,229,255,.14)!important}
-  .dash-compact .bar-row .bar-track{background:rgba(0,229,255,.08);box-shadow:inset 0 0 6px rgba(0,0,0,.4)}
-  .dash-compact .bar-row .bar-value{color:#EAFBFF;text-shadow:0 0 6px rgba(0,229,255,.5)}
-  .dash-compact .bar-row .bar-label{color:#9FD8E8}
-  .dash-compact .hero-card{
+  /* Donut ring text glows cyan in dark mode — CSS beats the inline `fill`
+     presentation attribute the JS sets. */
+  html[data-theme="dark"] .dash-compact .dash-chart-card svg text:first-of-type{fill:#EAFBFF!important;text-shadow:0 0 8px rgba(0,229,255,.8)}
+  html[data-theme="dark"] .dash-compact .dash-chart-card svg text:last-of-type{fill:#5FD4E8!important}
+  html[data-theme="dark"] .dash-compact .dash-chart-card .text-slate-700,
+  html[data-theme="dark"] .dash-compact .dash-chart-card .text-slate-800{color:#D6F6FF!important}
+  html[data-theme="dark"] .dash-compact .dash-chart-card .text-slate-500,
+  html[data-theme="dark"] .dash-compact .dash-chart-card .border-slate-100{color:#4C7A8C!important;border-color:rgba(0,229,255,.14)!important}
+  html[data-theme="dark"] .dash-compact .bar-row .bar-track{background:rgba(0,229,255,.08);box-shadow:inset 0 0 6px rgba(0,0,0,.4)}
+  html[data-theme="dark"] .dash-compact .bar-row .bar-value{color:#EAFBFF;text-shadow:0 0 6px rgba(0,229,255,.5)}
+  html[data-theme="dark"] .dash-compact .bar-row .bar-label{color:#9FD8E8}
+  html[data-theme="dark"] .dash-compact .hero-card{
     background:linear-gradient(165deg,rgba(12,28,40,.94),rgba(6,16,26,.97))!important;
     border:1px solid rgba(0,229,255,.28);
     box-shadow:0 0 14px rgba(0,229,255,.10),0 4px 14px rgba(0,0,0,.4);
   }
-  .dash-compact .hero-card.hero-orange,
-  .dash-compact .hero-card.hero-orange-light{
+  html[data-theme="dark"] .dash-compact .hero-card.hero-orange,
+  html[data-theme="dark"] .dash-compact .hero-card.hero-orange-light{
     border-color:rgba(255,154,69,.35);
     box-shadow:0 0 14px rgba(255,154,69,.14),0 4px 14px rgba(0,0,0,.4);
   }
-  .dash-compact .hero-card::after{display:none}
-  .dash-compact .hero-card .hero-label{color:#7FC9DE;letter-spacing:.6px}
-  .dash-compact .hero-card.hero-orange .hero-label,
-  .dash-compact .hero-card.hero-orange-light .hero-label{color:#FFC28A}
-  .dash-compact .hero-card .hero-value{
+  html[data-theme="dark"] .dash-compact .hero-card::after{display:none}
+  html[data-theme="dark"] .dash-compact .hero-card .hero-label{color:#7FC9DE;letter-spacing:.6px}
+  html[data-theme="dark"] .dash-compact .hero-card.hero-orange .hero-label,
+  html[data-theme="dark"] .dash-compact .hero-card.hero-orange-light .hero-label{color:#FFC28A}
+  html[data-theme="dark"] .dash-compact .hero-card .hero-value{
     color:#EAFBFF;font-family:'Courier New',ui-monospace,monospace;
     text-shadow:0 0 10px rgba(0,229,255,.55);
   }
-  .dash-compact .hero-card.hero-orange .hero-value,
-  .dash-compact .hero-card.hero-orange-light .hero-value{text-shadow:0 0 10px rgba(255,154,69,.6)}
-  .dash-compact .hero-card .hero-sub{color:#5C90A3}
-  .dash-compact .stat-mini{
+  html[data-theme="dark"] .dash-compact .hero-card.hero-orange .hero-value,
+  html[data-theme="dark"] .dash-compact .hero-card.hero-orange-light .hero-value{text-shadow:0 0 10px rgba(255,154,69,.6)}
+  html[data-theme="dark"] .dash-compact .hero-card .hero-sub{color:#5C90A3}
+  html[data-theme="dark"] .dash-compact .stat-mini{
     background:linear-gradient(165deg,rgba(12,28,40,.92),rgba(6,16,26,.95));
     border:1px solid rgba(0,229,255,.18);
   }
-  .dash-compact .stat-mini .text-2xl{
+  html[data-theme="dark"] .dash-compact .stat-mini .text-2xl{
     color:#EAFBFF;font-family:'Courier New',ui-monospace,monospace;
     text-shadow:0 0 8px rgba(0,229,255,.5);
   }
+  /* ── West Malaysia map card — KL vs JB unit distribution ── */
+  .dash-map-card{display:flex;flex-direction:column}
+  .dash-map-card svg{flex:1;min-height:0}
+  .dash-map-pin{cursor:default}
+  .dash-map-pin circle{transition:r .2s ease}
+  .dash-map-pin:hover circle{r:9}
   .hero-blue{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
   .hero-blue-light{background:linear-gradient(135deg,#007B8A,#00B4CC)}
   .hero-cyan{background:linear-gradient(135deg,#005F6B,#007B8A 55%,#00B4CC)}
@@ -1691,7 +1698,7 @@
     <!-- ====================================================== -->
     <div id="dashOverviewView" class="dash-compact">
       <!-- GLOBAL CHARTS — all properties (H2M + R2R) -->
-      <div class="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-3">
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-3 mb-3">
         <div class="card dash-chart-card">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Payment Rate</div>
@@ -1719,6 +1726,35 @@
             <div class="help" id="dashRaceTotal">all active tenants</div>
           </div>
           <div id="dashRaceChart" class="dash-chart-body"><div class="text-slate-400 text-sm text-center">—</div></div>
+        </div>
+        <div class="card dash-chart-card dash-map-card">
+          <div class="flex items-baseline justify-between mb-1">
+            <div class="section-title">Unit Map</div>
+            <div class="help" id="dashMapTotal">— units</div>
+          </div>
+          <svg viewBox="0 0 220 340" xmlns="http://www.w3.org/2000/svg">
+            <path d="M110,12 C128,12 140,28 143,50 C146,72 138,88 148,105
+                     C160,122 168,116 172,138 C176,162 162,170 166,192
+                     C170,216 184,220 178,244 C172,268 158,262 152,286
+                     C146,308 134,316 126,332 C120,342 112,338 108,326
+                     C100,308 90,312 82,296 C74,280 78,266 66,254
+                     C54,242 50,224 58,208 C66,192 54,180 58,162
+                     C62,144 50,134 54,116 C58,98 46,90 50,72
+                     C54,54 68,44 74,30 C82,16 96,12 110,12 Z"
+              fill="rgba(0,180,204,.10)" stroke="var(--brand2,#00B4CC)" stroke-width="1.6" stroke-dasharray="3 2"/>
+            <g class="dash-map-pin" id="dashMapKLPin">
+              <circle cx="96" cy="120" r="7" fill="var(--brand2,#00B4CC)" opacity=".28"/>
+              <circle cx="96" cy="120" r="4.5" fill="var(--brand2,#00B4CC)"/>
+              <text x="106" y="117" font-size="12" font-weight="800" fill="var(--ink)">KL</text>
+              <text x="106" y="130" font-size="10" font-weight="700" fill="var(--muted)" id="dashMapKLCount">— units</text>
+            </g>
+            <g class="dash-map-pin" id="dashMapJBPin">
+              <circle cx="128" cy="296" r="7" fill="var(--accent,#F4811F)" opacity=".28"/>
+              <circle cx="128" cy="296" r="4.5" fill="var(--accent,#F4811F)"/>
+              <text x="138" y="293" font-size="12" font-weight="800" fill="var(--ink)">JB</text>
+              <text x="138" y="306" font-size="10" font-weight="700" fill="var(--muted)" id="dashMapJBCount">— units</text>
+            </g>
+          </svg>
         </div>
       </div>
 
@@ -5987,6 +6023,13 @@ function renderDashboardMetrics(){
       ? entries.map(([k,v])=>`${k}: ${v}`).join(' · ')
       : '— by city';
   }
+
+  // Unit Map — KL vs JB unit counts, pinned on the West Malaysia sketch
+  const klCount = cityCounts['KL'] || 0;
+  const jbCount = cityCounts['JB'] || 0;
+  if($('#dashMapTotal')) $('#dashMapTotal').textContent = props.length+' unit'+(props.length===1?'':'s');
+  if($('#dashMapKLCount')) $('#dashMapKLCount').textContent = klCount+' unit'+(klCount===1?'':'s');
+  if($('#dashMapJBCount')) $('#dashMapJBCount').textContent = jbCount+' unit'+(jbCount===1?'':'s');
 
   // Total Rooms = sum of every configured room across the filtered properties
   const totalRooms = props.reduce((s,p)=>s+parseRoomCodes(p.room_codes).length, 0);
