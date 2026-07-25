@@ -2707,6 +2707,18 @@ function _propPassesGlobalFilter(p){
   return true;
 }
 
+// A property only "existed" for a given (year, month) if it was created on
+// or before that month's last day. This keeps historical months a frozen,
+// closed snapshot — a unit added in August won't inflate July's property/
+// room/carpark counts (or any dashboard total built from them) just
+// because you're viewing the dashboard after the fact. Legacy rows with
+// no created_at timestamp are always counted (nothing to compare against).
+function _propExistedByMonth(p, y, m){
+  if(!p || !p.created_at) return true;
+  const monthEnd = new Date(y, m, 0, 23, 59, 59, 999);
+  return new Date(p.created_at) <= monthEnd;
+}
+
 function renderSidebarFilters(){
   const cityChipsEl  = document.getElementById('sbCityChips');
   const typeChipsEl  = document.getElementById('sbTypeChips');
@@ -5145,7 +5157,7 @@ function animateNumber(el, target, opts){
 }
 
 function renderGlobalCharts(){
-  const allProps = state.properties.filter(p=>p.active!==false && _propPassesGlobalFilter(p));
+  const allProps = state.properties.filter(p=>p.active!==false && _propPassesGlobalFilter(p) && _propExistedByMonth(p, state.year, state.month));
   const allPropIds = new Set(allProps.map(p=>p.id));
   // Room Occupancy / Race Breakdown reflect the LIVE snapshot — active
   // tenants only.
@@ -6051,7 +6063,7 @@ function renderRateDonut(o){
 //  so it sits at the same level as Payment Rate / Room Occupancy).
 // ============================================================
 function renderDashboardMetrics(){
-  const props = state.properties.filter(p=>p.active!==false && _propPassesGlobalFilter(p));
+  const props = state.properties.filter(p=>p.active!==false && _propPassesGlobalFilter(p) && _propExistedByMonth(p, state.year, state.month));
   const propIds = new Set(props.map(p=>p.id));
   const tenants = state.tenants.filter(t=>propIds.has(t.property_id) && t.active!==false);
   const payments = state.payments.filter(p=>propIds.has(p.property_id));
@@ -6203,7 +6215,7 @@ function renderDashboardMetrics(){
   // dimensions (see sidebar), so this must be an AND, not an OR.
   const r2rProps = state.properties.filter(p=>{
     const isR2R = p.model === 'R2R' && p.unit_type === 'own_unit';
-    return isR2R && p.active!==false && _propPassesGlobalFilter(p);
+    return isR2R && p.active!==false && _propPassesGlobalFilter(p) && _propExistedByMonth(p, state.year, state.month);
   });
   const r2rIncome = r2rProps.reduce((sum,p)=>{
     const pay = state.payments.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
@@ -6261,7 +6273,7 @@ function updateDashProfitNet(){
 function renderManagementFeeUnitListing(){
   const props = state.properties.filter(p=>{
     const isH2M = p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M';
-    return isH2M && _propPassesGlobalFilter(p);
+    return isH2M && _propPassesGlobalFilter(p) && _propExistedByMonth(p, state.year, state.month);
   });
   const propIds = new Set(props.map(p=>p.id));
   const tenants  = state.tenants.filter(t=>propIds.has(t.property_id) && t.active!==false);
