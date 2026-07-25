@@ -440,19 +440,21 @@
   .hero-card .hero-label{font-size:12px;font-weight:700;opacity:.92;letter-spacing:.4px;text-transform:uppercase;position:relative;z-index:1}
   .hero-card .hero-value{font-size:28px;font-weight:800;margin-top:10px;line-height:1.05;position:relative;z-index:1;font-variant-numeric:tabular-nums}
   .hero-card .hero-sub{font-size:11px;opacity:.85;margin-top:4px;position:relative;z-index:1}
-  /* ── Compact Manager Dashboard — fit the whole view on one 16:9 screen ── */
-  .dash-compact .card{padding:12px 14px;border-radius:14px}
-  .dash-compact .section-title{font-size:13px}
-  .dash-compact .help{font-size:10.5px}
-  .dash-compact .hero-card{padding:10px 12px;border-radius:12px;min-height:74px}
-  .dash-compact .hero-card .hero-label{font-size:9.5px;letter-spacing:.2px}
-  .dash-compact .hero-card .hero-value{font-size:17px;margin-top:5px}
-  .dash-compact .hero-card .hero-sub{font-size:9px;margin-top:2px}
-  .dash-compact .stat-mini .text-2xl{font-size:18px}
-  .dash-compact .stat-mini .help{font-size:10px}
-  /* Top chart row — fixed height so all 4 cards line up exactly, no dead space */
+  /* ── Manager Dashboard — sized generously so all 3 rows read as one
+     cohesive, well-filled screen (no tiny cards, no stretched-empty cards) ── */
+  .dash-compact .card{padding:14px 16px;border-radius:14px}
+  .dash-compact .section-title{font-size:14px}
+  .dash-compact .help{font-size:11px}
+  .dash-compact .hero-card{padding:14px 16px;border-radius:12px;min-height:98px}
+  .dash-compact .hero-card .hero-label{font-size:10.5px;letter-spacing:.2px}
+  .dash-compact .hero-card .hero-value{font-size:21px;margin-top:7px}
+  .dash-compact .hero-card .hero-sub{font-size:10px;margin-top:3px}
+  .dash-compact .stat-mini{min-height:110px;display:flex;flex-direction:column;justify-content:center}
+  .dash-compact .stat-mini .text-2xl{font-size:26px}
+  .dash-compact .stat-mini .help{font-size:11px}
+  /* Top chart row — fixed height so all 5 cards line up exactly, no dead space */
   .dash-compact .dash-chart-card{
-    height:184px;display:flex;flex-direction:column;overflow:hidden;
+    height:230px;display:flex;flex-direction:column;overflow:hidden;
     border-top:3px solid var(--dash-accent,#00B4CC);
     background:linear-gradient(180deg,rgba(0,180,204,.05),transparent 60%);
   }
@@ -463,49 +465,35 @@
   .dash-compact .dash-chart-card>.dash-chart-body{flex:1;display:flex;flex-direction:column;justify-content:center;min-height:0}
   .dash-compact #dashPayDonut svg,
   .dash-compact #dashRoomDonut svg,
-  .dash-compact #dashCarDonut svg{max-width:118px!important;flex-shrink:0}
+  .dash-compact #dashCarDonut svg{max-width:150px!important;flex-shrink:0}
   /* Grid instead of flex-row: deterministic placement regardless of content
      width — svg spans both rows in col 1, legend + caption stack in col 2. */
   .dash-compact #dashPayDonut .anim-pie,
   .dash-compact #dashRoomDonut .anim-pie,
   .dash-compact #dashCarDonut .anim-pie{
     display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;
-    column-gap:12px;align-items:center;
+    column-gap:14px;align-items:center;
   }
   .dash-compact #dashPayDonut .anim-pie svg,
   .dash-compact #dashRoomDonut .anim-pie svg,
   .dash-compact #dashCarDonut .anim-pie svg{grid-row:1/3;grid-column:1}
   .dash-compact #dashPayDonut .w-full.max-w-\[240px\],
   .dash-compact #dashRoomDonut .w-full.max-w-\[240px\],
-  .dash-compact #dashCarDonut .w-full.max-w-\[240px\]{grid-column:2;grid-row:1;max-width:100%;min-width:0;font-size:11px;margin-top:0}
+  .dash-compact #dashCarDonut .w-full.max-w-\[240px\]{grid-column:2;grid-row:1;max-width:100%;min-width:0;font-size:13px;margin-top:0}
   .dash-compact #dashPayDonut .anim-pie>.text-xs,
   .dash-compact #dashRoomDonut .anim-pie>.text-xs,
-  .dash-compact #dashCarDonut .anim-pie>.text-xs{grid-column:2;grid-row:2;margin-top:2px!important}
-  .dash-compact .bar-row{margin-bottom:6px}
+  .dash-compact #dashCarDonut .anim-pie>.text-xs{grid-column:2;grid-row:2;margin-top:4px!important;font-size:12px!important}
+  .dash-compact .bar-row{margin-bottom:9px}
   .dash-compact .bar-row:last-child{margin-bottom:0}
-  .dash-compact .bar-row .bar-label{font-size:11px;width:64px}
-  .dash-compact .bar-row .bar-track{height:17px}
-  .dash-compact .bar-row .bar-value{font-size:10.5px}
+  .dash-compact .bar-row .bar-label{font-size:12px;width:66px}
+  .dash-compact .bar-row .bar-track{height:22px}
+  .dash-compact .bar-row .bar-value{font-size:11.5px}
 
-  /* ── Fill the screen: dashboard stretches to viewport height, and the
-     last row (secondary metrics) absorbs whatever space is left over
-     instead of leaving it blank below the fold. ── */
-  #dashOverviewView.dash-compact{
-    display:flex;flex-direction:column;
-    min-height:calc(100vh - 190px);
-  }
-  #dashOverviewView.dash-compact .dash-fill-row{
-    flex:1;grid-template-rows:1fr;min-height:120px;
-  }
-  #dashOverviewView.dash-compact .dash-fill-row .stat-mini{
-    display:flex;flex-direction:column;justify-content:center;
-  }
   /* Highlighted KPIs — Management Fee (hero row) & R2R Income (secondary row) */
-  .dash-compact .hero-card.hero-highlight{min-height:82px}
-  .dash-compact .hero-card.hero-highlight .hero-value{font-size:21px}
-  .dash-compact .hero-card.hero-highlight .hero-label{font-size:10.5px;font-weight:800}
-  .dash-compact .stat-mini-highlight .text-2xl{font-size:30px}
-  .dash-compact .stat-mini-highlight .help{font-size:11px;font-weight:700}
+  .dash-compact .hero-card.hero-highlight .hero-value{font-size:25px}
+  .dash-compact .hero-card.hero-highlight .hero-label{font-size:11px;font-weight:800}
+  .dash-compact .stat-mini-highlight .text-2xl{font-size:34px}
+  .dash-compact .stat-mini-highlight .help{font-size:11.5px;font-weight:700}
 
   /* ══════════════════════════════════════════════════════════════
      HUD THEME — sci-fi command-center look, DARK MODE ONLY.
@@ -1839,7 +1827,7 @@
       </div>
 
       <!-- SECONDARY METRICS — flex-grows to absorb any leftover screen height -->
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-2 dash-fill-row">
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
         <div class="card stat-mini">
           <div class="help">Properties</div>
           <div class="text-2xl font-extrabold mt-1" id="stProps">–</div>
