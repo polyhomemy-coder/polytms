@@ -1816,14 +1816,14 @@
         <div class="card dash-chart-card">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Room Occupancy</div>
-            <div class="help">all properties · live</div>
+            <div class="help" id="dashRoomDonutCaption">as of month close</div>
           </div>
           <div id="dashRoomDonut" class="dash-chart-body"><div class="text-slate-400 text-sm text-center">—</div></div>
         </div>
         <div class="card dash-chart-card accent-orange">
           <div class="flex items-baseline justify-between mb-1">
             <div class="section-title">Carpark Occupancy</div>
-            <div class="help">all properties · live</div>
+            <div class="help" id="dashCarDonutCaption">as of month close</div>
           </div>
           <div id="dashCarDonut" class="dash-chart-body"><div class="text-slate-400 text-sm text-center">—</div></div>
         </div>
@@ -5103,20 +5103,42 @@ function normCarpark(s){ return String(s||'').trim().toUpperCase(); }
 // Compute room/carpark occupancy stats for a given list of properties.
 // Occupied room = active tenant whose room_code matches a configured room.
 // Occupied carpark = active tenant whose carpark assignment matches a configured lot.
-function computeOccupancy(properties){
+// A tenant occupied their room/carpark as of the CLOSING date (last day)
+// of (y, m) if their tenancy had started by then and hadn't already ended
+// — via move-out, or agreement expiry when no move-out was recorded —
+// before then. This is a single point-in-time snapshot (matches how a
+// monthly close works), not "any overlap with the month" like
+// tenancyForMonth() uses for billing/report purposes.
+function _tenantOccupiedAtClose(t, y, m){
+  const monthEnd = new Date(y, m, 0, 23, 59, 59, 999);
+  const s  = t.agreement_start ? new Date(t.agreement_start) : null;
+  const mo = t.move_out_date   ? new Date(t.move_out_date)   : null;
+  const e  = t.agreement_end   ? new Date(t.agreement_end)   : null;
+  if(s && s > monthEnd) return false;
+  if(mo && mo < monthEnd) return false;
+  if(!mo && e && e < monthEnd) return false;
+  return true;
+}
+
+function computeOccupancy(properties, y, m){
+  if(y == null) y = state.year;
+  if(m == null) m = state.month;
   let totalRooms=0, occRooms=0, totalCar=0, occCar=0;
-  const activeTenants = state.tenants.filter(t=>t.active!==false);
+  // Draws from ALL loaded tenants (not just currently-active ones) so a
+  // tenant who has since moved out still counts toward a past month's
+  // closing snapshot. Moved-out tenants are lazy-loaded by the caller.
+  const closedTenants = state.tenants.filter(t=>_tenantOccupiedAtClose(t, y, m));
   for(const p of properties){
     const rooms = parseRoomCodes(p.room_codes);
     const lots  = parseCarparkLots(p.carpark_lots);
     totalRooms += rooms.length;
     totalCar   += lots.length;
-    const tList = activeTenants.filter(t=>t.property_id===p.id);
+    const tList = closedTenants.filter(t=>t.property_id===p.id);
     for(const r of rooms){
       if(tList.some(t=>String(t.room_code||'').toUpperCase()===r)) occRooms++;
     }
     for(const lot of lots){
-      const occupied = activeTenants.some(t=>{
+      const occupied = closedTenants.some(t=>{
         const cp1 = normCarpark(t.carpark)===lot && (t.carpark_property_id||t.property_id)===p.id;
         const cp2 = normCarpark(t.carpark2||'')===lot && (t.carpark2_property_id||t.property_id)===p.id;
         return cp1 || cp2;
@@ -5197,9 +5219,13 @@ function renderGlobalCharts(){
     }
   }
 
-  // Room Occupancy — all properties
+  // Room Occupancy — all properties, closing snapshot as of this month's
+  // last day (based on each tenant's tenancy agreement start/end/move-out).
+  const closeCaption = 'as of '+monthName+' close';
+  if($('#dashRoomDonutCaption')) $('#dashRoomDonutCaption').textContent = closeCaption;
+  if($('#dashCarDonutCaption'))  $('#dashCarDonutCaption').textContent  = closeCaption;
   if($('#dashRoomDonut')){
-    const occ = computeOccupancy(allProps);
+    const occ = computeOccupancy(allProps, state.year, state.month);
     const roomPct = occ.totalRooms ? Math.round((occ.occRooms/occ.totalRooms)*100) : 0;
     if(occ.totalRooms){
       $('#dashRoomDonut').innerHTML = renderRateDonut({
