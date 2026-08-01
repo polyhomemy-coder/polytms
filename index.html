@@ -5832,6 +5832,28 @@ async function renderTenantTrackRecord(container){
     if(!existing || r.paid_on < existing) payMap.set(key, r.paid_on);
   });
 
+  // Cache the fetched data on the container so search/filter changes just
+  // re-paint from memory instead of re-querying the DB on every keystroke.
+  container._trackCache = { props, tenants, months, payMap };
+  _paintTenantTrack(container);
+}
+
+// Re-renders the Payment Track table from the cached fetch, applying the
+// current search text + condo/unit filter. Called on load and whenever
+// the search box or property dropdown changes.
+function _paintTenantTrack(container){
+  const cache = container._trackCache;
+  if(!cache) return;
+  const { props, tenants: allTenants, months, payMap } = cache;
+
+  const searchTxt = (state.trackSearch||'').trim().toLowerCase();
+  const propFilter = state.trackPropFilter || '';
+  const tenants = allTenants.filter(t=>{
+    if(propFilter && t.property_id !== propFilter) return false;
+    if(searchTxt && !String(t.name||'').toLowerCase().includes(searchTxt)) return false;
+    return true;
+  });
+
   // On-time / late thresholds — day-of-month the rent was recorded as paid.
   const dayStatus = day => day<=7 ? {label:'on-time',color:'#059669',bg:'#DCFCE7'}
     : day<=15 ? {label:'late',color:'#B45309',bg:'#FEF3C7'}
@@ -5887,18 +5909,34 @@ async function renderTenantTrackRecord(container){
     </tr>`;
   }).join('');
 
+  const propOpts = props
+    .slice()
+    .sort((a,b)=>(a.condo+a.unit).localeCompare(b.condo+b.unit))
+    .map(p=>`<option value="${p.id}" ${propFilter===p.id?'selected':''}>${esc(p.condo+' · '+p.unit)}</option>`)
+    .join('');
+
   container.innerHTML = `
     <div class="card" style="overflow-x:auto">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:10px">
         <div>
           <div style="font-size:13px;font-weight:800;color:var(--ink)">🗓️ Payment Track Record</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px">Day of month rent was paid, trailing 12 months · sorted worst payers first</div>
         </div>
-        <div style="display:flex;gap:8px;font-size:10.5px;color:var(--muted)">
+        <div style="display:flex;gap:8px;font-size:10.5px;color:var(--muted);flex-wrap:wrap">
           <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#DCFCE7;border:1px solid #059669;margin-right:3px"></span>on-time (≤7th)</span>
           <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#FEF3C7;border:1px solid #B45309;margin-right:3px"></span>late (8–15th)</span>
           <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#FEE2E2;border:1px solid #B91C1C;margin-right:3px"></span>very late / unpaid</span>
         </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <div class="relative" style="flex:1;min-width:180px">
+          <input id="trackSearch" class="input !pl-8 !text-xs !w-full" placeholder="Search tenant name…" value="${esc(state.trackSearch||'')}" />
+          <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--muted)">🔍</span>
+        </div>
+        <select id="trackPropFilter" class="input !w-auto !text-xs">
+          <option value="">All condos / units</option>
+          ${propOpts}
+        </select>
       </div>
       <table style="width:100%;border-collapse:collapse">
         <thead><tr>
@@ -5906,9 +5944,27 @@ async function renderTenantTrackRecord(container){
           ${monthHeaders}
           <th style="text-align:right;font-size:10px;font-weight:700;color:var(--muted);padding:0 0 6px 10px;white-space:nowrap">Score</th>
         </tr></thead>
-        <tbody>${bodyRows || '<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--muted)">No tenants to show.</td></tr>'}</tbody>
+        <tbody>${bodyRows || '<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--muted)">No tenants match.</td></tr>'}</tbody>
       </table>
     </div>`;
+
+  const searchEl = $('#trackSearch');
+  if(searchEl){
+    searchEl.focus();
+    searchEl.setSelectionRange(searchEl.value.length, searchEl.value.length);
+    searchEl.addEventListener('input', ()=>{
+      state.trackSearch = searchEl.value;
+      clearTimeout(container._trackSearchTimer);
+      container._trackSearchTimer = setTimeout(()=>_paintTenantTrack(container), 200);
+    });
+  }
+  const filterEl = $('#trackPropFilter');
+  if(filterEl){
+    filterEl.addEventListener('change', ()=>{
+      state.trackPropFilter = filterEl.value;
+      _paintTenantTrack(container);
+    });
+  }
 }
 
 // ============================================================
