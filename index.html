@@ -5431,6 +5431,7 @@ function renderAdminDashboard(){
     {id:'vacant',    label:'🏠 Vacant'+badge(vacants.length, vacants.length>0)},
     {id:'carpark',   label:'🚗 Carpark'+badge(carparkList.length, false)},
     {id:'signoff',   label:'📋 Sign-off'+badge(reportPending.length, reportPending.length>0)},
+    {id:'track',     label:'🗓️ Payment Track'},
     ...(state.role==='manager'||state.role==='admin' ? [{id:'users', label:'👥 Users'}] : []),
     ...(state.role==='manager'||state.role==='admin' ? [{id:'notices', label:'📢 Notices'}, {id:'backup', label:'🗄️ Backup'}] : []),
   ];
@@ -5749,8 +5750,9 @@ function renderAdminDashboard(){
   const paneUsers   = `<div id="userMgmtPanel"></div>`;
   const paneNotices = `<div id="announcementsPanel"></div>`;
   const paneBackup  = `<div id="backupPanel"></div>`;
+  const paneTrack   = `<div id="tenantTrackPanel"></div>`;
 
-  const paneMap = {overview:paneOverview, unpaid:paneUnpaid, leases:paneLeases, movements:paneMovements, vacant:paneVacant, carpark:paneCarpark, signoff:paneSignoff, users:paneUsers, notices:paneNotices, backup:paneBackup};
+  const paneMap = {overview:paneOverview, unpaid:paneUnpaid, leases:paneLeases, movements:paneMovements, vacant:paneVacant, carpark:paneCarpark, signoff:paneSignoff, track:paneTrack, users:paneUsers, notices:paneNotices, backup:paneBackup};
 
   // ─────────────────────────────────────────────────────────────────────────
   try {
@@ -5778,6 +5780,135 @@ function renderAdminDashboard(){
     const p = document.getElementById('backupPanel');
     if(p) renderBackupPanel(p);
   }
+  if(sub === 'track'){
+    const p = document.getElementById('tenantTrackPanel');
+    if(p) renderTenantTrackRecord(p);
+  }
+}
+
+// ============================================================
+//  TENANT PAYMENT TRACK RECORD — per-tenant, month-by-month view of which
+//  day of the month rent was paid, so you can spot good vs. unreliable
+//  payers at a glance. Scoped to currently-active tenants matching the
+//  sidebar filters, over the trailing 12 months (bounded by each tenant's
+//  own agreement_start so a room's previous occupant's history never
+//  bleeds into the current tenant's row).
+// ============================================================
+async function renderTenantTrackRecord(container){
+  container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);font-size:13px">Loading payment track record…</div>';
+
+  const props = state.properties.filter(p=>p.active!==false && _propPassesGlobalFilter(p));
+  const propIds = props.map(p=>p.id);
+  if(!propIds.length){
+    container.innerHTML = '<div class="card" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No properties match the current filters.</div>';
+    return;
+  }
+
+  const tenants = state.tenants.filter(t=>t.active!==false && t.room_code && propIds.includes(t.property_id));
+  if(!tenants.length){
+    container.innerHTML = '<div class="card" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No active tenants match the current filters.</div>';
+    return;
+  }
+
+  // Trailing 12 months ending at the topbar's selected month.
+  const months = [];
+  { let y = state.year, m = state.month;
+    for(let i=0;i<12;i++){ months.unshift({y,m}); m--; if(m<1){ m=12; y--; } } }
+  const minY = months[0].y;
+
+  const { data, error } = await sb.from('rental_payments')
+    .select('property_id,room_code,year,month,paid_on')
+    .in('property_id', propIds)
+    .eq('item_type','room')
+    .gte('year', minY);
+  if(error){ toast(error.message,'bad'); container.innerHTML = '<div class="card" style="padding:20px;color:#B91C1C;font-size:13px">Failed to load payment history.</div>'; return; }
+
+  const monthKeys = new Set(months.map(mo=>mo.y+'-'+mo.m));
+  const payMap = new Map(); // `${property_id}|${room_code}|${y}|${m}` -> earliest paid_on
+  (data||[]).forEach(r=>{
+    if(!monthKeys.has(r.year+'-'+r.month) || !r.paid_on) return;
+    const key = r.property_id+'|'+String(r.room_code||'').toUpperCase()+'|'+r.year+'|'+r.month;
+    const existing = payMap.get(key);
+    if(!existing || r.paid_on < existing) payMap.set(key, r.paid_on);
+  });
+
+  // On-time / late thresholds — day-of-month the rent was recorded as paid.
+  const dayStatus = day => day<=7 ? {label:'on-time',color:'#059669',bg:'#DCFCE7'}
+    : day<=15 ? {label:'late',color:'#B45309',bg:'#FEF3C7'}
+    : {label:'very late',color:'#B91C1C',bg:'#FEE2E2'};
+
+  const rows = tenants.map(t=>{
+    const p = state.properties.find(x=>x.id===t.property_id);
+    const s  = t.agreement_start ? new Date(t.agreement_start) : null;
+    const mo = t.move_out_date   ? new Date(t.move_out_date)   : null;
+    const e  = t.agreement_end   ? new Date(t.agreement_end)   : null;
+    let onTime=0, late=0, veryLate=0, unpaid=0, tracked=0;
+    const cells = months.map(({y,m})=>{
+      const monthStart = new Date(y, m-1, 1);
+      const monthEnd   = new Date(y, m, 0, 23,59,59,999);
+      const inTenancy = (!s || s<=monthEnd) && (!mo || mo>=monthStart) && (mo || !e || e>=monthStart);
+      if(!inTenancy) return `<td style="padding:3px;text-align:center;color:var(--line)">·</td>`;
+      tracked++;
+      const key = t.property_id+'|'+String(t.room_code||'').toUpperCase()+'|'+y+'|'+m;
+      const paidOn = payMap.get(key);
+      if(!paidOn){
+        unpaid++;
+        return `<td style="padding:3px;text-align:center"><span title="${MONTHS[m-1]} ${y} — unpaid" style="display:inline-block;min-width:26px;padding:2px 4px;border-radius:6px;background:#FEE2E2;color:#B91C1C;font-size:10px;font-weight:800">—</span></td>`;
+      }
+      const day = Number(paidOn.slice(8,10));
+      const st = dayStatus(day);
+      if(st.label==='on-time') onTime++; else if(st.label==='late') late++; else veryLate++;
+      return `<td style="padding:3px;text-align:center"><span title="${MONTHS[m-1]} ${y} — paid on day ${day}" style="display:inline-block;min-width:26px;padding:2px 4px;border-radius:6px;background:${st.bg};color:${st.color};font-size:10px;font-weight:800">${day}</span></td>`;
+    }).join('');
+    const reliabilityPct = tracked ? Math.round((onTime/tracked)*100) : null;
+    return { t, p, cells, onTime, late, veryLate, unpaid, tracked, reliabilityPct };
+  }).sort((a,b)=>{
+    // Worst payers first so problem tenants surface immediately.
+    const av = a.reliabilityPct==null ? 101 : a.reliabilityPct;
+    const bv = b.reliabilityPct==null ? 101 : b.reliabilityPct;
+    return av - bv;
+  });
+
+  const monthHeaders = months.map(({y,m})=>`<th style="font-size:9.5px;font-weight:700;color:var(--muted);text-align:center;padding:0 3px 6px;white-space:nowrap">${MONTHS[m-1]}<br>'${String(y).slice(2)}</th>`).join('');
+
+  const bodyRows = rows.map(r=>{
+    const scoreColor = r.reliabilityPct==null ? 'var(--muted)' : r.reliabilityPct>=90?'#059669':r.reliabilityPct>=70?'#B45309':'#B91C1C';
+    const scoreTxt = r.reliabilityPct==null ? '—' : r.reliabilityPct+'%';
+    return `<tr>
+      <td style="padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap">
+        <button class="text-left hover:underline" style="font-weight:700;font-size:12.5px;color:var(--ink)" onclick="openTenantView('${r.t.id}')">${esc(r.t.name||'—')}</button>
+        <div style="font-size:10.5px;color:var(--muted)">${esc(r.p?r.p.condo+' · '+r.p.unit:'')} · Room ${esc(r.t.room_code)}</div>
+      </td>
+      ${r.cells}
+      <td style="padding:6px 0 6px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap">
+        <span style="font-weight:800;font-size:13px;color:${scoreColor}">${scoreTxt}</span>
+        <div style="font-size:9.5px;color:var(--muted)">${r.onTime} on-time · ${r.late} late · ${r.veryLate+r.unpaid} bad</div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="card" style="overflow-x:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-size:13px;font-weight:800;color:var(--ink)">🗓️ Payment Track Record</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Day of month rent was paid, trailing 12 months · sorted worst payers first</div>
+        </div>
+        <div style="display:flex;gap:8px;font-size:10.5px;color:var(--muted)">
+          <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#DCFCE7;border:1px solid #059669;margin-right:3px"></span>on-time (≤7th)</span>
+          <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#FEF3C7;border:1px solid #B45309;margin-right:3px"></span>late (8–15th)</span>
+          <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#FEE2E2;border:1px solid #B91C1C;margin-right:3px"></span>very late / unpaid</span>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:0 10px 6px 0;white-space:nowrap">Tenant</th>
+          ${monthHeaders}
+          <th style="text-align:right;font-size:10px;font-weight:700;color:var(--muted);padding:0 0 6px 10px;white-space:nowrap">Score</th>
+        </tr></thead>
+        <tbody>${bodyRows || '<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--muted)">No tenants to show.</td></tr>'}</tbody>
+      </table>
+    </div>`;
 }
 
 // ============================================================
