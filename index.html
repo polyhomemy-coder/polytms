@@ -4651,17 +4651,10 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
     if(taken.has((t.room_code||'').toUpperCase())) continue;
     const pr = computeFirstMonthProRate(t, y, m);
     if(pr && pr.total>0){
-      // Partial month — insert pro-rate payment row.
-      const {error} = await sb.from('rental_payments').insert({
-        property_id: t.property_id,
-        year: y, month: m,
-        item_type: 'room',
-        room_code: t.room_code,
-        amount: pr.total,
-        paid_on: t.agreement_start,
-        remark: _firstMonthProRateRemark(pr),
-        payment_kind: 'first_month_prorate',
-      });
+      // Partial month — insert one pro-rate row per component (room +
+      // same-property carpark), so carpark's share shows as its own line.
+      const rows = _proRateInsertRows(t, pr, y, m, false);
+      const {error} = await sb.from('rental_payments').insert(rows);
       if(!error){ inserted++; taken.add((t.room_code||'').toUpperCase()); }
     } else {
       // Day-1 start → no pro-rate; insert a NORMAL full-month payment so
@@ -4760,16 +4753,8 @@ async function ensureLastMonthProRateExpensesFor(propId, y, m){
     if(taken.has((t.room_code||'').toUpperCase())) continue;
     const lp = computeLastMonthProRate(t);
     if(!lp || lp.total<=0) continue;
-    const {error} = await sb.from('rental_payments').insert({
-      property_id: t.property_id,
-      year: y, month: m,
-      item_type: 'room',
-      room_code: t.room_code,
-      amount: lp.total,
-      paid_on: t.move_out_date || t.agreement_end,
-      remark: _lastMonthProRateRemark(lp),
-      payment_kind: 'last_month_prorate',
-    });
+    const rows = _proRateInsertRows(t, lp, y, m, true);
+    const {error} = await sb.from('rental_payments').insert(rows);
     if(!error){ inserted++; taken.add((t.room_code||'').toUpperCase()); }
   }
   return inserted > 0;
@@ -7061,6 +7046,45 @@ function computeLastMonthProRate(tenant){
   };
 }
 
+// Builds the rental_payments insert rows for a first/last-month pro-rate
+// event as SEPARATE lines — one for the room, one for each same-property
+// carpark — instead of one combined amount. This makes carpark's pro-rated
+// share its own visible line on the Payments tab, exactly mirroring how
+// room already shows its pro-rated amount, rather than being silently
+// folded into the room total.
+function _proRateInsertRows(t, pr, y, m, isLast){
+  const kind = isLast ? 'last_month_prorate' : 'first_month_prorate';
+  const dateStr = isLast ? (t.move_out_date || t.agreement_end) : t.agreement_start;
+  const span = isLast ? `1–${pr.moveOutDay}` : `${pr.startDay}–${pr.daysInMonth}`;
+  const label = (isLast ? '🚪 Move-out' : '🆕 Move-in') + ` pro-rate ${span} ${MONTHS[m-1]}`;
+  const rows = [{
+    property_id: t.property_id, year: y, month: m,
+    item_type: 'room', room_code: t.room_code,
+    amount: pr.roomShare, paid_on: dateStr,
+    remark: `${label}: RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.roomShare}`,
+    payment_kind: kind,
+  }];
+  if(pr.sameCarpark && pr.carparkShare>0){
+    rows.push({
+      property_id: t.property_id, year: y, month: m,
+      item_type: 'carpark', room_code: normCarpark(t.carpark),
+      amount: pr.carparkShare, paid_on: dateStr,
+      remark: `${label}: RM ${pr.carparkFull}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.carparkShare}`,
+      payment_kind: kind,
+    });
+  }
+  if(pr.sameCarpark2 && pr.carpark2Share>0){
+    rows.push({
+      property_id: t.property_id, year: y, month: m,
+      item_type: 'carpark', room_code: normCarpark(t.carpark2),
+      amount: pr.carpark2Share, paid_on: dateStr,
+      remark: `${label}: RM ${pr.carpark2Full}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.carpark2Share}`,
+      payment_kind: kind,
+    });
+  }
+  return rows;
+}
+
 // Build the standard formula remark for a first-month pro-rate row.
 function _firstMonthProRateRemark(pr){
   const monStr = MONTHS[pr.moveInMonth-1];
@@ -7095,17 +7119,10 @@ async function _autoCreateFirstMonthProRate(t){
   const monStr = MONTHS[sm-1];
   const pr = computeFirstMonthProRate(t);
   if(pr && pr.total>0){
-    // Pro-rated partial month — special-case row
-    const {error} = await sb.from('rental_payments').insert({
-      property_id: t.property_id,
-      year: pr.moveInYear, month: pr.moveInMonth,
-      item_type: 'room',
-      room_code: t.room_code,
-      amount: pr.total,
-      paid_on: t.agreement_start,
-      remark: _firstMonthProRateRemark(pr),
-      payment_kind: 'first_month_prorate',
-    });
+    // Pro-rated partial month — one row per component (room + carpark),
+    // so carpark's pro-rated share shows as its own line, same as room.
+    const rows = _proRateInsertRows(t, pr, pr.moveInYear, pr.moveInMonth, false);
+    const {error} = await sb.from('rental_payments').insert(rows);
     if(error){ toast('Pro-rate auto-payment failed: '+error.message,'bad'); return; }
     toast(`Pro-rate RM ${pr.total} auto-recorded for ${monStr} (${pr.daysOccupied}/${pr.daysInMonth} days)`);
     return;
@@ -7173,31 +7190,38 @@ async function _autoCreateLastMonthProRate(t){
   if(existing){
     // Already a pro-rate row — nothing to do
     if(existing.payment_kind==='last_month_prorate') return;
-    // Tenant paid full-month rental but moves out early — adjust down to pro-rate
-    if(existing.amount > pr.total + 0.005){
+    // Tenant paid full-month rental but moves out early — adjust room down
+    // to its pro-rate share, and same for the carpark's own line (creating
+    // it if this used to be a combined pre-split payment).
+    if(existing.amount > pr.roomShare + 0.005){
       const {error} = await sb.from('rental_payments').update({
-        amount: pr.total,
+        amount: pr.roomShare,
         remark: _lastMonthProRateRemark(pr),
         payment_kind: 'last_month_prorate',
       }).eq('id', existing.id);
       if(error){ toast('Move-out pro-rate adjustment failed: '+error.message,'bad'); return; }
-      toast(`🚪 Payment adjusted to pro-rate RM ${fmt(pr.total)} for ${monStr} (${pr.daysOccupied}/${pr.daysInMonth} days)`);
+      toast(`🚪 Payment adjusted to pro-rate RM ${fmt(pr.roomShare)} for ${monStr} (${pr.daysOccupied}/${pr.daysInMonth} days)`);
     }
-    // If existing amount ≤ pro-rate amount (already correct or underpaid), leave as-is
+    if(pr.sameCarpark && pr.carparkShare>0){
+      const existingCp = (state.payments||[]).find(p=>
+        p.property_id===t.property_id && p.year===pr.moveOutYear && p.month===pr.moveOutMonth &&
+        p.item_type==='carpark' && normCarpark(p.room_code)===normCarpark(t.carpark)
+      );
+      const cpRows = _proRateInsertRows(t, pr, pr.moveOutYear, pr.moveOutMonth, true).filter(r=>r.item_type==='carpark');
+      if(existingCp){
+        if(existingCp.amount > pr.carparkShare + 0.005){
+          await sb.from('rental_payments').update({amount: pr.carparkShare, remark: cpRows[0]?.remark, payment_kind:'last_month_prorate'}).eq('id', existingCp.id);
+        }
+      } else if(cpRows.length){
+        await sb.from('rental_payments').insert(cpRows[0]);
+      }
+    }
     return;
   }
 
-  // No existing payment — insert a fresh pro-rate row
-  const {error} = await sb.from('rental_payments').insert({
-    property_id: t.property_id,
-    year: pr.moveOutYear, month: pr.moveOutMonth,
-    item_type: 'room',
-    room_code: t.room_code,
-    amount: pr.total,
-    paid_on: t.move_out_date || t.agreement_end,
-    remark: _lastMonthProRateRemark(pr),
-    payment_kind: 'last_month_prorate',
-  });
+  // No existing payment — insert a fresh pro-rate row per component
+  const rows = _proRateInsertRows(t, pr, pr.moveOutYear, pr.moveOutMonth, true);
+  const {error} = await sb.from('rental_payments').insert(rows);
   if(error){ toast('Move-out pro-rate auto-payment failed: '+error.message,'bad'); return; }
   toast(`🚪 Move-out pro-rate RM ${fmt(pr.total)} auto-recorded for ${monStr} (${pr.daysOccupied}/${pr.daysInMonth} days)`);
 }
@@ -7211,21 +7235,35 @@ async function _syncFirstMonthProRate(t){
   if(!pr || pr.total<=0) return;
   const existing = (state.payments||[]).find(p=>
     p.payment_kind==='first_month_prorate' &&
+    p.item_type==='room' &&
     p.property_id===t.property_id &&
     (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase()
   );
   if(!existing) return;
   if(isReportLocked(existing.property_id, existing.year, existing.month)) return;
-  const patch = {
-    year:        pr.moveInYear,
-    month:       pr.moveInMonth,
-    amount:      pr.total,
-    paid_on:     t.agreement_start,
-    remark:      _firstMonthProRateRemark(pr),
-    room_code:   t.room_code,
-  };
-  const {error} = await sb.from('rental_payments').update(patch).eq('id', existing.id);
+  const rows = _proRateInsertRows(t, pr, pr.moveInYear, pr.moveInMonth, false);
+  const roomRow = rows.find(r=>r.item_type==='room');
+  const {error} = await sb.from('rental_payments').update({
+    year: roomRow.year, month: roomRow.month, amount: roomRow.amount,
+    paid_on: roomRow.paid_on, remark: roomRow.remark, room_code: roomRow.room_code,
+  }).eq('id', existing.id);
   if(error){ toast('Pro-rate sync failed: '+error.message,'bad'); return; }
+  // Sync/create the carpark line the same way.
+  const cpRow = rows.find(r=>r.item_type==='carpark');
+  if(cpRow){
+    const existingCp = (state.payments||[]).find(p=>
+      p.payment_kind==='first_month_prorate' && p.item_type==='carpark' &&
+      p.property_id===t.property_id && normCarpark(p.room_code)===cpRow.room_code
+    );
+    if(existingCp){
+      await sb.from('rental_payments').update({
+        year: cpRow.year, month: cpRow.month, amount: cpRow.amount,
+        paid_on: cpRow.paid_on, remark: cpRow.remark,
+      }).eq('id', existingCp.id);
+    } else {
+      await sb.from('rental_payments').insert(cpRow);
+    }
+  }
   toast(`Pro-rate updated → RM ${pr.total}`);
 }
 
@@ -8812,16 +8850,14 @@ async function waSendAll(){
 function renderPayments(){
   const pid = $('#paySelProp').value;
   // ----------------------------------------------------------------------
-  // The Payment Ledger now only displays ROOM payments. A tenant pays ONE
-  // consolidated amount per month covering room + their carpark (if any).
-  // The Income Report does the auto-split: when a room payment equals
-  // (room_rental + carpark_rental) for the tenant on that room, the report
-  // splits the amount into a room rental line + a carpark rental line.
-  // Legacy carpark-only payment rows are filtered out of this view (they
-  // remain editable via direct DB access if needed). Standalone carpark
-  // renters who pay directly to the property still get tracked here under
-  // a "Standalone Carpark" virtual room — but for tenants with both a
-  // room and a carpark, only one row should exist.
+  // The Payment Ledger shows both room and carpark rows. Most months a
+  // tenant pays ONE consolidated amount covering room + carpark, and the
+  // Income Report auto-splits it (room payment == room_rental+carpark_rental
+  // → split into a room line + a carpark line). First/last-month pro-rate
+  // is the exception: it's recorded as TWO separate rows up front (room's
+  // pro-rated share + carpark's pro-rated share), so both show their own
+  // correctly pro-rated amount here directly instead of relying on the
+  // report's split. Standalone carpark renters also show as their own row.
   // ----------------------------------------------------------------------
   let list = pid ? state.payments.filter(p=>p.property_id===pid)
     : state.payments.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
@@ -11345,7 +11381,14 @@ function buildReportLineMap(P, ctx, roomTenancies){
         : computeLastMonthProRate(t);
       const isLast = p.payment_kind==='last_month_prorate';
       const prExpected = pr ? (pr.roomShare + pr.carparkShare + (pr.carpark2Share||0)) : 0;
-      if(pr && Math.abs(prExpected - amt) < 0.5){
+      if(pr && Math.abs(pr.roomShare - amt) < 0.5 && Math.abs(prExpected - amt) >= 0.5){
+        // Split-row format — this payment IS already just the room's
+        // pro-rated share (carpark arrives as its own item_type='carpark'
+        // row, picked up by the legacy carpark merge below). Don't also
+        // add the carpark share here or it would double-count.
+        roomShare = pr.roomShare;
+        _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
+      } else if(pr && Math.abs(prExpected - amt) < 0.5){
         roomShare = pr.roomShare;
         if(pr.sameCarpark){
           const cpLine = ensureLine('carpark', normCarpark(t.carpark));
@@ -11469,9 +11512,26 @@ function buildReportLineMap(P, ctx, roomTenancies){
     });
   });
 
-  // LEGACY: standalone carpark-typed payment rows (carpark-only renters).
+  // Standalone carpark-typed payment rows — covers carpark-only renters
+  // (legacy) AND the split pro-rate carpark line inserted alongside the
+  // room's own pro-rated row (see _proRateInsertRows). For the latter,
+  // attach the same formula note the room line gets so the report shows
+  // "RM x/y×z" next to the carpark amount too.
   payments.filter(p=>p.item_type==='carpark').forEach(p=>{
-    ensureLine('carpark', p.room_code).rental += Number(p.amount||0);
+    const cpLine = ensureLine('carpark', p.room_code);
+    cpLine.rental += Number(p.amount||0);
+    if(p.payment_kind==='first_month_prorate' || p.payment_kind==='last_month_prorate'){
+      const t = (tenants||[]).find(x=>
+        normCarpark(x.carpark)===normCarpark(p.room_code) || normCarpark(x.carpark2)===normCarpark(p.room_code)
+      );
+      const pr = t ? (p.payment_kind==='first_month_prorate' ? computeFirstMonthProRate(t) : computeLastMonthProRate(t)) : null;
+      if(pr){
+        const isCp2 = normCarpark(t.carpark2)===normCarpark(p.room_code);
+        const full = isCp2 ? pr.carpark2Full : pr.carparkFull;
+        cpLine.proRateNote  = `RM ${full}/${pr.daysInMonth}×${pr.daysOccupied}`;
+        cpLine.proRateLabel = p.payment_kind==='last_month_prorate' ? '🚪 Move-out' : '🆕 Move-in';
+      }
+    }
   });
 
   // AIRCON top-ups always sit on the room line.
