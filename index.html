@@ -6454,11 +6454,37 @@ function renderDashboardMetrics(){
     const isR2R = p.model === 'R2R' && p.unit_type === 'own_unit';
     return isR2R && p.active!==false && _propPassesGlobalFilter(p) && _propExistedByMonth(p, state.year, state.month);
   });
+  // Mirrors computeMonthNett() exactly (the same function driving the R2R
+  // Yearly Matrix and the Income Report) so this tile's total always
+  // reconciles with those — sourced from already-loaded state instead of
+  // a fresh DB fetch per property, for a fast synchronous render.
   const r2rIncome = r2rProps.reduce((sum,p)=>{
-    const pay = state.payments.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
+    const propPayments = state.payments.filter(x=>x.property_id===p.id);
+    // advance_covered_full rows: cash received is the PRIOR month's
+    // pro-rate, but the income recognized this month is the full room+
+    // carpark rental (the advance already covers this month).
+    const pay = propPayments.reduce((s,x)=>{
+      if(x.payment_kind==='advance_covered_full'){
+        const t = (state.tenants||[]).find(tt=>
+          tt.property_id===x.property_id &&
+          (tt.room_code||'').toUpperCase()===(x.room_code||'').toUpperCase()
+        );
+        if(t){
+          const cpProp = t.carpark_property_id || t.property_id;
+          const sameCp = !!t.carpark && Number(t.carpark_rental||0)>0 && cpProp===p.id;
+          return s + Number(t.room_rental||0) + (sameCp?Number(t.carpark_rental||0):0);
+        }
+      }
+      return s + Number(x.amount||0);
+    }, 0);
     const air = state.aircon.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
     const ext = state.extras.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
-    const exp = state.expenses.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
+    const propExpenses = state.expenses.filter(x=>x.property_id===p.id);
+    let exp = propExpenses.reduce((s,x)=>s+Number(x.amount||0),0);
+    // Auto-apply management fee if none recorded (matches computeMonthNett).
+    if(!propExpenses.some(x=>x.category==='management_fee')){
+      exp += +(pay * (Number(p.service_percent||0)/100)).toFixed(2);
+    }
     return sum + pay + air + ext - exp;
   }, 0);
   if($('#stR2RIncome'))    $('#stR2RIncome').textContent    = 'RM ' + fmt(r2rIncome);
@@ -6566,9 +6592,12 @@ function renderManagementFeeUnitListing(){
 //  = total per row. Bottom row = total per column.
 // ============================================================
 async function renderOwnUnitDashboard(){
+  // Same strict AND as the dashboard's "Own R2R Income" tile — model='R2R'
+  // AND unit_type='own_unit' — so this matrix's totals always match that
+  // tile regardless of which sidebar Unit Type chip happens to be active.
   const props = state.properties.filter(p=>{
-    const isR2R = p.model ? p.model === 'R2R' : String(p.property_type||'H2M').toUpperCase() === 'R2R';
-    return isR2R && _propPassesGlobalFilter(p);
+    const isR2R = p.model === 'R2R' && p.unit_type === 'own_unit';
+    return isR2R && p.active!==false && _propPassesGlobalFilter(p);
   });
   $('#r2rUnitCount').textContent = props.length;
 
