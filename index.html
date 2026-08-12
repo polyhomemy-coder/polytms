@@ -2805,17 +2805,23 @@ let _pickerYear = new Date().getFullYear();
 
 function buildMonthOptions(sel){
   if(sel){
-    // Legacy <select> path — used for rptMonth in Income Report
+    // Legacy <select> path — used for rptMonth in Income Report.
+    // This gets rebuilt on every re-render (realtime sync fires it often),
+    // so preserve whatever month the user has navigated to instead of
+    // always snapping back to the topbar's current month — otherwise
+    // browsing to e.g. June via ← keeps getting reset to July mid-look.
+    const prevValue = sel.value;
     const now=new Date(); const thisY=now.getFullYear();
     let html='';
     for(let y=thisY-2;y<=thisY+1;y++){
       for(let m=1;m<=12;m++){
         const v=y+'-'+String(m).padStart(2,'0');
-        const selected=(y===state.year && m===state.month)?'selected':'';
-        html+=`<option value="${v}" ${selected}>${MONTHS_FULL[m-1]+' '+y}</option>`;
+        html+=`<option value="${v}">${MONTHS_FULL[m-1]+' '+y}</option>`;
       }
     }
     sel.innerHTML=html;
+    const fallback = state.year+'-'+String(state.month).padStart(2,'0');
+    sel.value = (prevValue && [...sel.options].some(o=>o.value===prevValue)) ? prevValue : fallback;
     return;
   }
   // Calendar picker path — sidebar
@@ -11341,25 +11347,25 @@ async function gatherReportData(propId, y, m){
     sb.from('rental_payments').select('*').eq('year',y).eq('month',m),
   ]);
 
-  // Once this month's report is fully signed off (locked), its Tenancy /
-  // Tenure display is frozen to a snapshot taken at lock time — see
-  // setReportStatus(). Apply it here so EVERY consumer of gatherReportData
-  // (both report renderers, management-fee calc, etc.) sees the frozen
-  // dates automatically, instead of patching each display site.
-  const rs   = (state.reportStatus||[]).find(r=>r.property_id===propId && r.year===y && r.month===m);
-  const snap = rs && rs.tenancy_snapshot;
-  const applySnapshot = arr => !snap ? arr : arr.map(t=>{
-    if(t.property_id !== propId) return t; // only this property's own tenants are covered by its snapshot
-    const frozen = snap[String(t.room_code||'').toUpperCase()];
-    return frozen ? {...t, agreement_start: frozen.agreement_start, agreement_end: frozen.agreement_end} : t;
-  });
+  // Once this month's report is fully signed off (locked), a tenancy
+  // snapshot exists (captured at lock time — see setReportStatus()). It's
+  // handed to the renderer as `tenancySnapshot` for DISPLAY purposes only
+  // (the Tenancy / Tenure columns) — deliberately NOT merged into the
+  // tenant records here. Feeding frozen dates into computeFirstMonthProRate/
+  // buildReportLineMap's pro-rate math broke the formula display whenever
+  // the snapshot's dates didn't exactly reconcile against the stored
+  // payment amount, silently falling back to a different (unlabelled)
+  // split. The math must always use LIVE tenant data; only the printed
+  // date range freezes.
+  const rs = (state.reportStatus||[]).find(r=>r.property_id===propId && r.year===y && r.month===m);
 
   return {
     property: state.properties.find(p=>p.id===propId),
-    tenants:  applySnapshot(state.tenants.filter(t=>t.property_id===propId)),
+    tenants:  state.tenants.filter(t=>t.property_id===propId),
     payments: pay.data||[], aircon: air.data||[], expenses: exp.data||[], extras: ext.data||[],
     allPayments: allPay.data||[],     // every property's room/carpark payments this month
-    allTenants:  applySnapshot(state.tenants||[]),   // for cross-property carpark resolution
+    allTenants:  state.tenants||[],   // for cross-property carpark resolution
+    tenancySnapshot: (rs && rs.tenancy_snapshot) || null,
   };
 }
 
@@ -11594,7 +11600,7 @@ function buildReportLineMap(P, ctx, roomTenancies){
 }
 
 function renderReportHTML(ctx, opts){
-  const {property:P, tenants, payments, aircon, expenses, extras, allTenants} = ctx;
+  const {property:P, tenants, payments, aircon, expenses, extras, allTenants, tenancySnapshot} = ctx;
   const {year, month, issueDate, autoFee, autoCom} = opts;
   const first = new Date(year, month-1, 1), last = new Date(year, month, 0);
   const periodText = `1 ${MONTHS[month-1]} ${year} — ${last.getDate()} ${MONTHS[month-1]} ${year}`;
@@ -11701,14 +11707,23 @@ function renderReportHTML(ctx, opts){
   // this property (own-tenant carparks AND cross-property carparks). Carpark
   // tenure period mirrors the tenant's agreement (carpark contract = tenancy
   // contract in our model).
+  // Display-only: once a report is locked, show the frozen snapshot dates
+  // for that room/carpark instead of the tenant's current (possibly
+  // since-renewed) dates. Never used for any pro-rate math.
+  const displayDates = (code, liveTenant) => {
+    const frozen = tenancySnapshot && code ? tenancySnapshot[String(code).toUpperCase()] : null;
+    if(frozen && frozen.agreement_start && frozen.agreement_end) return frozen;
+    return { agreement_start: liveTenant?.agreement_start, agreement_end: liveTenant?.agreement_end };
+  };
   const tenancyEntries = [];
   const assignedRooms = new Set();
   roomTenancies.forEach(t=>{
-    const mo = tenureMonths(t.agreement_start, t.agreement_end);
+    const d = displayDates(t.room_code, t);
+    const mo = tenureMonths(d.agreement_start, d.agreement_end);
     assignedRooms.add(String(t.room_code||'').trim().toUpperCase());
     tenancyEntries.push({
       label: 'Room '+(t.room_code||'?'),
-      start: t.agreement_start, end: t.agreement_end, mo
+      start: d.agreement_start, end: d.agreement_end, mo
     });
   });
   // Vacant rooms — configured on the property but no active tenant this month
@@ -11725,10 +11740,13 @@ function renderReportHTML(ctx, opts){
     if(!t.carpark || cpFull<=0 || cpProp!==P.id) return;
     const lot = normCarpark(t.carpark);
     assignedCpLots.add(lot);
-    const mo = tenureMonths(t.agreement_start, t.agreement_end);
+    // Snapshot is keyed by room_code (same tenant/agreement covers their
+    // carpark too), not by lot code.
+    const d = displayDates(t.room_code, t);
+    const mo = tenureMonths(d.agreement_start, d.agreement_end);
     tenancyEntries.push({
       label: 'Carpark '+lot,
-      start: t.agreement_start, end: t.agreement_end, mo
+      start: d.agreement_start, end: d.agreement_end, mo
     });
   });
   // Vacant carpark lots — configured on the property but no tenant assigned yet
@@ -11927,7 +11945,7 @@ function renderReportHTML(ctx, opts){
 //  EXPENSES table with cols: No | Amount | Description
 // Palette matches the mobile version (teal #007B8A / orange #F4811F).
 function renderReportDesktopHTML(ctx, opts){
-  const {property:P, tenants, payments, aircon, expenses, extras, allTenants} = ctx;
+  const {property:P, tenants, payments, aircon, expenses, extras, allTenants, tenancySnapshot} = ctx;
   const {year, month, issueDate, autoFee, autoCom} = opts;
   const first = new Date(year, month-1, 1), last = new Date(year, month, 0);
   const periodText = `1 ${MONTHS[month-1]} ${year} — ${last.getDate()} ${MONTHS[month-1]} ${year}`;
@@ -12037,6 +12055,15 @@ function renderReportDesktopHTML(ctx, opts){
     const mo = t ? tenureMonths(t.agreement_start, t.agreement_end) : null;
     return mo!=null ? mo+' mo' : '—';
   };
+  // Display-only: once a report is locked, its Tenancy/Tenure columns show
+  // the frozen snapshot dates for that room instead of the tenant's current
+  // (possibly since-renewed) dates. Never used for any pro-rate math — see
+  // gatherReportData() for why the math must stay on live tenant data.
+  const displayDates = (roomCode, liveTenant) => {
+    const frozen = tenancySnapshot && roomCode ? tenancySnapshot[String(roomCode).toUpperCase()] : null;
+    if(frozen && frozen.agreement_start && frozen.agreement_end) return frozen;
+    return liveTenant;
+  };
 
   // Build income rows (Description column removed — Type + Code convey the same info)
   const incomeRows = lines.map((l,i)=>{
@@ -12052,12 +12079,15 @@ function renderReportDesktopHTML(ctx, opts){
         (t.carpark_property_id || t.property_id)===P.id
       );
     }
+    const roomDisplay = l.type==='room' ? displayDates(l.tenant?.room_code||l.code, l.tenant) : null;
+    // Snapshot is keyed by room_code — same tenant/agreement covers their carpark too.
+    const cpDisplay    = l.type==='carpark' && cpTenant ? displayDates(cpTenant.room_code, cpTenant) : null;
     const tenancyTxt = l.type==='room'
-      ? shortTenancy(l.tenant)
-      : (cpTenant ? shortTenancy(cpTenant) : '—');
+      ? shortTenancy(roomDisplay)
+      : (cpDisplay ? shortTenancy(cpDisplay) : '—');
     const tenureTxt  = l.type==='room'
-      ? tenureStr(l.tenant)
-      : (cpTenant ? tenureStr(cpTenant) : '—');
+      ? tenureStr(roomDisplay)
+      : (cpDisplay ? tenureStr(cpDisplay) : '—');
     const proRateHtml = l.proRateNote
       ? `<span style="font-size:10px;font-weight:500;color:rgba(0,123,138,.6);font-style:italic;margin-right:6px;white-space:nowrap">${esc(l.proRateNote)}</span>`
       : '';
