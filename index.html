@@ -5721,20 +5721,32 @@ function renderAdminDashboard(){
 
   const buildProRow = (t, isIn) => {
     const p = state.properties.find(x=>x.id===t.property_id);
+    // Use the SAME canonical helper as the Income Report / Payment Ledger
+    // so room AND carpark pro-rate consistently everywhere — this table
+    // used to hand-roll a room-only calculation that never accounted for
+    // the tenant's carpark at all.
+    const pr = isIn ? computeFirstMonthProRate(t) : computeLastMonthProRate(t);
     const dateStr = isIn ? t.agreement_start : (t.move_out_date || t.agreement_end);
-    const hasRental = dateStr && t.room_rental;
     let rentalCell=td('—',{right:true,muted:true}), formulaCell=td('—',{right:true,muted:true}), proRateCell=td('—',{right:true,muted:true});
-    if(hasRental){
-      const d=new Date(dateStr); const dim=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
-      const days=isIn?(dim-d.getDate()+1):d.getDate();
-      const rent=parseFloat(t.room_rental)||0; const pr=Math.ceil(rent/dim*days);
+    if(pr && pr.total>0){
       const col=isIn?'#0891b2':'#B91C1C';
       // Clean formatter: drop .00 for whole numbers, same as income tab proRateNote
       const clean = n => n%1===0 ? n.toLocaleString('en-MY') : n.toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
-      const formula=`RM ${clean(rent)}/${dim}×${days}`;
-      rentalCell=td('RM '+clean(rent),{right:true});
-      formulaCell=td(`<span style="font-family:monospace;font-size:10.5px;color:${col};background:${isIn?'rgba(8,145,178,0.08)':'rgba(185,28,28,0.06)'};padding:2px 6px;border-radius:4px">${esc(formula)}</span>`,{right:true});
-      proRateCell=td(`<b style="color:${col}">RM ${clean(pr)}</b>`,{right:true});
+      const bg = isIn?'rgba(8,145,178,0.08)':'rgba(185,28,28,0.06)';
+      const chip = f => `<span style="display:block;font-family:monospace;font-size:10.5px;color:${col};background:${bg};padding:2px 6px;border-radius:4px;margin-bottom:2px">${esc(f)}</span>`;
+      let rentalLines = `RM ${clean(pr.roomFull)} room`;
+      let formulaLines = chip(`RM ${clean(pr.roomFull)}/${pr.daysInMonth}×${pr.daysOccupied}`);
+      if(pr.sameCarpark){
+        rentalLines += `<br>RM ${clean(pr.carparkFull)} carpark`;
+        formulaLines += chip(`RM ${clean(pr.carparkFull)}/${pr.daysInMonth}×${pr.daysOccupied}`);
+      }
+      if(pr.sameCarpark2){
+        rentalLines += `<br>RM ${clean(pr.carpark2Full)} carpark2`;
+        formulaLines += chip(`RM ${clean(pr.carpark2Full)}/${pr.daysInMonth}×${pr.daysOccupied}`);
+      }
+      rentalCell=td(rentalLines,{right:true});
+      formulaCell=td(formulaLines,{right:true});
+      proRateCell=td(`<b style="color:${col}">RM ${clean(pr.total)}</b>`,{right:true});
     }
     return `<tr>
       ${td(esc(t.name||'—'),{bold:true})}
@@ -12473,6 +12485,15 @@ function _annotationsFor(propId, y, m){
   );
 }
 
+// "Admin Irene" / "Manager Aaron" — role + the logged-in user's actual
+// name, so query note authorship is identifiable instead of just "Admin".
+// Falls back to the bare role label if no name is on file.
+function _signoffNameLabel(){
+  const role = state.role==='manager' ? 'Manager' : 'Admin';
+  const name = (state.currentUserName||'').trim();
+  return name ? `${role} ${name}` : role;
+}
+
 function renderAnnotations(){
   const propId = $('#rptProp')?.value;
   const mv     = $('#rptMonth')?.value;
@@ -12631,7 +12652,7 @@ async function addAnnotation(){
       const payload = {
         property_id: propId, year: y, month: m,
         section, note, resolved: false,
-        created_by: state.role==='manager' ? 'Manager' : 'Admin',
+        created_by: _signoffNameLabel(),
         created_at: new Date().toISOString(),
       };
       const {data,error} = await sb.from('report_annotations').insert(payload).select();
@@ -12705,7 +12726,7 @@ async function replyAnnotation(id){
     if(!reply){ toast('Reply cannot be empty','warn'); return; }
     const saveBtn = document.getElementById(andResolve ? 'annotationReplyResolve' : 'annotationReplySave');
     if(saveBtn){ saveBtn.disabled=true; saveBtn.style.opacity='.6'; saveBtn.textContent='⏳…'; }
-    const byLabel = state.role==='manager' ? 'Manager' : 'Admin';
+    const byLabel = _signoffNameLabel();
     const patch = { reply, reply_by: byLabel, reply_at: new Date().toISOString() };
     if(andResolve){ patch.resolved=true; patch.resolved_by=byLabel; patch.resolved_at=new Date().toISOString(); }
     try {
@@ -12731,13 +12752,14 @@ async function replyAnnotation(id){
 async function resolveAnnotation(id){
   const a = state.annotations.find(x=>x.id===id);
   if(!a) return;
+  const byLabel = _signoffNameLabel();
   const {error} = await sb.from('report_annotations').update({
     resolved: true,
-    resolved_by: state.role==='manager' ? 'Manager' : 'Admin',
+    resolved_by: byLabel,
     resolved_at: new Date().toISOString(),
   }).eq('id',id);
   if(error) return toast(error.message,'bad');
-  Object.assign(a, {resolved:true, resolved_by: state.role==='manager'?'Manager':'Admin', resolved_at: new Date().toISOString()});
+  Object.assign(a, {resolved:true, resolved_by: byLabel, resolved_at: new Date().toISOString()});
   renderAnnotations(); toast('Marked resolved ✓');
 }
 
