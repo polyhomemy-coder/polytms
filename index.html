@@ -3765,27 +3765,48 @@ async function setReportStatus(propId, y, m, patch){
   // Real Supabase exposes `.upsert(...).select()` — detect via duck typing
   // (mock SB's `from(...)` doesn't expose `.upsert` at all).
   const tbl = sb.from('report_status');
+  let row;
   if(typeof tbl.upsert === 'function'){
     const q = tbl.upsert(payload, {onConflict: 'property_id,year,month'}).select();
     const {data, error} = await q;
     if(error) throw error;
-    const row = (data && data[0]) || payload;
+    row = (data && data[0]) || payload;
     if(existing) Object.assign(existing, row);
     else state.reportStatus.push(row);
-    return row;
-  }
-  // Mock SB path (read-modify-write — single-tab, race-safe in demo)
-  if(existing){
-    const {error} = await sb.from('report_status').update(patch).eq('id', existing.id);
-    if(error) throw error;
-    Object.assign(existing, patch);
-    return existing;
   } else {
-    const {data, error} = await sb.from('report_status').insert(payload);
-    if(error) throw error;
-    if(data && data.length) state.reportStatus.push(data[0]);
-    return data && data[0];
+    // Mock SB path (read-modify-write — single-tab, race-safe in demo)
+    if(existing){
+      const {error} = await sb.from('report_status').update(patch).eq('id', existing.id);
+      if(error) throw error;
+      Object.assign(existing, patch);
+      row = existing;
+    } else {
+      const {data, error} = await sb.from('report_status').insert(payload);
+      if(error) throw error;
+      row = data && data[0];
+      if(row) state.reportStatus.push(row);
+    }
   }
+
+  // Freeze/unfreeze the tenancy snapshot as the lock state changes. Locked
+  // (both sign-offs done) → capture a snapshot once, so a later contract
+  // renewal can't retroactively rewrite this already-verified month.
+  // Unlocked (either sign-off removed) → clear it so live data resumes
+  // until the report is re-verified.
+  if(row){
+    const nowLocked = !!(row.admin_checked_at && row.manager_verified_at);
+    if(nowLocked && !row.tenancy_snapshot){
+      const snap = buildTenancySnapshot(propId, y, m);
+      const {data, error} = await sb.from('report_status').update({tenancy_snapshot: snap}).eq('id', row.id).select();
+      if(!error && data && data[0]) Object.assign(row, data[0]);
+      else if(!error) row.tenancy_snapshot = snap;
+    } else if(!nowLocked && row.tenancy_snapshot){
+      const {data, error} = await sb.from('report_status').update({tenancy_snapshot: null}).eq('id', row.id).select();
+      if(!error && data && data[0]) Object.assign(row, data[0]);
+      else if(!error) row.tenancy_snapshot = null;
+    }
+  }
+  return row;
 }
 
 // ---- Sign-off modals (multi-property selection) ----
@@ -11290,6 +11311,22 @@ function tenancyForMonth(tenants, y, m){
     return true;
   });
 }
+// Builds a snapshot of this month's tenancy dates, keyed by room_code —
+// captured once a report locks so later contract renewals can't silently
+// rewrite an already-verified month's Tenancy/Tenure display.
+function buildTenancySnapshot(propId, y, m){
+  const tenants = tenancyForMonth(state.tenants.filter(t=>t.property_id===propId), y, m)
+    .filter(t=>t.room_code);
+  const snap = {};
+  tenants.forEach(t=>{
+    snap[String(t.room_code).toUpperCase()] = {
+      agreement_start: t.agreement_start || null,
+      agreement_end:   t.agreement_end   || null,
+    };
+  });
+  return snap;
+}
+
 async function gatherReportData(propId, y, m){
   // reload per month (user may have picked a different month than topbar)
   const [pay, air, exp, ext, allPay] = await Promise.all([
@@ -11303,12 +11340,26 @@ async function gatherReportData(propId, y, m){
     // carpark amount. B's report has to scan globally to claim its share.
     sb.from('rental_payments').select('*').eq('year',y).eq('month',m),
   ]);
+
+  // Once this month's report is fully signed off (locked), its Tenancy /
+  // Tenure display is frozen to a snapshot taken at lock time — see
+  // setReportStatus(). Apply it here so EVERY consumer of gatherReportData
+  // (both report renderers, management-fee calc, etc.) sees the frozen
+  // dates automatically, instead of patching each display site.
+  const rs   = (state.reportStatus||[]).find(r=>r.property_id===propId && r.year===y && r.month===m);
+  const snap = rs && rs.tenancy_snapshot;
+  const applySnapshot = arr => !snap ? arr : arr.map(t=>{
+    if(t.property_id !== propId) return t; // only this property's own tenants are covered by its snapshot
+    const frozen = snap[String(t.room_code||'').toUpperCase()];
+    return frozen ? {...t, agreement_start: frozen.agreement_start, agreement_end: frozen.agreement_end} : t;
+  });
+
   return {
     property: state.properties.find(p=>p.id===propId),
-    tenants:  state.tenants.filter(t=>t.property_id===propId),
+    tenants:  applySnapshot(state.tenants.filter(t=>t.property_id===propId)),
     payments: pay.data||[], aircon: air.data||[], expenses: exp.data||[], extras: ext.data||[],
     allPayments: allPay.data||[],     // every property's room/carpark payments this month
-    allTenants:  state.tenants||[],   // for cross-property carpark resolution
+    allTenants:  applySnapshot(state.tenants||[]),   // for cross-property carpark resolution
   };
 }
 
@@ -13050,6 +13101,8 @@ window.addEventListener('blur', ()=>{
 // Keyboard shortcuts on the Income Report tab:
 //   ↑ / ↓ → previous / next unit  (rptProp)
 //   ← / → → previous / next month (rptMonth)
+//   c     → toggle Admin Check for the current unit + month
+//   v     → toggle Manager Verify for the current unit + month
 // Bound globally but only active when the report pane is visible and the
 // focus isn't in a text input / textarea.
 document.addEventListener('keydown', (e)=>{
@@ -13072,6 +13125,8 @@ document.addEventListener('keydown', (e)=>{
   else if(e.key==='ArrowDown'){ e.preventDefault(); stepSel($('#rptProp'),  +1); }
   else if(e.key==='ArrowLeft'){ e.preventDefault(); stepSel($('#rptMonth'), -1); }
   else if(e.key==='ArrowRight'){e.preventDefault(); stepSel($('#rptMonth'), +1); }
+  else if(e.key==='c' || e.key==='C'){ e.preventDefault(); $('#btnAdminCheckQuick')?.click(); }
+  else if(e.key==='v' || e.key==='V'){ e.preventDefault(); $('#btnManagerVerifyQuick')?.click(); }
 });
 
 // Keyboard shortcuts on the Tenants tab:
