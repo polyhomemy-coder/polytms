@@ -11792,10 +11792,26 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
     const cpFull = isCp2 ? Number(t.carpark2_rental||0) : Number(t.carpark_rental||0);
     const fm = _carparkProRateShare(t, cpFull, false);
     const lm = _carparkProRateShare(t, cpFull, true);
-    if(fm && Math.abs(fm.share - cpAmt) < 0.5){
+    // Show the formula whenever the tenant's OWN dates say this month is a
+    // mid-month move-in/move-out — do NOT require the recomputed share to
+    // exactly match the stored amount. cpFull is read live off the tenant
+    // record, so if carpark_rental was edited after this payment was first
+    // inserted, an exact-match gate silently hides a formula that is still
+    // correct in spirit (this was the root cause of the "sometimes shows,
+    // sometimes doesn't" carpark bug). When both are possible in the same
+    // month, pick whichever reproduces the stored amount more closely.
+    if(fm && lm){
+      if(Math.abs(fm.share - cpAmt) <= Math.abs(lm.share - cpAmt)){
+        cpLine.proRateNote  = `RM ${cpFull}/${fm.dim}×${fm.days}`;
+        cpLine.proRateLabel = '🆕 Move-in';
+      } else {
+        cpLine.proRateNote  = `RM ${cpFull}/${lm.dim}×${lm.days}`;
+        cpLine.proRateLabel = '🚪 Move-out';
+      }
+    } else if(fm){
       cpLine.proRateNote  = `RM ${cpFull}/${fm.dim}×${fm.days}`;
       cpLine.proRateLabel = '🆕 Move-in';
-    } else if(lm && Math.abs(lm.share - cpAmt) < 0.5){
+    } else if(lm){
       cpLine.proRateNote  = `RM ${cpFull}/${lm.dim}×${lm.days}`;
       cpLine.proRateLabel = '🚪 Move-out';
     }
