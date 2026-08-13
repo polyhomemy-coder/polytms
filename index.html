@@ -4878,7 +4878,7 @@ async function ensureManagementFeeExpensesFor(propId, y, m){
   // from the report total on cross-property carpark scenarios.)
   const ctx = await gatherReportData(propId, y, m);
   const tenancies = tenancyForMonth(ctx.tenants||[], y, m).filter(t=>t.room_code);
-  const lineMap = buildReportLineMap(ctx.property, ctx, tenancies);
+  const lineMap = buildReportLineMap(ctx.property, ctx, tenancies, y, m);
   const totRental = [...lineMap.values()].reduce((s,l)=> s + Number(l.rental||0), 0);
   const expectedFee = +(totRental * (pct/100)).toFixed(2);
   const expectedDesc = `Management Fee (${pct}% × RM ${totRental.toFixed(2)})`;
@@ -11627,7 +11627,16 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
     // and permanently missing with no way to fix it after the fact.
     let kind = p.payment_kind;
     if(t && kind!=='first_month_prorate' && kind!=='last_month_prorate'){
-      const fp = computeFirstMonthProRate(t), lp = computeLastMonthProRate(t);
+      // Scope BOTH to this report's own year/month — a tenant's move-in or
+      // move-out date lives in exactly one month. Without this check, a
+      // tenant who moved in mid-month back in February kept getting flagged
+      // as "still pro-rating" in every later month's report too, because
+      // computeFirstMonthProRate/computeLastMonthProRate only look at the
+      // tenant's OWN dates unless told which month is actually being priced.
+      let fp = computeFirstMonthProRate(t, year, month);
+      if(fp && (fp.moveInYear!==year || fp.moveInMonth!==month)) fp = null;
+      let lp = computeLastMonthProRate(t);
+      if(lp && (lp.moveOutYear!==year || lp.moveOutMonth!==month)) lp = null;
       const fpTotal = fp ? (fp.roomShare + fp.carparkShare + (fp.carpark2Share||0)) : null;
       const lpTotal = lp ? (lp.roomShare + lp.carparkShare + (lp.carpark2Share||0)) : null;
       if(fp && (Math.abs(fp.roomShare-amt)<0.5 || (fpTotal!=null && Math.abs(fpTotal-amt)<0.5))) kind = 'first_month_prorate';
@@ -11639,9 +11648,18 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
       // so the per-component income matches EXACTLY what the remark says
       // (eg 549 + 55, NOT a re-derived 550 + 54). Falls back to the
       // proportional split only if the helper can't compute (rare).
-      const pr = (kind==='first_month_prorate')
-        ? computeFirstMonthProRate(t)
+      // Scoped to THIS report's month for the same reason as above — a
+      // payment_kind tag alone doesn't prove the tenant's move-in/move-out
+      // date actually falls in the month being rendered.
+      let pr = (kind==='first_month_prorate')
+        ? computeFirstMonthProRate(t, year, month)
         : computeLastMonthProRate(t);
+      if(pr){
+        const dateOk = kind==='first_month_prorate'
+          ? (pr.moveInYear===year && pr.moveInMonth===month)
+          : (pr.moveOutYear===year && pr.moveOutMonth===month);
+        if(!dateOk) pr = null;
+      }
       const isLast = kind==='last_month_prorate';
       const prExpected = pr ? (pr.roomShare + pr.carparkShare + (pr.carpark2Share||0)) : 0;
       if(pr && Math.abs(pr.roomShare - amt) < 0.5 && Math.abs(prExpected - amt) >= 0.5){
@@ -11666,10 +11684,15 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
           cp2Line.proRateLabel = isLast ? '🚪 Move-out' : '🆕 Move-in';
         }
         _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
-      } else {
+      } else if(pr){
         // Fallback: proportional split with ceiling. The denominator counts
         // EVERY carpark (cross-property too) so the room line never absorbs
         // a carpark's share; only same-property carpark lines get credited.
+        // Only reachable when `pr` is a validated pro-rate result for THIS
+        // report's exact month — see the dateOk check above. Without that
+        // guard this used to fire off a stale/mismatched payment_kind tag
+        // alone, splitting a perfectly ordinary full-month payment between
+        // room and carpark and slapping a fabricated formula on it.
         const roomFull = Number(t.room_rental||0);
         const cpFull   = Number(t.carpark_rental||0);
         const cp2Full  = Number(t.carpark2_rental||0);
@@ -11699,8 +11722,13 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
             cp2Line.proRateLabel = noteLabel;
           }
         }
-        if(pr) _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
+        _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
       }
+      // else: kind claimed pro-rate but pr couldn't be validated for THIS
+      // report's month (stale/wrong DB tag or missing dates) — treat as an
+      // ordinary full payment. roomShare stays at its default (=amt), no
+      // note, no carpark split. Showing a fabricated formula here would be
+      // worse than showing none.
       if(_lineProRateNote){
         const rl = ensureLine('room', code);
         rl.proRateNote  = _lineProRateNote;
