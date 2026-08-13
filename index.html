@@ -11562,7 +11562,7 @@ async function gatherReportData(propId, y, m){
 //   Legacy carpark-typed payment rows (standalone carpark renters, no
 //   room) are also pulled in so old data continues to work.
 // ============================================================
-function buildReportLineMap(P, ctx, roomTenancies){
+function buildReportLineMap(P, ctx, roomTenancies, year, month){
   const {tenants, payments, aircon, allPayments, allTenants} = ctx;
   const lineMap = new Map();
   const keyOf = (type, code)=> type+'|'+code;
@@ -11780,10 +11780,13 @@ function buildReportLineMap(P, ctx, roomTenancies){
     const cpLine = ensureLine('carpark', p.room_code);
     const cpAmt = Number(p.amount||0);
     cpLine.rental += cpAmt;
-    // Search ALL tenants (not just this property's own) so a cross-property
-    // renter — whose room lives on a different property entirely — is found.
-    const cpMatch = x => normCarpark(x.carpark)===normCarpark(p.room_code) || normCarpark(x.carpark2)===normCarpark(p.room_code);
-    const t = (allTenants||tenants||[]).find(cpMatch);
+    // Use the SAME date-aware, cross-property-aware lookup the report's
+    // Tenancy column already uses — a plain .find() over allTenants can
+    // grab the WRONG tenant (e.g. a stale one who previously referenced
+    // this same carpark code) whenever more than one tenant has ever had
+    // this lot on file, silently producing a pro-rate calc that can never
+    // match the stored amount.
+    const t = findCarparkTenant(allTenants||tenants, p.room_code, P.id, year, month);
     if(!t) return;
     const isCp2 = normCarpark(t.carpark2||'')===normCarpark(p.room_code);
     const cpFull = isCp2 ? Number(t.carpark2_rental||0) : Number(t.carpark_rental||0);
@@ -11818,7 +11821,7 @@ function renderReportHTML(ctx, opts){
     .sort((a,b)=> compareRoom(a.room_code, b.room_code));
 
   // Build the rental lines (rooms + carparks) with auto-split applied.
-  const lineMap = buildReportLineMap(P, ctx, roomTenancies);
+  const lineMap = buildReportLineMap(P, ctx, roomTenancies, year, month);
   // order: rooms first (M > I > J > C > A > N > other), then carparks
   const lines = [...lineMap.values()].sort((a,b)=>{
     if(a.type!==b.type) return a.type==='room' ? -1:1;
@@ -12174,7 +12177,7 @@ function renderReportDesktopHTML(ctx, opts){
   // INCOME union — uses shared lineMap builder so the auto-split rule from
   // the mobile renderer applies here too. Then we attach tenant references
   // for the desktop "Tenancy" + "Tenure" columns.
-  const lineMap = buildReportLineMap(P, ctx, roomTenancies);
+  const lineMap = buildReportLineMap(P, ctx, roomTenancies, year, month);
   // Attach tenant ref onto each room line so the desktop renderer can
   // populate the "Tenancy" + "Tenure" columns alongside each row.
   for(const line of lineMap.values()){
