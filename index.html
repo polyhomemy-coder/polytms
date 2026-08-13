@@ -4744,8 +4744,7 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
   }
   // Cross-property carpark pro-rate: tenants whose carpark (1 or 2) belongs to THIS
   // property but their room is on a different property.
-  const _insertCrossCarpark = async (cpPays, cpTaken, t, lot, cpFull) => {
-    if(cpTaken.has(lot)) return;
+  const _insertCrossCarpark = async (cpByLot, t, lot, cpFull) => {
     const s   = parseISODateLocal(t.agreement_start);
     const sd  = s.getDate(), dim = new Date(s.getFullYear(), s.getMonth()+1, 0).getDate();
     const days    = dim - sd + 1;
@@ -4755,13 +4754,29 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
     const remark = sd===1
       ? `🆕 New move-in (full ${monStr}): Carpark RM ${cpFull}`
       : `🆕 Move-in pro-rate ${sd}–${dim} ${monStr}: RM ${cpFull}/${dim}×${days} = RM ${cpShare}`;
+    const kind = sd===1 ? null : 'first_month_prorate';
+    const existing = cpByLot.get(lot);
+    if(existing){
+      // Reconcile an untagged leftover row the same way room rows are —
+      // always (re)tag once we know this is a pro-rate month for this
+      // tenant, even if the amount already happens to be correct, so the
+      // formula note isn't permanently missing. Never touch a row that's
+      // already tagged, or one carrying a different deliberate kind.
+      if(!existing.payment_kind && kind){
+        const {error} = await sb.from('rental_payments').update({
+          amount: cpShare, remark, payment_kind: kind,
+        }).eq('id', existing.id);
+        if(!error) inserted++;
+      }
+      return;
+    }
     const {error} = await sb.from('rental_payments').insert({
       property_id: propId, year: y, month: m,
       item_type: 'carpark', room_code: lot,
       amount: cpShare, paid_on: t.agreement_start, remark,
-      payment_kind: sd===1 ? null : 'first_month_prorate',
+      payment_kind: kind,
     });
-    if(!error){ inserted++; cpTaken.add(lot); }
+    if(!error){ inserted++; cpByLot.set(lot, {room_code:lot, amount:cpShare, payment_kind:kind}); }
   };
 
   const crossCpTenants = (state.tenants||[]).filter(t=>{
@@ -4772,14 +4787,14 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
     return (hasCross1 || hasCross2) && monthMatch(t);
   });
   if(crossCpTenants.length){
-    const { data: cpPays } = await sb.from('rental_payments').select('id,room_code')
+    const { data: cpPays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
       .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','carpark');
-    const cpTaken = new Set((cpPays||[]).map(p=>normCarpark(p.room_code)));
+    const cpByLot = new Map((cpPays||[]).map(p=> [normCarpark(p.room_code), p]));
     for(const t of crossCpTenants){
       if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId)
-        await _insertCrossCarpark(cpPays, cpTaken, t, normCarpark(t.carpark),  Number(t.carpark_rental||0));
+        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark),  Number(t.carpark_rental||0));
       if(t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId)
-        await _insertCrossCarpark(cpPays, cpTaken, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0));
+        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0));
     }
   }
 
@@ -11538,7 +11553,17 @@ function buildReportLineMap(P, ctx, roomTenancies){
   // ROOM PAYMENTS — apply the split rule
   payments.filter(p=>p.item_type==='room').forEach(p=>{
     const code = (p.room_code||'');
-    const t = (tenants||[]).find(x=>
+    // IMPORTANT: match against roomTenancies (already date-filtered to this
+    // report's month), NOT the raw `tenants` list — a room can have had
+    // multiple tenants over time (turnover), and `tenants` holds ALL of
+    // them regardless of when they were there. Matching against the
+    // unfiltered list meant a NEW tenant who moved in months later (with a
+    // different room_rental) could get picked up instead of whoever was
+    // actually in the room during the reported month, silently rewriting
+    // an already-verified past month's pro-rate formula and amount.
+    const t = (roomTenancies||[]).find(x=>
+      (x.room_code||'').toUpperCase()===(code||'').toUpperCase()
+    ) || (tenants||[]).find(x=>
       (x.room_code||'').toUpperCase()===(code||'').toUpperCase()
     );
     const amt = Number(p.amount||0);
@@ -11695,9 +11720,12 @@ function buildReportLineMap(P, ctx, roomTenancies){
     const cpLine = ensureLine('carpark', p.room_code);
     cpLine.rental += Number(p.amount||0);
     if(p.payment_kind==='first_month_prorate' || p.payment_kind==='last_month_prorate'){
-      const t = (tenants||[]).find(x=>
-        normCarpark(x.carpark)===normCarpark(p.room_code) || normCarpark(x.carpark2)===normCarpark(p.room_code)
-      );
+      // Same fix as the room-payment loop above: match against the
+      // month-filtered roomTenancies first, so a later tenant who took
+      // over this same carpark doesn't get picked up when re-deriving a
+      // past month's formula.
+      const cpMatch = x => normCarpark(x.carpark)===normCarpark(p.room_code) || normCarpark(x.carpark2)===normCarpark(p.room_code);
+      const t = (roomTenancies||[]).find(cpMatch) || (tenants||[]).find(cpMatch);
       const pr = t ? (p.payment_kind==='first_month_prorate' ? computeFirstMonthProRate(t) : computeLastMonthProRate(t)) : null;
       if(pr){
         const isCp2 = normCarpark(t.carpark2)===normCarpark(p.room_code);
