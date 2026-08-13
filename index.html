@@ -11459,13 +11459,17 @@ function findCarparkTenant(allTenants, lot, propId, y, m){
 // only where the money gets credited differs — so this is the correct,
 // single source of truth for the report's carpark formula display,
 // regardless of same-/cross-property and regardless of any DB tag.
-function _carparkProRateShare(t, cpFull, isLast){
+function _carparkProRateShare(t, cpFull, isLast, year, month){
   if(!t || cpFull<=0) return null;
   if(isLast){
     const dateStr = t.move_out_date || t.agreement_end;
     if(!dateStr) return null;
     const e = parseISODateLocal(dateStr);
     if(isNaN(e)) return null;
+    // Only a pro-rate case if the move-out actually falls in THIS report
+    // month — otherwise a tenant who left in an earlier/later month keeps
+    // getting flagged forever, using that other month's day count.
+    if(year!=null && month!=null && (e.getFullYear()!==year || e.getMonth()+1!==month)) return null;
     const ed = e.getDate(), dim = new Date(e.getFullYear(), e.getMonth()+1, 0).getDate();
     if(ed>=dim) return null; // full month occupied — not a pro-rate case
     return { share: Math.ceil(cpFull*(ed/dim)), dim, days: ed };
@@ -11473,6 +11477,8 @@ function _carparkProRateShare(t, cpFull, isLast){
   if(!t.agreement_start) return null;
   const s = parseISODateLocal(t.agreement_start);
   if(isNaN(s)) return null;
+  // Same guard: only pro-rate the move-in when it falls in THIS report month.
+  if(year!=null && month!=null && (s.getFullYear()!==year || s.getMonth()+1!==month)) return null;
   const sd = s.getDate(), dim = new Date(s.getFullYear(), s.getMonth()+1, 0).getDate();
   if(sd===1) return null; // moved in on the 1st — full month, not pro-rated
   const days = dim - sd + 1;
@@ -11790,8 +11796,8 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
     if(!t) return;
     const isCp2 = normCarpark(t.carpark2||'')===normCarpark(p.room_code);
     const cpFull = isCp2 ? Number(t.carpark2_rental||0) : Number(t.carpark_rental||0);
-    const fm = _carparkProRateShare(t, cpFull, false);
-    const lm = _carparkProRateShare(t, cpFull, true);
+    const fm = _carparkProRateShare(t, cpFull, false, year, month);
+    const lm = _carparkProRateShare(t, cpFull, true, year, month);
     // Show the formula whenever the tenant's OWN dates say this month is a
     // mid-month move-in/move-out — do NOT require the recomputed share to
     // exactly match the stored amount. cpFull is read live off the tenant
