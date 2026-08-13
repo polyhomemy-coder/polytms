@@ -11618,8 +11618,22 @@ function buildReportLineMap(P, ctx, roomTenancies){
           roomShare = Math.ceil(amt * (roomFull/denom));
           const cpShare  = hasCp  ? Math.ceil(amt*(cpFull /denom)) : 0;
           const cp2Share = hasCp2 ? Math.ceil(amt*(cp2Full/denom)) : 0;
-          if(hasCp  && cpProp ===P.id) ensureLine('carpark', normCarpark(t.carpark)).rental  += cpShare;
-          if(hasCp2 && cp2Prop===P.id) ensureLine('carpark', normCarpark(t.carpark2)).rental += cp2Share;
+          // Same formula note treatment as the exact-match branches above —
+          // this proportional split was previously silent, showing a bare
+          // carpark figure with no explanation of how it was derived.
+          const noteLabel = isLast ? '🚪 Move-out' : '🆕 Move-in';
+          if(hasCp && cpProp===P.id){
+            const cpLine = ensureLine('carpark', normCarpark(t.carpark));
+            cpLine.rental += cpShare;
+            cpLine.proRateNote  = `RM ${amt}×(${cpFull}/${denom})`;
+            cpLine.proRateLabel = noteLabel;
+          }
+          if(hasCp2 && cp2Prop===P.id){
+            const cp2Line = ensureLine('carpark', normCarpark(t.carpark2));
+            cp2Line.rental += cp2Share;
+            cp2Line.proRateNote  = `RM ${amt}×(${cp2Full}/${denom})`;
+            cp2Line.proRateLabel = noteLabel;
+          }
         }
         if(pr) _lineProRateNote = `RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied}`;
       }
