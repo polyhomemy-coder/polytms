@@ -11489,11 +11489,17 @@ function _carparkProRateShare(t, cpFull, isLast, year, month){
 // captured once a report locks so later contract renewals can't silently
 // rewrite an already-verified month's Tenancy/Tenure display.
 function buildTenancySnapshot(propId, y, m){
-  const tenants = tenancyForMonth(state.tenants.filter(t=>t.property_id===propId), y, m)
-    .filter(t=>t.room_code);
+  // Keyed by tenant id, NOT room_code — room_code is not a unique tenant
+  // identifier. Two different tenant rows can share the same room_code
+  // (e.g. the current room occupant plus a future/incoming tenant who has
+  // already reserved a carpark on that same room code ahead of their move-in).
+  // Keying by room_code let one tenant's frozen dates silently overwrite —
+  // and get borrowed by — the other's carpark row once locked.
+  const tenants = tenancyForMonth(state.tenants.filter(t=>t.property_id===propId), y, m);
   const snap = {};
   tenants.forEach(t=>{
-    snap[String(t.room_code).toUpperCase()] = {
+    if(!t.id) return;
+    snap[String(t.id)] = {
       agreement_start: t.agreement_start || null,
       agreement_end:   t.agreement_end   || null,
     };
@@ -11949,15 +11955,15 @@ function renderReportHTML(ctx, opts){
   // Display-only: once a report is locked, show the frozen snapshot dates
   // for that room/carpark instead of the tenant's current (possibly
   // since-renewed) dates. Never used for any pro-rate math.
-  const displayDates = (code, liveTenant) => {
-    const frozen = tenancySnapshot && code ? tenancySnapshot[String(code).toUpperCase()] : null;
+  const displayDates = (liveTenant) => {
+    const frozen = tenancySnapshot && liveTenant?.id ? tenancySnapshot[String(liveTenant.id)] : null;
     if(frozen && frozen.agreement_start && frozen.agreement_end) return frozen;
     return { agreement_start: liveTenant?.agreement_start, agreement_end: liveTenant?.agreement_end };
   };
   const tenancyEntries = [];
   const assignedRooms = new Set();
   roomTenancies.forEach(t=>{
-    const d = displayDates(t.room_code, t);
+    const d = displayDates(t);
     const mo = tenureMonths(d.agreement_start, d.agreement_end);
     assignedRooms.add(String(t.room_code||'').trim().toUpperCase());
     tenancyEntries.push({
@@ -11988,9 +11994,8 @@ function renderReportHTML(ctx, opts){
     const cpTenant = findCarparkTenant(allTenants||tenants, lot, P.id, year, month);
     if(!cpTenant) return; // vacant — handled below
     assignedCpLots.add(lot);
-    // Snapshot is keyed by room_code (same tenant/agreement covers their
-    // carpark too), not by lot code.
-    const d = displayDates(cpTenant.room_code, cpTenant);
+    // Snapshot is keyed by this tenant's own id — not room_code/lot code.
+    const d = displayDates(cpTenant);
     const mo = tenureMonths(d.agreement_start, d.agreement_end);
     tenancyEntries.push({
       label: 'Carpark '+lot,
@@ -12307,8 +12312,8 @@ function renderReportDesktopHTML(ctx, opts){
   // the frozen snapshot dates for that room instead of the tenant's current
   // (possibly since-renewed) dates. Never used for any pro-rate math — see
   // gatherReportData() for why the math must stay on live tenant data.
-  const displayDates = (roomCode, liveTenant) => {
-    const frozen = tenancySnapshot && roomCode ? tenancySnapshot[String(roomCode).toUpperCase()] : null;
+  const displayDates = (liveTenant) => {
+    const frozen = tenancySnapshot && liveTenant?.id ? tenancySnapshot[String(liveTenant.id)] : null;
     if(frozen && frozen.agreement_start && frozen.agreement_end) return frozen;
     return liveTenant;
   };
@@ -12324,9 +12329,9 @@ function renderReportDesktopHTML(ctx, opts){
     const cpTenant = l.type==='carpark'
       ? findCarparkTenant(allTenants||tenants, l.code, P.id, year, month)
       : null;
-    const roomDisplay = l.type==='room' ? displayDates(l.tenant?.room_code||l.code, l.tenant) : null;
-    // Snapshot is keyed by room_code — same tenant/agreement covers their carpark too.
-    const cpDisplay    = l.type==='carpark' && cpTenant ? displayDates(cpTenant.room_code, cpTenant) : null;
+    const roomDisplay = l.type==='room' ? displayDates(l.tenant) : null;
+    // Snapshot is keyed by tenant id, not room_code — see buildTenancySnapshot.
+    const cpDisplay    = l.type==='carpark' && cpTenant ? displayDates(cpTenant) : null;
     const tenancyTxt = l.type==='room'
       ? shortTenancy(roomDisplay)
       : (cpDisplay ? shortTenancy(cpDisplay) : '—');
