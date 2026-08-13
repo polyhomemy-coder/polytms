@@ -11449,6 +11449,36 @@ function findCarparkTenant(allTenants, lot, propId, y, m){
   return inMonth.find(t=>t.active!==false) || inMonth[0];
 }
 
+// Computes a carpark's pro-rated share for its renter's move-in or move-out
+// month, using ONLY the tenant's own dates and the carpark's full rental —
+// deliberately independent of computeFirstMonthProRate/computeLastMonthProRate,
+// whose carparkShare/carpark2Share fields are ZEROED OUT for a cross-property
+// carpark (they only compute a same-property share, meant to be folded into
+// the combined room+carpark total). The pro-rate FRACTION is identical
+// whether the carpark is on the tenant's own property or a different one —
+// only where the money gets credited differs — so this is the correct,
+// single source of truth for the report's carpark formula display,
+// regardless of same-/cross-property and regardless of any DB tag.
+function _carparkProRateShare(t, cpFull, isLast){
+  if(!t || cpFull<=0) return null;
+  if(isLast){
+    const dateStr = t.move_out_date || t.agreement_end;
+    if(!dateStr) return null;
+    const e = parseISODateLocal(dateStr);
+    if(isNaN(e)) return null;
+    const ed = e.getDate(), dim = new Date(e.getFullYear(), e.getMonth()+1, 0).getDate();
+    if(ed>=dim) return null; // full month occupied — not a pro-rate case
+    return { share: Math.ceil(cpFull*(ed/dim)), dim, days: ed };
+  }
+  if(!t.agreement_start) return null;
+  const s = parseISODateLocal(t.agreement_start);
+  if(isNaN(s)) return null;
+  const sd = s.getDate(), dim = new Date(s.getFullYear(), s.getMonth()+1, 0).getDate();
+  if(sd===1) return null; // moved in on the 1st — full month, not pro-rated
+  const days = dim - sd + 1;
+  return { share: Math.ceil(cpFull*(days/dim)), dim, days };
+}
+
 // Builds a snapshot of this month's tenancy dates, keyed by room_code —
 // captured once a report locks so later contract renewals can't silently
 // rewrite an already-verified month's Tenancy/Tenure display.
@@ -11712,34 +11742,14 @@ function buildReportLineMap(P, ctx, roomTenancies){
 
     claims.forEach(c=>{
       // A dedicated item_type:'carpark' payment on this property (inserted by
-      // the cross-property pro-rate pass) is credited by the LEGACY block
-      // below — do NOT credit it here too. Just attach the pro-rate note.
+      // the cross-property pro-rate pass) is credited AND noted by the
+      // unified "Standalone carpark-typed payment rows" pass below — that
+      // pass searches ALL tenants (not just this property's own), so it
+      // correctly finds cross-property renters too. Nothing to do here.
       const cpPay = (payments||[]).find(p=>
         p.item_type==='carpark' && normCarpark(p.room_code)===c.lot
       );
       if(cpPay){
-        // Show the formula whenever the STORED amount actually matches a
-        // computed pro-rate share — never gated on the row's payment_kind
-        // tag. A locked report can't be re-written, so a row that was
-        // inserted before it got tagged (or before this reconciliation
-        // logic existed) would otherwise show a bare number forever with
-        // no way to fix it after the fact. Recomputing purely from the
-        // tenant + stored amount means the note appears correctly
-        // regardless of whatever the DB row happens to be tagged.
-        const cpAmt = Number(cpPay.amount||0);
-        const isCp2 = c.lot === normCarpark(t.carpark2||'');
-        const fp = computeFirstMonthProRate(t);
-        const lp = computeLastMonthProRate(t);
-        const fpShare = fp ? (isCp2 ? fp.carpark2Share : fp.carparkShare) : null;
-        const lpShare = lp ? (isCp2 ? lp.carpark2Share : lp.carparkShare) : null;
-        const cpLine = ensureLine('carpark', c.lot);
-        if(fpShare!=null && Math.abs(fpShare - cpAmt) < 0.5){
-          cpLine.proRateNote  = `RM ${c.full}/${fp.daysInMonth}×${fp.daysOccupied}`;
-          cpLine.proRateLabel = '🆕 Move-in';
-        } else if(lpShare!=null && Math.abs(lpShare - cpAmt) < 0.5){
-          cpLine.proRateNote  = `RM ${c.full}/${lp.daysInMonth}×${lp.daysOccupied}`;
-          cpLine.proRateLabel = '🚪 Move-out';
-        }
         return;
       }
       // Fallback: full-month combined payment on the room property
@@ -11755,27 +11765,36 @@ function buildReportLineMap(P, ctx, roomTenancies){
   });
 
   // Standalone carpark-typed payment rows — covers carpark-only renters
-  // (legacy) AND the split pro-rate carpark line inserted alongside the
-  // room's own pro-rated row (see _proRateInsertRows). For the latter,
-  // attach the same formula note the room line gets so the report shows
-  // "RM x/y×z" next to the carpark amount too.
+  // (legacy), the split pro-rate carpark line inserted alongside the
+  // room's own pro-rated row (see _proRateInsertRows), AND cross-property
+  // carpark rows inserted by _insertCrossCarpark. For all of these, show
+  // the pro-rate formula whenever the STORED amount matches a computed
+  // day-based share — NEVER gated on the row's payment_kind tag, since a
+  // row can be numerically correct but never got tagged (before this
+  // reconciliation logic existed, or simply not yet re-synced). Uses
+  // _carparkProRateShare(), which is deliberately independent of
+  // computeFirstMonthProRate's carparkShare fields — those are zeroed out
+  // for a cross-property carpark by design, so relying on them here would
+  // silently never match a cross-property tenant's actual pro-rated share.
   payments.filter(p=>p.item_type==='carpark').forEach(p=>{
     const cpLine = ensureLine('carpark', p.room_code);
-    cpLine.rental += Number(p.amount||0);
-    if(p.payment_kind==='first_month_prorate' || p.payment_kind==='last_month_prorate'){
-      // Same fix as the room-payment loop above: match against the
-      // month-filtered roomTenancies first, so a later tenant who took
-      // over this same carpark doesn't get picked up when re-deriving a
-      // past month's formula.
-      const cpMatch = x => normCarpark(x.carpark)===normCarpark(p.room_code) || normCarpark(x.carpark2)===normCarpark(p.room_code);
-      const t = (roomTenancies||[]).find(cpMatch) || (tenants||[]).find(cpMatch);
-      const pr = t ? (p.payment_kind==='first_month_prorate' ? computeFirstMonthProRate(t) : computeLastMonthProRate(t)) : null;
-      if(pr){
-        const isCp2 = normCarpark(t.carpark2)===normCarpark(p.room_code);
-        const full = isCp2 ? pr.carpark2Full : pr.carparkFull;
-        cpLine.proRateNote  = `RM ${full}/${pr.daysInMonth}×${pr.daysOccupied}`;
-        cpLine.proRateLabel = p.payment_kind==='last_month_prorate' ? '🚪 Move-out' : '🆕 Move-in';
-      }
+    const cpAmt = Number(p.amount||0);
+    cpLine.rental += cpAmt;
+    // Search ALL tenants (not just this property's own) so a cross-property
+    // renter — whose room lives on a different property entirely — is found.
+    const cpMatch = x => normCarpark(x.carpark)===normCarpark(p.room_code) || normCarpark(x.carpark2)===normCarpark(p.room_code);
+    const t = (allTenants||tenants||[]).find(cpMatch);
+    if(!t) return;
+    const isCp2 = normCarpark(t.carpark2||'')===normCarpark(p.room_code);
+    const cpFull = isCp2 ? Number(t.carpark2_rental||0) : Number(t.carpark_rental||0);
+    const fm = _carparkProRateShare(t, cpFull, false);
+    const lm = _carparkProRateShare(t, cpFull, true);
+    if(fm && Math.abs(fm.share - cpAmt) < 0.5){
+      cpLine.proRateNote  = `RM ${cpFull}/${fm.dim}×${fm.days}`;
+      cpLine.proRateLabel = '🆕 Move-in';
+    } else if(lm && Math.abs(lm.share - cpAmt) < 0.5){
+      cpLine.proRateNote  = `RM ${cpFull}/${lm.dim}×${lm.days}`;
+      cpLine.proRateLabel = '🚪 Move-out';
     }
   });
 
