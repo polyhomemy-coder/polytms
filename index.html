@@ -4860,6 +4860,56 @@ async function ensureLastMonthProRateExpenses(){
   return any;
 }
 
+// Undo a stale/wrong pro-rate tag left over from before month-scoping was
+// enforced everywhere (`computeFirstMonthProRate`/`computeLastMonthProRate`
+// used to be called without year/month, so a tenant's OWN move-in/move-out
+// month kept getting applied to every later report too — not just its
+// display note but the actual STORED amount on the payment row). A row
+// tagged first_month_prorate/last_month_prorate whose tenant's dates no
+// longer justify that for THIS exact (y, m) gets its amount reset back to
+// the tenant's real full rental and its tag cleared. Only ever touches an
+// UNLOCKED month — once verified, figures are frozen for good.
+async function reconcileStaleProRateTagsFor(propId, y, m){
+  if(isReportLocked(propId, y, m)) return false;
+  const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind,item_type,remark')
+    .eq('property_id',propId).eq('year',y).eq('month',m)
+    .in('payment_kind', ['first_month_prorate','last_month_prorate']);
+  if(!pays || !pays.length) return false;
+  const roomTenants = tenancyForMonth((state.tenants||[]).filter(t=>t.property_id===propId), y, m);
+  let fixed = 0;
+  for(const p of pays){
+    let t, fullAmt;
+    if(p.item_type==='room'){
+      t = roomTenants.find(x=>(x.room_code||'').toUpperCase()===(p.room_code||'').toUpperCase());
+      fullAmt = t ? Number(t.room_rental||0) : 0;
+    } else if(p.item_type==='carpark'){
+      t = findCarparkTenant(state.tenants||[], p.room_code, propId, y, m);
+      if(t){
+        const isCp2 = normCarpark(t.carpark2||'')===normCarpark(p.room_code);
+        fullAmt = isCp2 ? Number(t.carpark2_rental||0) : Number(t.carpark_rental||0);
+      }
+    } else continue;
+    if(!t) continue; // vacant/unresolved — leave the row alone, don't guess
+    let valid = false;
+    if(p.payment_kind==='first_month_prorate'){
+      const fp = p.item_type==='room' ? computeFirstMonthProRate(t, y, m) : _carparkProRateShare(t, fullAmt, false, y, m);
+      valid = !!fp;
+    } else {
+      const lp = p.item_type==='room' ? computeLastMonthProRate(t) : _carparkProRateShare(t, fullAmt, true, y, m);
+      valid = p.item_type==='room' ? !!(lp && lp.moveOutYear===y && lp.moveOutMonth===m) : !!lp;
+    }
+    if(!valid && fullAmt>0 && Math.abs(fullAmt-Number(p.amount||0))>0.005){
+      const patch = { amount: fullAmt, payment_kind: null };
+      // Only clear an auto-generated remark (starts with our own emoji
+      // markers) — never touch a manually-written note.
+      if(/^(🆕|🚪)/.test(p.remark||'')) patch.remark = null;
+      const {error} = await sb.from('rental_payments').update(patch).eq('id', p.id);
+      if(!error) fixed++;
+    }
+  }
+  return fixed > 0;
+}
+
 // Management fee = totalRentalIncome × service_percent / 100. Auto-inserted
 // if no management_fee row exists yet AND there's actual rental income.
 // Synced (re-amount) if the existing row's amount diverges from current
@@ -4945,6 +4995,15 @@ async function syncDerivedExpenses(y, m){
   if(nm > 12){ ny++; nm = 1; }
   // Run all three passes in parallel across properties — previously sequential
   // per-property loops causing 10+ second waits with multiple properties.
+  // Undo any pro-rate tag that a contract renewal (or other date edit) has
+  // since invalidated — e.g. a tenant whose tenancy WAS ending mid-this-
+  // month got extended, so the last-month pro-rate that was correct when
+  // it was inserted no longer applies. Runs first so the management-fee
+  // pass below tallies against the corrected amount, not the stale one.
+  const reconciled = await Promise.all(activeProps.map(p =>
+    reconcileStaleProRateTagsFor(p.id, y, m).catch(e => { console.warn('[polyTMS] pro-rate reconcile failed:', e); return false; })
+  ));
+  if(reconciled.some(Boolean)) await loadPayments();
   await Promise.all(activeProps.map(p => Promise.all([
     ensureManagementFeeExpensesFor(p.id, y, m).catch(e => console.warn('[polyTMS] management fee sync failed:', e)),
     ensureBalanceForwardFor(p.id, ny, nm).catch(e => console.warn('[polyTMS] BF sync failed:', e)),
@@ -7488,7 +7547,12 @@ function recontractTenant(id){
         if(eErr) throw eErr;
       }
       await loadTenants();
-      await loadExpenses();
+      // The old agreement_end may have fallen mid-this-month, which would
+      // have made THIS month a valid last-month pro-rate case — now that
+      // it's extended, that no longer holds. syncDerivedExpenses runs the
+      // pro-rate reconciliation pass (reverts the stale prorated payment
+      // back to the full rental) alongside its usual management-fee/BF sync.
+      await syncDerivedExpenses(state.year, state.month);
       renderTab('tenants');
       const priceNote = (newRental!==oldRental||(hasCarpark&&newCp!==oldCarpark))
         ? ' · price updated'
