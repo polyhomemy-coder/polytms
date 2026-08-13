@@ -11569,16 +11569,31 @@ function buildReportLineMap(P, ctx, roomTenancies){
     const amt = Number(p.amount||0);
     let roomShare = amt;
     let _lineProRateNote = null; // formula string to attach to the room line
-    if((p.payment_kind==='first_month_prorate' || p.payment_kind==='last_month_prorate') && t){
+    // Detect pro-rate primarily from the stored payment_kind tag, but ALSO
+    // fall back to amount-matching against a freshly computed pro-rate
+    // figure when untagged. A locked report can never be re-written, so a
+    // row that's numerically a pro-rate amount but was never tagged (e.g.
+    // inserted before this tagging logic existed) must still be recognized
+    // from what's already there — otherwise its formula note is silently
+    // and permanently missing with no way to fix it after the fact.
+    let kind = p.payment_kind;
+    if(t && kind!=='first_month_prorate' && kind!=='last_month_prorate'){
+      const fp = computeFirstMonthProRate(t), lp = computeLastMonthProRate(t);
+      const fpTotal = fp ? (fp.roomShare + fp.carparkShare + (fp.carpark2Share||0)) : null;
+      const lpTotal = lp ? (lp.roomShare + lp.carparkShare + (lp.carpark2Share||0)) : null;
+      if(fp && (Math.abs(fp.roomShare-amt)<0.5 || (fpTotal!=null && Math.abs(fpTotal-amt)<0.5))) kind = 'first_month_prorate';
+      else if(lp && (Math.abs(lp.roomShare-amt)<0.5 || (lpTotal!=null && Math.abs(lpTotal-amt)<0.5))) kind = 'last_month_prorate';
+    }
+    if((kind==='first_month_prorate' || kind==='last_month_prorate') && t){
       // Pro-rate split — use the SAME helper that produced the stored
       // payment amount (`computeFirstMonthProRate` / `computeLastMonthProRate`)
       // so the per-component income matches EXACTLY what the remark says
       // (eg 549 + 55, NOT a re-derived 550 + 54). Falls back to the
       // proportional split only if the helper can't compute (rare).
-      const pr = (p.payment_kind==='first_month_prorate')
+      const pr = (kind==='first_month_prorate')
         ? computeFirstMonthProRate(t)
         : computeLastMonthProRate(t);
-      const isLast = p.payment_kind==='last_month_prorate';
+      const isLast = kind==='last_month_prorate';
       const prExpected = pr ? (pr.roomShare + pr.carparkShare + (pr.carpark2Share||0)) : 0;
       if(pr && Math.abs(pr.roomShare - amt) < 0.5 && Math.abs(prExpected - amt) >= 0.5){
         // Split-row format — this payment IS already just the room's
@@ -11703,13 +11718,27 @@ function buildReportLineMap(P, ctx, roomTenancies){
         p.item_type==='carpark' && normCarpark(p.room_code)===c.lot
       );
       if(cpPay){
-        if(cpPay.payment_kind==='first_month_prorate'){
-          const pr = computeFirstMonthProRate(t);
-          if(pr){
-            const cpLine = ensureLine('carpark', c.lot);
-            cpLine.proRateNote  = `RM ${c.full}/${pr.daysInMonth}×${pr.daysOccupied}`;
-            cpLine.proRateLabel = '🆕 Move-in';
-          }
+        // Show the formula whenever the STORED amount actually matches a
+        // computed pro-rate share — never gated on the row's payment_kind
+        // tag. A locked report can't be re-written, so a row that was
+        // inserted before it got tagged (or before this reconciliation
+        // logic existed) would otherwise show a bare number forever with
+        // no way to fix it after the fact. Recomputing purely from the
+        // tenant + stored amount means the note appears correctly
+        // regardless of whatever the DB row happens to be tagged.
+        const cpAmt = Number(cpPay.amount||0);
+        const isCp2 = c.lot === normCarpark(t.carpark2||'');
+        const fp = computeFirstMonthProRate(t);
+        const lp = computeLastMonthProRate(t);
+        const fpShare = fp ? (isCp2 ? fp.carpark2Share : fp.carparkShare) : null;
+        const lpShare = lp ? (isCp2 ? lp.carpark2Share : lp.carparkShare) : null;
+        const cpLine = ensureLine('carpark', c.lot);
+        if(fpShare!=null && Math.abs(fpShare - cpAmt) < 0.5){
+          cpLine.proRateNote  = `RM ${c.full}/${fp.daysInMonth}×${fp.daysOccupied}`;
+          cpLine.proRateLabel = '🆕 Move-in';
+        } else if(lpShare!=null && Math.abs(lpShare - cpAmt) < 0.5){
+          cpLine.proRateNote  = `RM ${c.full}/${lp.daysInMonth}×${lp.daysOccupied}`;
+          cpLine.proRateLabel = '🚪 Move-out';
         }
         return;
       }
