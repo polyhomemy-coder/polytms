@@ -11514,6 +11514,13 @@ async function gatherReportData(propId, y, m){
     // carpark amount. B's report has to scan globally to claim its share.
     sb.from('rental_payments').select('*').eq('year',y).eq('month',m),
   ]);
+  // A failed query returns {data:null, error:{...}} — `.data||[]` used to
+  // swallow that into a silent empty array, so a transient network/DB blip
+  // produced a PDF that "succeeded" but was blank. Surface it as a real
+  // error instead so callers (export/multi-export) can retry or report it.
+  for(const [label, res] of [['payments',pay],['aircon',air],['expenses',exp],['extra income',ext],['global payments',allPay]]){
+    if(res.error) throw new Error(`Failed to load ${label}: ${res.error.message||res.error}`);
+  }
 
   // Once this month's report is fully signed off (locked), a tenancy
   // snapshot exists (captured at lock time — see setReportStatus()). It's
@@ -13265,15 +13272,26 @@ async function multiExportPDF(){
     let count = 0, failed = 0;
     try{
       for(const propId of propIds){
-        try{
-          await _downloadDesktopPDF(propId, y, m);
-          count++;
-          await new Promise(r=>setTimeout(r,400));
-        } catch(e){
-          failed++;
-          const P = (state.properties||[]).find(p=>p.id===propId)||{};
-          toast(`PDF failed: ${P.condo||''} ${P.unit||''} — ${e.message}`,'bad');
+        const P = (state.properties||[]).find(p=>p.id===propId)||{};
+        let ok = false, lastErr = null;
+        // One retry — a transient Supabase blip mid-batch shouldn't cost
+        // that property a blank/skipped PDF when the very next try works.
+        for(let attempt=1; attempt<=2 && !ok; attempt++){
+          try{
+            await _downloadDesktopPDF(propId, y, m);
+            ok = true;
+          } catch(e){
+            lastErr = e;
+            if(attempt===1) await new Promise(r=>setTimeout(r,800));
+          }
         }
+        if(ok){
+          count++;
+        } else {
+          failed++;
+          toast(`PDF failed: ${P.condo||''} ${P.unit||''} — ${lastErr?.message||lastErr}`,'bad');
+        }
+        await new Promise(r=>setTimeout(r,400));
       }
       toast(`✅ Exported ${count} PDF${count!==1?'s':''}${failed?` (${failed} failed)`:''}`, failed?'warn':'ok');
     } finally {
