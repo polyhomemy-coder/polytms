@@ -625,7 +625,13 @@
   .bar-row .bar-track{flex:1;height:24px;background:#EAF7F9;border-radius:6px;position:relative;overflow:hidden}
   .bar-row .bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,#00B4CC,#007B8A)}
   .bar-row .bar-fill.alt{background:linear-gradient(90deg,#FF9A45,#F4811F)}
-  .bar-row .bar-value{position:absolute;right:8px;top:0;height:100%;display:flex;align-items:center;font-weight:700;font-size:11px;color:var(--ink)}
+  .bar-row .bar-value{
+    position:absolute;right:6px;top:50%;transform:translateY(-50%);
+    display:flex;align-items:center;font-weight:700;font-size:11px;color:var(--ink);
+    background:rgba(255,255,255,.88);padding:1px 6px;border-radius:999px;
+    box-shadow:0 1px 3px rgba(0,0,0,.12);
+  }
+  html[data-theme="dark"] .bar-row .bar-value{background:rgba(14,28,34,.82);color:var(--ink)}
   /* Donut legend */
   .donut-legend-row{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px}
   .donut-legend-row .swatch{width:12px;height:12px;border-radius:3px;flex-shrink:0}
@@ -4670,19 +4676,44 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
     return monthMatch(t);
   });
   if(!tenants.length) return false;
-  const { data: pays } = await sb.from('rental_payments').select('id,room_code')
+  const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','room');
-  const taken = new Set((pays||[]).map(p=> (p.room_code||'').toUpperCase()));
+  const byRoom = new Map((pays||[]).map(p=> [(p.room_code||'').toUpperCase(), p]));
+  const taken = new Set(byRoom.keys());
   let inserted = 0;
   for(const t of tenants){
-    if(taken.has((t.room_code||'').toUpperCase())) continue;
+    const code = (t.room_code||'').toUpperCase();
+    const existing = byRoom.get(code);
+    if(existing){
+      // A row already exists for this room this month — reconcile it if
+      // it's a stale/untagged auto-placeholder left over from before this
+      // fix (wrong amount, no formula shown). Never touch a row that's
+      // already correctly tagged, or one carrying a DIFFERENT deliberate
+      // payment_kind (e.g. a real advance-covered receipt) — only an
+      // untagged row is safe to assume is a leftover placeholder.
+      const pr0 = computeFirstMonthProRate(t, y, m);
+      if(pr0 && pr0.total>0 && !existing.payment_kind){
+        // Always (re)tag an untagged row once we know it's a pro-rate month
+        // for this tenant — even when the amount already happens to be
+        // correct. Previously this only ran when the amount was WRONG,
+        // which left correctly-valued-but-untagged rows permanently
+        // missing their payment_kind — and therefore permanently missing
+        // the formula note in the report, since the display only shows it
+        // for rows tagged 'first_month_prorate'.
+        const {error} = await sb.from('rental_payments').update({
+          amount: pr0.roomShare, remark: _firstMonthProRateRemark(pr0), payment_kind: 'first_month_prorate',
+        }).eq('id', existing.id);
+        if(!error) inserted++;
+      }
+      continue;
+    }
     const pr = computeFirstMonthProRate(t, y, m);
     if(pr && pr.total>0){
       // Partial month — insert one pro-rate row per component (room +
       // same-property carpark), so carpark's share shows as its own line.
       const rows = _proRateInsertRows(t, pr, y, m, false);
       const {error} = await sb.from('rental_payments').insert(rows);
-      if(!error){ inserted++; taken.add((t.room_code||'').toUpperCase()); }
+      if(!error){ inserted++; taken.add(code); }
     } else {
       // Day-1 start → no pro-rate; insert a NORMAL full-month payment so
       // the income report shows the tenant's rental immediately. We tag it
@@ -4772,17 +4803,35 @@ async function ensureLastMonthProRateExpensesFor(propId, y, m){
     return lp && lp.moveOutYear===y && lp.moveOutMonth===m;
   });
   if(!tenants.length) return false;
-  const { data: pays } = await sb.from('rental_payments').select('id,room_code')
+  const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','room');
-  const taken = new Set((pays||[]).map(p=> (p.room_code||'').toUpperCase()));
+  const byRoom = new Map((pays||[]).map(p=> [(p.room_code||'').toUpperCase(), p]));
   let inserted = 0;
   for(const t of tenants){
-    if(taken.has((t.room_code||'').toUpperCase())) continue;
+    const code = (t.room_code||'').toUpperCase();
     const lp = computeLastMonthProRate(t);
     if(!lp || lp.total<=0) continue;
+    const existing = byRoom.get(code);
+    if(existing){
+      // Reconcile a stale/untagged auto-placeholder row. Never touch a row
+      // that's already correctly tagged, or one carrying a DIFFERENT
+      // deliberate payment_kind (a real advance-covered receipt) — only an
+      // untagged row is safe to assume is a leftover placeholder. Always
+      // (re)tag it once we know it's a pro-rate month, even if the amount
+      // already happens to be correct — otherwise a correctly-valued-but-
+      // untagged row stays permanently missing its formula note, since the
+      // display only shows it for rows tagged 'last_month_prorate'.
+      if(!existing.payment_kind){
+        const {error} = await sb.from('rental_payments').update({
+          amount: lp.roomShare, remark: _lastMonthProRateRemark(lp), payment_kind: 'last_month_prorate',
+        }).eq('id', existing.id);
+        if(!error) inserted++;
+      }
+      continue;
+    }
     const rows = _proRateInsertRows(t, lp, y, m, true);
     const {error} = await sb.from('rental_payments').insert(rows);
-    if(!error){ inserted++; taken.add((t.room_code||'').toUpperCase()); }
+    if(!error){ inserted++; byRoom.set(code, {room_code:code, amount:lp.roomShare, payment_kind:'last_month_prorate'}); }
   }
   return inserted > 0;
 }
@@ -11358,6 +11407,33 @@ function tenancyForMonth(tenants, y, m){
     return true;
   });
 }
+
+// Finds the tenant actually renting a given carpark LOT on property `propId`
+// during (y, m) — used for cross-property carpark tenancy display. This
+// must check BOTH carpark and carpark2 (a lot can be someone's 2nd carpark,
+// not just their 1st), and must restrict to tenants whose tenancy actually
+// overlaps this report's month via tenancyForMonth's date logic — a naive
+// "first tenant whose carpark field matches this lot" lookup can silently
+// grab a stale, moved-out tenant instead of whoever is actually there now,
+// producing tenancy dates that don't match the current occupant at all.
+function findCarparkTenant(allTenants, lot, propId, y, m){
+  const normLot = normCarpark(lot);
+  const candidates = (allTenants||[]).filter(t=>{
+    const cp1 = t.carpark  && normCarpark(t.carpark) ===normLot && (t.carpark_property_id ||t.property_id)===propId;
+    const cp2 = t.carpark2 && normCarpark(t.carpark2)===normLot && (t.carpark2_property_id||t.property_id)===propId;
+    return cp1 || cp2;
+  });
+  if(!candidates.length) return null;
+  // Only tenants whose tenancy actually overlaps (y, m) count — if the lot's
+  // former renter has since moved out (or their agreement ended) before
+  // this report's month, the carpark is vacant for THIS month and must not
+  // fall back to showing their stale/expired dates.
+  const inMonth = tenancyForMonth(candidates, y, m);
+  if(!inMonth.length) return null;
+  // Prefer a currently-active tenant if more than one candidate remains.
+  return inMonth.find(t=>t.active!==false) || inMonth[0];
+}
+
 // Builds a snapshot of this month's tenancy dates, keyed by room_code —
 // captured once a report locks so later contract renewals can't silently
 // rewrite an already-verified month's Tenancy/Tenure display.
@@ -11773,17 +11849,26 @@ function renderReportHTML(ctx, opts){
       tenancyEntries.push({ label:'Room '+code, start:null, end:null, mo:null, vacant:true });
     }
   });
-  // Carparks belonging to THIS property (cross-property aware) — assigned tenants
+  // Carparks belonging to THIS property (cross-property aware, checks
+  // carpark2 too). Iterate every lot code that's EITHER configured on the
+  // property OR claimed by some tenant's carpark/carpark2 field pointing
+  // here — a lot only referenced via carpark2 used to be skipped entirely.
+  // findCarparkTenant resolves each lot to whoever's ACTUALLY renting it
+  // this month (date-overlap aware), instead of the first array match,
+  // which could silently be a stale moved-out tenant.
   const assignedCpLots = new Set();
+  const allCpLots = new Set(parseCarparkLots(P && P.carpark_lots));
   (allTenants||tenants||[]).forEach(t=>{
-    const cpFull = Number(t.carpark_rental||0);
-    const cpProp = t.carpark_property_id || t.property_id;
-    if(!t.carpark || cpFull<=0 || cpProp!==P.id) return;
-    const lot = normCarpark(t.carpark);
+    if(t.carpark  && Number(t.carpark_rental||0) >0 && (t.carpark_property_id ||t.property_id)===P.id) allCpLots.add(normCarpark(t.carpark));
+    if(t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id||t.property_id)===P.id) allCpLots.add(normCarpark(t.carpark2));
+  });
+  allCpLots.forEach(lot=>{
+    const cpTenant = findCarparkTenant(allTenants||tenants, lot, P.id, year, month);
+    if(!cpTenant) return; // vacant — handled below
     assignedCpLots.add(lot);
     // Snapshot is keyed by room_code (same tenant/agreement covers their
     // carpark too), not by lot code.
-    const d = displayDates(t.room_code, t);
+    const d = displayDates(cpTenant.room_code, cpTenant);
     const mo = tenureMonths(d.agreement_start, d.agreement_end);
     tenancyEntries.push({
       label: 'Carpark '+lot,
@@ -12111,15 +12196,12 @@ function renderReportDesktopHTML(ctx, opts){
     const typeLabel = l.type==='room' ? 'Room' : 'Carpark';
     const codeLabel = l.type==='room' ? esc(l.tenant?.room_code||l.code) : esc(l.code);
     // For CARPARK rows, look up the tenant who actually rents this lot
-    // (cross-property aware) so tenancy + tenure mirror the lessee — not
-    // the property's commence date as before.
-    let cpTenant = null;
-    if(l.type==='carpark'){
-      cpTenant = (allTenants||tenants||[]).find(t=>
-        t.carpark && normCarpark(t.carpark)===normCarpark(l.code) &&
-        (t.carpark_property_id || t.property_id)===P.id
-      );
-    }
+    // (cross-property aware, checks carpark2 too, and only among tenants
+    // whose tenancy overlaps this report's month) so tenancy + tenure
+    // mirror the ACTUAL current lessee, not a stale/moved-out one.
+    const cpTenant = l.type==='carpark'
+      ? findCarparkTenant(allTenants||tenants, l.code, P.id, year, month)
+      : null;
     const roomDisplay = l.type==='room' ? displayDates(l.tenant?.room_code||l.code, l.tenant) : null;
     // Snapshot is keyed by room_code — same tenant/agreement covers their carpark too.
     const cpDisplay    = l.type==='carpark' && cpTenant ? displayDates(cpTenant.room_code, cpTenant) : null;
@@ -12446,7 +12528,17 @@ function _reportDarkCSS(){
   </style>`;
 }
 
+// Generation counter — buildReport() can be triggered from several places
+// in quick succession (keyboard nav, realtime sync, sign-off toggles). Each
+// call captures its own token; if a NEWER call has started by the time an
+// OLDER call's awaits finish, the older one abandons instead of overwriting
+// the fresher render with stale data. This is what caused the report to
+// randomly flip between a correct and a stale figure on refresh/navigation.
+let _buildReportGen = 0;
 async function buildReport(){
+  const myGen = ++_buildReportGen;
+  const stillCurrent = () => myGen === _buildReportGen;
+
   const propId = $('#rptProp').value;
   const mv = $('#rptMonth').value;
   if(!propId||!mv){ $('#rptStatus').textContent='Pick property + month to preview.'; return; }
@@ -12472,12 +12564,14 @@ async function buildReport(){
   if(autoCom) materialized = (await ensureRentCommissionExpensesFor(propId, y, m)) || materialized;
   materialized = (await ensureManagementFeeExpensesFor(propId, y, m)) || materialized;
   materialized = (await ensureBalanceForwardFor(propId, y, m)) || materialized;
+  if(!stillCurrent()) return; // a newer buildReport() has since started — abandon
   // If we inserted rows for the topbar's currently-selected month, refresh
   // state.expenses so the Expenses tab also stays in sync.
   if(materialized && y===state.year && m===state.month){
     await loadExpenses();
   }
   const ctx = await gatherReportData(propId,y,m);
+  if(!stillCurrent()) return; // abandon again — this fetch may have resolved out of order
   const renderer = state.reportView==='desktop' ? renderReportDesktopHTML : renderReportHTML;
   const html = renderer(ctx, {year:y, month:m, issueDate:issue, autoFee, autoCom});
   _lastReportHTML = html; // always light-mode — export uses this directly
@@ -12888,8 +12982,10 @@ function renderReportSignoff(){
   if(_acq) _acq.onclick = async ()=>{
     const rr = _findReportStatus(propId, y, m);
     const alreadyDone = !!(rr && rr.admin_checked_at);
-    const label = alreadyDone ? 'Uncheck Admin Check for this unit?' : 'Mark Admin Check Done for this unit?';
-    if(!await confirmModal(label, {confirmText: alreadyDone ? 'Uncheck' : 'Confirm'})) return;
+    // Only confirm when UNDOING a check — marking it done is a one-click action.
+    if(alreadyDone){
+      if(!await confirmModal('Uncheck Admin Check for this unit?', {confirmText:'Uncheck'})) return;
+    }
     _acq.disabled=true; _acq.style.opacity='.6';
     try {
       await setReportStatus(propId, y, m, {
