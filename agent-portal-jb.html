@@ -154,11 +154,13 @@
      of the row. Removes the old forced min-width so this actually fits a
      phone screen without needing horizontal scroll. */
   .room-table{width:100%;border-collapse:collapse;table-layout:fixed;}
-  .room-table th:nth-child(1), .room-table td:nth-child(1){width:11%;}
-  .room-table th:nth-child(2), .room-table td:nth-child(2){width:15%;}
-  .room-table th:nth-child(3), .room-table td:nth-child(3){width:17%;}
-  .room-table th:nth-child(4), .room-table td:nth-child(4){width:13%;}
-  .room-table th:nth-child(5), .room-table td:nth-child(5){width:44%;}
+  .room-table th:nth-child(1), .room-table td:nth-child(1){width:9%;}
+  .room-table th:nth-child(2), .room-table td:nth-child(2){width:13%;}
+  .room-table th:nth-child(3), .room-table td:nth-child(3){width:15%;}
+  .room-table th:nth-child(4), .room-table td:nth-child(4){width:8%;}
+  .room-table th:nth-child(5), .room-table td:nth-child(5){width:11%;}
+  .room-table th:nth-child(6), .room-table td:nth-child(6){width:44%;}
+  .gender-badge{font-size:12px;font-weight:800;color:var(--muted);}
   .room-table thead th{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
     color:var(--muted);padding:9px 6px;background:rgba(0,0,0,.25);text-align:left;
     border-bottom:1px solid var(--border2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -276,7 +278,7 @@ async function loadData() {
     if (e1) throw e1;
     const propIds = (props||[]).map(p=>p.id);
     const { data: tenants, error: e2 } = propIds.length
-      ? await sb.from('agent_tenants').select('property_id,room_code,race,occupation,no_of_staying,nationality,carpark,carpark2,carpark_property_id,carpark2_property_id').in('property_id', propIds)
+      ? await sb.from('agent_tenants').select('property_id,room_code,gender,secondary_gender,race,occupation,no_of_staying,nationality,carpark,carpark2,carpark_property_id,carpark2_property_id').in('property_id', propIds)
       : { data: [], error: null };
     if (e2) throw e2;
     const tenantMap = {};
@@ -294,6 +296,7 @@ async function loadData() {
           race: ts.map(t=>(t.race||'').trim()).filter(r=>r&&r!=='-').join(' / '),
           occ:  ts.map(t=>(t.occupation||'').trim()).filter(Boolean).join(' / '),
           nat:  ts.map(t=>shortNationality(t.nationality)).filter(Boolean).join(' / '),
+          gen:  ts.flatMap(t=>[shortGender(t.gender), shortGender(t.secondary_gender)]).filter(Boolean).join(''),
           pax:  ts.reduce((s,t)=>s+(parseInt(t.no_of_staying)||1),0) };
       });
       return { community: p.condo, unit: p.unit, rooms };
@@ -351,6 +354,11 @@ function shortNationality(n){
   const title = tc(norm);
   return title.length > 8 ? title.slice(0,7)+'.' : title;
 }
+// "Male"/"Female"/"M"/"F" (whatever's on file) → just the initial.
+function shortGender(g){
+  const c = String(g||'').trim().charAt(0).toUpperCase();
+  return (c==='M' || c==='F') ? c : '';
+}
 
 // KL/JB each have their own shared Drive "room library" folder, organized
 // unit → room subfolders. Both are shared "anyone with the link can view",
@@ -371,13 +379,14 @@ const DRIVE_ROOT = { KL:'1HvNEGuwa0d-80MCHIUik3CuajFYRbD4F', JB:'1fNatcFBle3It-W
 function roomRows(u){
   return u.rooms.map(r => {
     if(r.vacant) return `<tr class="vacant-row">
-      <td colspan="5" class="vacant-fill"><div class="vacant-fill-inner">
+      <td colspan="6" class="vacant-fill"><div class="vacant-fill-inner">
         <span class="room-lbl">${r.room}</span><span class="vacant-tag">✦ AVAILABLE</span>
       </div></td></tr>`;
     return `<tr>
       <td><span class="room-lbl">${r.room}</span></td>
       <td><span class="nationality">${r.nat?esc(r.nat):'—'}</span></td>
       <td>${r.race?`<span class="chip-race ${rc(r.race)}">${tc(r.race)}</span>`:'—'}</td>
+      <td><span class="gender-badge">${r.gen?esc(r.gen):'—'}</span></td>
       <td><span class="pax-badge">${r.pax} pax</span></td>
       <td><span class="occ-text">${r.occ?tc(r.occ):'—'}</span></td></tr>`;
   }).join('');
@@ -532,7 +541,7 @@ function showUnitList(){
         ${open?`<div class="unit-acc-body">
           <div class="table-wrap">
             <table class="room-table">
-              <thead><tr><th>Rm</th><th>Nat.</th><th>Race</th><th>Pax</th><th>Occupation</th></tr></thead>
+              <thead><tr><th>Rm</th><th>Nat.</th><th>Race</th><th>Gen</th><th>Pax</th><th>Occupation</th></tr></thead>
               <tbody>${roomRows(u)}</tbody>
             </table>
           </div>
