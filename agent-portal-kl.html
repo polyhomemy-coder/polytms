@@ -20,7 +20,7 @@
     --text:#D0ECF0;--muted:#5E8A94;--radius:14px;
   }
   html[data-theme="light"]{
-    --bg:#F0F9FB;--surface:#FFFFFF;--surface2:#F3FBFC;
+    --bg:#CFE7F5;--surface:#FFFFFF;--surface2:#F3FBFC;
     --border:rgba(0,123,138,0.18);--border2:rgba(0,123,138,0.12);
     --text:#0B2530;--muted:#5C7D85;
     /* --brand2 (#00B4CC) is a bright cyan built for dark backgrounds — on
@@ -57,7 +57,9 @@
   .theme-switch-track{position:absolute;inset:0;display:flex;align-items:center;
     justify-content:space-between;padding:0 6px;font-size:12px;line-height:1;}
   .theme-switch-knob{position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;
-    background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .2s ease;}
+    background:radial-gradient(circle at 32% 28%, #F0FBFF 0%, #8FD3F5 42%, #2E9BDB 78%, #1C6FA8 100%);
+    box-shadow:0 1px 3px rgba(0,0,0,.4), inset -2px -2px 3px rgba(10,60,100,.35), inset 1px 1px 2px rgba(255,255,255,.75);
+    transition:transform .2s ease;}
   html[data-theme="light"] .theme-switch-knob{transform:translateX(26px);}
 
   /* EXPAND / COLLAPSE ALL */
@@ -67,6 +69,15 @@
     font-family:'Plus Jakarta Sans',sans-serif;-webkit-tap-highlight-color:transparent;transition:all .15s;}
   .expand-btn:hover{color:var(--brand2);border-color:var(--brand2);}
   .last-updated{font-size:10px;opacity:.55;margin-top:8px;font-weight:500;color:#fff;}
+
+  /* NDA / PRIVACY NOTICE */
+  .privacy-notice{max-width:900px;margin:14px auto 0;padding:10px 14px;display:flex;
+    align-items:flex-start;gap:9px;background:rgba(244,129,31,.1);
+    border:1px solid rgba(244,129,31,.3);border-radius:12px;}
+  .privacy-notice .icon{font-size:15px;flex-shrink:0;line-height:1.4;}
+  .privacy-notice .txt{font-size:11.5px;line-height:1.5;color:var(--text);font-weight:500;}
+  .privacy-notice .txt b{color:var(--accent);}
+  html[data-theme="light"] .privacy-notice .txt b{color:#B85C00;}
 
   /* TAB BAR */
   .tab-bar{max-width:900px;margin:0 auto;padding:16px 12px 0;display:flex;gap:8px;}
@@ -101,6 +112,17 @@
   .unit-btn.has-vacant{border-color:rgba(16,185,129,.4);color:#34d399;}
   .unit-btn.has-vacant.active{background:rgba(16,185,129,.15);}
 
+  /* VACANCY LIST */
+  .vac-block{max-width:900px;margin:0 auto 10px;border:1px solid var(--border2);border-radius:12px;
+    background:var(--surface);padding:12px 14px;}
+  .vac-block-title{font-size:14px;font-weight:800;color:#fff;margin-bottom:6px;}
+  html[data-theme="light"] .vac-block-title{color:#0B2530;}
+  .vac-line{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:8px 0;border-top:1px solid var(--border2);}
+  .vac-line:first-of-type{border-top:none;}
+  .vac-line-label{font-size:13px;font-weight:700;color:#34d399;}
+  html[data-theme="light"] .vac-line-label{color:#047857;}
+
   /* UNIT ACCORDION */
   .unit-acc{max-width:900px;margin:0 auto 10px;border:1px solid var(--border2);border-radius:12px;
     background:var(--surface);overflow:hidden;}
@@ -126,16 +148,29 @@
 
   .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;
     border:1px solid var(--border2);background:var(--surface);}
-  .room-table{width:100%;border-collapse:collapse;min-width:420px;}
-  .room-table thead th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;
-    color:var(--muted);padding:9px 14px;background:rgba(0,0,0,.25);text-align:left;
-    border-bottom:1px solid var(--border2);white-space:nowrap;}
+  /* Fixed layout with explicit column widths — Room/Nationality/Race/Pax
+     squeezed down to just what their short badge content needs, so
+     Occupation (the column most likely to hold longer text) gets the bulk
+     of the row. Removes the old forced min-width so this actually fits a
+     phone screen without needing horizontal scroll. */
+  .room-table{width:100%;border-collapse:collapse;table-layout:fixed;}
+  .room-table th:nth-child(1), .room-table td:nth-child(1){width:11%;}
+  .room-table th:nth-child(2), .room-table td:nth-child(2){width:15%;}
+  .room-table th:nth-child(3), .room-table td:nth-child(3){width:17%;}
+  .room-table th:nth-child(4), .room-table td:nth-child(4){width:13%;}
+  .room-table th:nth-child(5), .room-table td:nth-child(5){width:44%;}
+  .room-table thead th{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+    color:var(--muted);padding:9px 6px;background:rgba(0,0,0,.25);text-align:left;
+    border-bottom:1px solid var(--border2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .room-table thead th:first-child{padding-left:10px;}
+  .room-table thead th:last-child{padding-right:14px;}
   html[data-theme="light"] .room-table thead th{background:rgba(0,123,138,.05);}
-  .room-table thead th:first-child{width:50px;}
   .room-table tbody tr{border-bottom:1px solid var(--border2);}
   .room-table tbody tr:last-child{border-bottom:none;}
   .room-table tbody tr:hover td{background:rgba(0,180,204,.05);}
-  .room-table tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
+  .room-table tbody td{padding:10px 6px;font-size:12.5px;vertical-align:middle;overflow-wrap:break-word;}
+  .room-table tbody td:first-child{padding-left:10px;}
+  .room-table tbody td:last-child{padding-right:14px;}
   .room-lbl{font-weight:800;color:var(--brand2);font-size:14px;}
   .vacant-fill{background:rgba(16,185,129,.16)!important;padding:0!important;}
   /* Grid, not absolute-positioned children — with the share button added
@@ -209,8 +244,12 @@
   </div>
 </div>
 
+<div class="privacy-notice">
+  <span class="icon">🔒</span>
+  <span class="txt"><b>Confidential — Agent use only.</b> By accessing this portal you confirm you have signed Polyhome's NDA. Unit, tenant, and photo information here must not be shared, forwarded, or disclosed to anyone outside Polyhome.</span>
+</div>
 <div id="tabBar"></div>
-<div class="expand-bar">
+<div class="expand-bar" id="expandBar">
   <button class="expand-btn" onclick="expandAll()">Expand All</button>
   <button class="expand-btn" onclick="collapseAll()">Collapse All</button>
 </div>
@@ -226,7 +265,7 @@ const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const CITY = 'KL';
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 let allUnits = [], allCarparkUnits = [];
-let activeTab = 'rooms';
+let activeTab = 'vacancy';
 
 function normCp(s){ return String(s||'').trim().toUpperCase(); }
 
@@ -237,7 +276,7 @@ async function loadData() {
     if (e1) throw e1;
     const propIds = (props||[]).map(p=>p.id);
     const { data: tenants, error: e2 } = propIds.length
-      ? await sb.from('agent_tenants').select('property_id,room_code,race,occupation,no_of_staying,carpark,carpark2,carpark_property_id,carpark2_property_id').in('property_id', propIds)
+      ? await sb.from('agent_tenants').select('property_id,room_code,race,occupation,no_of_staying,nationality,carpark,carpark2,carpark_property_id,carpark2_property_id').in('property_id', propIds)
       : { data: [], error: null };
     if (e2) throw e2;
     const tenantMap = {};
@@ -254,6 +293,7 @@ async function loadData() {
         return { room: code, vacant: false,
           race: ts.map(t=>(t.race||'').trim()).filter(r=>r&&r!=='-').join(' / '),
           occ:  ts.map(t=>(t.occupation||'').trim()).filter(Boolean).join(' / '),
+          nat:  ts.map(t=>shortNationality(t.nationality)).filter(Boolean).join(' / '),
           pax:  ts.reduce((s,t)=>s+(parseInt(t.no_of_staying)||1),0) };
       });
       return { community: p.condo, unit: p.unit, rooms };
@@ -275,9 +315,7 @@ async function loadData() {
       return { community: p.condo, unit: p.unit, carparks };
     }).filter(u => u.carparks.length);
 
-    const vacant = allUnits.reduce((a,u)=>a+u.rooms.filter(r=>r.vacant).length,0);
-    const vacantCp = allCarparkUnits.reduce((a,u)=>a+u.carparks.filter(c=>c.vacant).length,0);
-    renderTabs(vacant, vacantCp);
+    renderTabs();
     document.getElementById('lastUpdated').textContent = 'Live · '+new Date().toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur',hour12:false});
     renderActiveTab();
   } catch(err) {
@@ -295,6 +333,25 @@ function rc(r){
 }
 function tc(s){ return (s||'').replace(/\b\w/g,c=>c.toUpperCase()); }
 
+// Short-form nationality labels — keeps the Nationality column narrow so
+// Occupation gets the space. Falls back to Title Case + truncation for any
+// nationality not in the map (data is free-text, parsed from agreements).
+const _NAT_SHORT = {
+  malaysian:'Msian', indonesian:'Indo', bangladeshi:'Bangla',
+  myanmar:'Myanmar', burmese:'Myanmar', nepali:'Nepali', nepalese:'Nepali',
+  vietnamese:'Viet', filipino:'Filipino', filipina:'Filipino',
+  indian:'Indian', pakistani:'Pak', chinese:'China', thai:'Thai',
+  cambodian:'Cambo', 'sri lankan':'S.Lankan', srilankan:'S.Lankan',
+  singaporean:"S'porean",
+};
+function shortNationality(n){
+  const norm = String(n||'').trim().toLowerCase();
+  if(!norm) return '';
+  if(_NAT_SHORT[norm]) return _NAT_SHORT[norm];
+  const title = tc(norm);
+  return title.length > 8 ? title.slice(0,7)+'.' : title;
+}
+
 // KL/JB each have their own shared Drive "room library" folder, organized
 // unit → room subfolders. Both are shared "anyone with the link can view",
 // so a restricted, read-only API key (same pattern as the Supabase anon
@@ -309,38 +366,55 @@ function tc(s){ return (s||'').replace(/\b\w/g,c=>c.toUpperCase()); }
 const GOOGLE_DRIVE_API_KEY = 'AIzaSyC_-46w5M9cXz2lp1AIh9U0TySs34jOOcQ';
 const DRIVE_ROOT = { KL:'1HvNEGuwa0d-80MCHIUik3CuajFYRbD4F', JB:'1fNatcFBle3It-WrSwaWuyGZg6oDqWsJS' }[CITY];
 
+// Tenant Profile's table — no Share Room Photo button here; that only
+// belongs on the Vacancy tab's own line-item rendering.
 function roomRows(u){
   return u.rooms.map(r => {
     if(r.vacant) return `<tr class="vacant-row">
       <td colspan="5" class="vacant-fill"><div class="vacant-fill-inner">
         <span class="room-lbl">${r.room}</span><span class="vacant-tag">✦ AVAILABLE</span>
-        <button class="share-btn" onclick="shareRoomPhoto('${u.community.replace(/'/g,"\\'")}','${u.unit.replace(/'/g,"\\'")}','${r.room.replace(/'/g,"\\'")}',this)">📷 Share Room Photo</button>
       </div></td></tr>`;
     return `<tr>
       <td><span class="room-lbl">${r.room}</span></td>
-      <td><span class="nationality">Malaysian</span></td>
+      <td><span class="nationality">${r.nat?esc(r.nat):'—'}</span></td>
       <td>${r.race?`<span class="chip-race ${rc(r.race)}">${tc(r.race)}</span>`:'—'}</td>
       <td><span class="pax-badge">${r.pax} pax</span></td>
       <td><span class="occ-text">${r.occ?tc(r.occ):'—'}</span></td></tr>`;
   }).join('');
 }
 
-// Lists every subfolder directly under `parentId`, then picks the one whose
-// name matches `name` — exact match preferred, falling back to a loose
-// "contains" match so small naming inconsistencies (e.g. "Room M" vs "M")
-// still resolve, without over-trusting Drive's own `contains` query op.
-async function _driveFindChildFolder(parentId, name){
+async function _driveListChildFolders(parentId){
   const q = `'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
   const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q)
     + '&fields=' + encodeURIComponent('files(id,name)') + '&key=' + GOOGLE_DRIVE_API_KEY;
   const res = await fetch(url);
   if(!res.ok) throw new Error('Drive API error ('+res.status+')');
   const data = await res.json();
-  const files = data.files || [];
-  const norm = s => String(s||'').trim().toLowerCase();
-  return files.find(f=>norm(f.name)===norm(name))
-      || files.find(f=>norm(f.name).includes(norm(name)))
-      || null;
+  return data.files || [];
+}
+const _norm = s => String(s||'').trim().toLowerCase();
+// Strips filler words ("room"/"bilik"/"rm"/"unit"/"no") and separators, so
+// "Room M", "Bilik M", "M Room" all reduce to the same "m" and still match
+// via an EXACT comparison. This deliberately never falls back to a raw
+// substring/.includes() match for room codes — that's what caused vacant
+// Room M to link to Room N's folder: a bare `.includes('m')` check matches
+// ANY folder named "Room X", because the word "Room" itself contains "m".
+const _DRIVE_FILLER_WORDS = new Set(['room','bilik','rm','unit','no']);
+function _driveNormName(s){
+  return _norm(s).split(/[\s\-_,.]+/).filter(w=>w && !_DRIVE_FILLER_WORDS.has(w)).join(' ');
+}
+// `loose:true` additionally allows a raw substring match as a last resort —
+// safe to use for unit codes (long, specific strings like "A-17-07") but
+// deliberately NOT used for room codes (see above).
+async function _driveFindChildFolder(parentId, name, {loose=false}={}){
+  const files = await _driveListChildFolders(parentId);
+  const target = _norm(name);
+  let match = files.find(f=>_norm(f.name)===target);
+  if(match) return match;
+  match = files.find(f=>_driveNormName(f.name)===_driveNormName(name));
+  if(match) return match;
+  if(loose) match = files.find(f=>_norm(f.name).includes(target));
+  return match || null;
 }
 
 // Searches Drive → unit subfolder → room subfolder, then opens WhatsApp
@@ -355,7 +429,7 @@ async function shareRoomPhoto(community, unit, room, btnEl){
   const originalLabel = btnEl.textContent;
   btnEl.disabled = true; btnEl.textContent = '🔎 Searching…';
   try{
-    const unitFolder = await _driveFindChildFolder(DRIVE_ROOT, unit);
+    const unitFolder = await _driveFindChildFolder(DRIVE_ROOT, unit, {loose:true});
     if(!unitFolder){
       alert(`Could not find a Drive folder for unit "${unit}" in the ${CITY} Room Library. Check the folder is named to match, and shared "Anyone with the link".`);
       return;
@@ -377,10 +451,61 @@ async function shareRoomPhoto(community, unit, room, btnEl){
 
 let expandedUnits = new Set();
 function unitKey(u){ return u.community+'|'+u.unit; }
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// Flat list of every unit that has at least one vacant room — fully
-// occupied units are hidden entirely. Each row expands/collapses inline
-// via {+}/{−} instead of drilling into a separate condo/unit screen.
+// Tab 1 — VACANCY: rooms and carparks merged into one list, grouped by
+// unit, showing ONLY the vacant items (no occupant table here — that's
+// what Tenant Profile is for). Units with nothing vacant are hidden.
+function buildVacancyUnits(){
+  const map = new Map();
+  allUnits.forEach(u=>{
+    const vr = u.rooms.filter(r=>r.vacant).map(r=>r.room);
+    if(!vr.length) return;
+    const k = unitKey(u);
+    if(!map.has(k)) map.set(k, {community:u.community, unit:u.unit, rooms:[], carparks:[]});
+    map.get(k).rooms = vr;
+  });
+  allCarparkUnits.forEach(u=>{
+    const vc = u.carparks.filter(c=>c.vacant).map(c=>c.lot);
+    if(!vc.length) return;
+    const k = unitKey(u);
+    if(!map.has(k)) map.set(k, {community:u.community, unit:u.unit, rooms:[], carparks:[]});
+    map.get(k).carparks = vc;
+  });
+  return [...map.values()].sort((a,b)=>(a.community+a.unit).localeCompare(b.community+b.unit));
+}
+
+function showVacancyList(){
+  const main = document.getElementById('main');
+  const units = buildVacancyUnits();
+  if(!units.length){
+    main.innerHTML = '<div class="selector"><div class="loading"><div class="msg">No vacancies right now</div></div></div>';
+    return;
+  }
+  const blocks = units.map(u=>{
+    const roomLines = u.rooms.map(r=>`
+      <div class="vac-line">
+        <span class="vac-line-label">Room ${esc(r)}</span>
+        <button class="share-btn" onclick="shareRoomPhoto('${u.community.replace(/'/g,"\\'")}','${u.unit.replace(/'/g,"\\'")}','${r.replace(/'/g,"\\'")}',this)">📷 Share Room Photo</button>
+      </div>`).join('');
+    const cpLines = u.carparks.map(c=>`
+      <div class="vac-line">
+        <span class="vac-line-label">Carpark ${esc(c)}</span>
+      </div>`).join('');
+    return `
+      <div class="vac-block">
+        <div class="vac-block-title">${esc(u.community)} ${esc(u.unit)}</div>
+        ${roomLines}${cpLines}
+      </div>`;
+  }).join('');
+
+  main.innerHTML = `<div class="selector">${blocks}</div>`;
+}
+
+// Tab 2 — TENANT PROFILE: full occupant table (nationality/race/pax/
+// occupation), same as before, still scoped to units that have at least
+// one vacant room — this shows the OTHER occupants' profiles alongside it,
+// which is the point (context on who else is in the unit).
 function showUnitList(){
   const main = document.getElementById('main');
   if(!allUnits.length){ main.innerHTML='<div class="loading"><div class="msg">No data</div></div>'; return; }
@@ -407,7 +532,7 @@ function showUnitList(){
         ${open?`<div class="unit-acc-body">
           <div class="table-wrap">
             <table class="room-table">
-              <thead><tr><th>Room</th><th>Nationality</th><th>Race</th><th>Pax</th><th>Occupation</th></tr></thead>
+              <thead><tr><th>Rm</th><th>Nat.</th><th>Race</th><th>Pax</th><th>Occupation</th></tr></thead>
               <tbody>${roomRows(u)}</tbody>
             </table>
           </div>
@@ -424,87 +549,29 @@ function toggleUnit(key){
   showUnitList();
 }
 
-// Second tab: vacant CARPARKS, same flat/collapsible pattern as rooms.
-// Keys are prefixed 'cp|' so a unit appearing in both tabs doesn't share
-// expand/collapse state between them.
-function cpUnitKey(u){ return 'cp|'+u.community+'|'+u.unit; }
-
-function carparkRows(u){
-  return u.carparks.map(c => {
-    if(c.vacant) return `<tr class="vacant-row">
-      <td colspan="2" class="vacant-fill"><div class="vacant-fill-inner">
-        <span class="room-lbl">${c.lot}</span><span class="vacant-tag">✦ AVAILABLE</span>
-      </div></td></tr>`;
-    return `<tr><td><span class="room-lbl">${c.lot}</span></td><td><span class="occ-text">Occupied</span></td></tr>`;
-  }).join('');
-}
-
-function showCarparkList(){
-  const main = document.getElementById('main');
-  if(!allCarparkUnits.length){ main.innerHTML='<div class="selector"><div class="loading"><div class="msg">No carpark data</div></div></div>'; return; }
-
-  const withVacant = allCarparkUnits.filter(u=>u.carparks.some(c=>c.vacant))
-    .sort((a,b)=>(a.community+a.unit).localeCompare(b.community+b.unit));
-
-  if(!withVacant.length){
-    main.innerHTML = '<div class="selector"><div class="loading"><div class="msg">No vacant carparks right now</div></div></div>';
-    return;
-  }
-
-  const items = withVacant.map(u=>{
-    const key = cpUnitKey(u);
-    const open = expandedUnits.has(key);
-    const vc = u.carparks.filter(c=>c.vacant).length;
-    return `
-      <div class="unit-acc">
-        <button class="unit-acc-header" onclick="toggleCarparkUnit('${key.replace(/'/g,"\\'")}')">
-          <span class="acc-toggle">${open?'−':'+'}</span>
-          <span class="acc-title">${u.community} ${u.unit}</span>
-          <span class="vacant-summary">${vc} Vacant</span>
-        </button>
-        ${open?`<div class="unit-acc-body">
-          <div class="table-wrap">
-            <table class="room-table">
-              <thead><tr><th>Lot</th><th>Status</th></tr></thead>
-              <tbody>${carparkRows(u)}</tbody>
-            </table>
-          </div>
-        </div>`:''}
-      </div>`;
-  }).join('');
-
-  main.innerHTML = `<div class="selector"><div class="step-label">Units with vacant carparks</div>${items}</div>`;
-}
-
-function toggleCarparkUnit(key){
-  if(expandedUnits.has(key)) expandedUnits.delete(key);
-  else expandedUnits.add(key);
-  showCarparkList();
-}
-
-function renderTabs(vacantRooms, vacantCarparks){
+function renderTabs(){
   const bar = document.getElementById('tabBar');
   if(!bar) return;
   bar.innerHTML = `
     <div class="tab-bar">
-      <button class="tab-btn ${activeTab==='rooms'?'active':''}" onclick="setTab('rooms')">🛏 ${vacantRooms} Rooms</button>
-      <button class="tab-btn ${activeTab==='carparks'?'active':''}" onclick="setTab('carparks')">🚗 ${vacantCarparks} Carparks</button>
+      <button class="tab-btn ${activeTab==='vacancy'?'active':''}" onclick="setTab('vacancy')">🏠 Vacancy</button>
+      <button class="tab-btn ${activeTab==='profile'?'active':''}" onclick="setTab('profile')">👤 Tenant Profile</button>
     </div>`;
 }
 
 function setTab(tab){
   activeTab = tab;
-  renderTabs(
-    allUnits.reduce((a,u)=>a+u.rooms.filter(r=>r.vacant).length,0),
-    allCarparkUnits.reduce((a,u)=>a+u.carparks.filter(c=>c.vacant).length,0)
-  );
+  renderTabs();
   renderActiveTab();
 }
 
 function renderActiveTab(){
-  if(activeTab==='carparks') showCarparkList(); else showUnitList();
+  // Expand/Collapse All only makes sense for the Tenant Profile accordion —
+  // Vacancy is a flat always-expanded list with nothing to toggle.
+  const expandBar = document.getElementById('expandBar');
+  if(expandBar) expandBar.style.display = activeTab==='profile' ? 'flex' : 'none';
+  if(activeTab==='profile') showUnitList(); else showVacancyList();
 }
-
 
 function toggleTheme(){
   // Knob position is pure CSS (driven by the data-theme attribute) — no
@@ -514,20 +581,13 @@ function toggleTheme(){
   localStorage.setItem('polytms-agent-theme', next);
 }
 
-// Expand/Collapse All — act only on whichever tab (rooms/carparks) is
-// currently showing, same "has vacancy" filter each tab already applies.
-function _visibleKeysForActiveTab(){
-  if(activeTab==='carparks'){
-    return allCarparkUnits.filter(u=>u.carparks.some(c=>c.vacant)).map(cpUnitKey);
-  }
-  return allUnits.filter(u=>u.rooms.some(r=>r.vacant)).map(unitKey);
-}
+// Expand/Collapse All — Tenant Profile tab only (see renderActiveTab).
 function expandAll(){
-  _visibleKeysForActiveTab().forEach(k=>expandedUnits.add(k));
+  allUnits.filter(u=>u.rooms.some(r=>r.vacant)).forEach(u=>expandedUnits.add(unitKey(u)));
   renderActiveTab();
 }
 function collapseAll(){
-  _visibleKeysForActiveTab().forEach(k=>expandedUnits.delete(k));
+  allUnits.filter(u=>u.rooms.some(r=>r.vacant)).forEach(u=>expandedUnits.delete(unitKey(u)));
   renderActiveTab();
 }
 
