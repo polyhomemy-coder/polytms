@@ -296,11 +296,17 @@ function rc(r){
 function tc(s){ return (s||'').replace(/\b\w/g,c=>c.toUpperCase()); }
 
 // KL/JB each have their own shared Drive "room library" folder, organized
-// unit → room subfolders. There's no Drive API wired in here (would need
-// credentials + a backend), so we can't deep-link straight to one room's
-// exact subfolder — instead we open a Drive search scoped to the unit code,
-// which is specific enough to surface the right unit folder immediately;
-// the agent picks the room subfolder from there (only ever 4-5 options).
+// unit → room subfolders. Both are shared "anyone with the link can view",
+// so a restricted, read-only API key (same pattern as the Supabase anon
+// key already embedded below — no write access, no backend needed) can
+// browse into them directly via the Drive API and find the EXACT room
+// subfolder, instead of just handing the tenant the whole library.
+//
+// Get a key: Google Cloud Console → APIs & Services → Library → enable
+// "Google Drive API" → Credentials → Create API Key → restrict it:
+//   Application restriction: HTTP referrers → https://polyhomemy-coder.github.io/*
+//   API restriction: Google Drive API only
+const GOOGLE_DRIVE_API_KEY = 'AIzaSyC_-46w5M9cXz2lp1AIh9U0TySs34jOOcQ';
 const DRIVE_ROOT = { KL:'1HvNEGuwa0d-80MCHIUik3CuajFYRbD4F', JB:'1fNatcFBle3It-WrSwaWuyGZg6oDqWsJS' }[CITY];
 
 function roomRows(u){
@@ -308,7 +314,7 @@ function roomRows(u){
     if(r.vacant) return `<tr class="vacant-row">
       <td colspan="5" class="vacant-fill"><div class="vacant-fill-inner">
         <span class="room-lbl">${r.room}</span><span class="vacant-tag">✦ AVAILABLE</span>
-        <button class="share-btn" onclick="shareRoomPhoto('${u.community.replace(/'/g,"\\'")}','${u.unit.replace(/'/g,"\\'")}','${r.room.replace(/'/g,"\\'")}')">📷 Share Room Photo</button>
+        <button class="share-btn" onclick="shareRoomPhoto('${u.community.replace(/'/g,"\\'")}','${u.unit.replace(/'/g,"\\'")}','${r.room.replace(/'/g,"\\'")}',this)">📷 Share Room Photo</button>
       </div></td></tr>`;
     return `<tr>
       <td><span class="room-lbl">${r.room}</span></td>
@@ -319,18 +325,54 @@ function roomRows(u){
   }).join('');
 }
 
-// Opens WhatsApp with a pre-filled message (no target number — per Aaron's
-// call, the agent picks the contact themselves from WhatsApp's own share
-// picker) containing a Drive search link scoped to the unit, plus a
-// fallback link to the full city library in case the search comes up empty.
-function shareRoomPhoto(community, unit, room){
-  const searchUrl = 'https://drive.google.com/drive/search?q=' + encodeURIComponent(community + ' ' + unit);
-  const libraryUrl = 'https://drive.google.com/drive/folders/' + DRIVE_ROOT;
-  const msg = `Hi! 👋 Here's the photo tour for *${community} ${unit}* — Room ${room} (Available now).\n\n`
-    + `📷 Search: ${searchUrl}\n`
-    + `📁 Full ${CITY} Room Library: ${libraryUrl}\n\n`
-    + `(Open the unit's folder, then look inside for the "${room}" room photos.)`;
-  window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+// Lists every subfolder directly under `parentId`, then picks the one whose
+// name matches `name` — exact match preferred, falling back to a loose
+// "contains" match so small naming inconsistencies (e.g. "Room M" vs "M")
+// still resolve, without over-trusting Drive's own `contains` query op.
+async function _driveFindChildFolder(parentId, name){
+  const q = `'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q)
+    + '&fields=' + encodeURIComponent('files(id,name)') + '&key=' + GOOGLE_DRIVE_API_KEY;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('Drive API error ('+res.status+')');
+  const data = await res.json();
+  const files = data.files || [];
+  const norm = s => String(s||'').trim().toLowerCase();
+  return files.find(f=>norm(f.name)===norm(name))
+      || files.find(f=>norm(f.name).includes(norm(name)))
+      || null;
+}
+
+// Searches Drive → unit subfolder → room subfolder, then opens WhatsApp
+// with a message carrying ONLY that room's own folder link (not the whole
+// KL/JB library) — per Aaron: never hand a tenant the entire drive. No
+// target number — the agent picks the WhatsApp contact themselves.
+async function shareRoomPhoto(community, unit, room, btnEl){
+  if(!GOOGLE_DRIVE_API_KEY || GOOGLE_DRIVE_API_KEY.startsWith('PASTE_')){
+    alert('Google Drive search isn\'t set up yet — a Drive API key needs to be added to this page first.');
+    return;
+  }
+  const originalLabel = btnEl.textContent;
+  btnEl.disabled = true; btnEl.textContent = '🔎 Searching…';
+  try{
+    const unitFolder = await _driveFindChildFolder(DRIVE_ROOT, unit);
+    if(!unitFolder){
+      alert(`Could not find a Drive folder for unit "${unit}" in the ${CITY} Room Library. Check the folder is named to match, and shared "Anyone with the link".`);
+      return;
+    }
+    const roomFolder = await _driveFindChildFolder(unitFolder.id, room);
+    if(!roomFolder){
+      alert(`Found "${unit}"'s folder, but no "${room}" room subfolder inside it. Check the subfolder naming.`);
+      return;
+    }
+    const folderUrl = 'https://drive.google.com/drive/folders/' + roomFolder.id;
+    const msg = `Hi! 👋 Here's the photo tour for *${community} ${unit}* — Room ${room} (Available now).\n\n📷 ${folderUrl}`;
+    window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+  } catch(e){
+    alert('Could not search Google Drive: ' + (e.message||e));
+  } finally {
+    btnEl.disabled = false; btnEl.textContent = originalLabel;
+  }
 }
 
 let expandedUnits = new Set();
