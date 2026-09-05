@@ -5763,14 +5763,19 @@ function renderAdminDashboard(){
   const paneUnpaid = panel(`
     ${secHead('💸','Unpaid / Unmatch — '+MONTHS[m-1]+' '+y,unpaidRows.length,'background:#FEE2E2;color:#B91C1C')}
     ${unpaidRows.length===0 ? emptyMsg('All tenants paid this month ✓') : tbl(
-      miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Expected',right:true},{label:'Status',right:true},{label:'',right:true}),
+      miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Contact'},{label:'Expected',right:true},{label:'Status',right:true},{label:'',right:true}),
       unpaidRows.map(r=>{
         const badge2=r.status==='unpaid'
           ? `<span style="background:#FEE2E2;color:#B91C1C;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">✕ Unpaid</span>`
           : `<span style="background:#FEF3C7;color:#92400E;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">⚠ Unmatch</span>`;
+        const contact = (r.tenant.contact||'').trim();
+        const contactCell = contact
+          ? `<a href="tel:${esc(contact.replace(/[^\d+]/g,''))}" style="color:var(--brand);font-weight:600;text-decoration:none" title="Call ${esc(contact)}">📞 ${esc(contact)}</a>`
+          : '—';
         return `<tr>
           ${td(esc(r.tenant.name||'—'),{bold:true})}
           ${td((r.prop?esc(r.prop.condo+' '+r.prop.unit):'—')+' · <b>'+esc(r.tenant.room_code||'?')+'</b>',{muted:true})}
+          ${td(contactCell)}
           ${td('RM '+fmt(r.expected),{right:true})}
           ${td(badge2,{right:true})}
           ${td(viewBtn(r.tenant.id),{right:true})}
