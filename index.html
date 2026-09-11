@@ -3800,22 +3800,24 @@ async function setReportStatus(propId, y, m, patch){
     }
   }
 
-  // Freeze/unfreeze the tenancy snapshot as the lock state changes. Locked
-  // (both sign-offs done) → capture a snapshot once, so a later contract
-  // renewal can't retroactively rewrite this already-verified month.
-  // Unlocked (either sign-off removed) → clear it so live data resumes
-  // until the report is re-verified.
+  // Freeze/unfreeze the tenancy + property snapshots as the lock state
+  // changes. Locked (both sign-offs done) → capture each snapshot once, so
+  // a later contract renewal or property/bank edit can't retroactively
+  // rewrite this already-verified month. Unlocked (either sign-off
+  // removed) → clear both so live data resumes until re-verified.
   if(row){
     const nowLocked = !!(row.admin_checked_at && row.manager_verified_at);
-    if(nowLocked && !row.tenancy_snapshot){
-      const snap = buildTenancySnapshot(propId, y, m);
-      const {data, error} = await sb.from('report_status').update({tenancy_snapshot: snap}).eq('id', row.id).select();
+    if(nowLocked && (!row.tenancy_snapshot || !row.property_snapshot)){
+      const patch = {};
+      if(!row.tenancy_snapshot)  patch.tenancy_snapshot  = buildTenancySnapshot(propId, y, m);
+      if(!row.property_snapshot) patch.property_snapshot = buildPropertySnapshot(propId);
+      const {data, error} = await sb.from('report_status').update(patch).eq('id', row.id).select();
       if(!error && data && data[0]) Object.assign(row, data[0]);
-      else if(!error) row.tenancy_snapshot = snap;
-    } else if(!nowLocked && row.tenancy_snapshot){
-      const {data, error} = await sb.from('report_status').update({tenancy_snapshot: null}).eq('id', row.id).select();
+      else if(!error) Object.assign(row, patch);
+    } else if(!nowLocked && (row.tenancy_snapshot || row.property_snapshot)){
+      const {data, error} = await sb.from('report_status').update({tenancy_snapshot: null, property_snapshot: null}).eq('id', row.id).select();
       if(!error && data && data[0]) Object.assign(row, data[0]);
-      else if(!error) row.tenancy_snapshot = null;
+      else if(!error){ row.tenancy_snapshot = null; row.property_snapshot = null; }
     }
   }
   return row;
@@ -11571,9 +11573,37 @@ function buildTenancySnapshot(propId, y, m){
     snap[String(t.id)] = {
       agreement_start: t.agreement_start || null,
       agreement_end:   t.agreement_end   || null,
+      // Rental rates as of lock time — see frozenTenant() in
+      // buildReportLineMap for why these matter beyond just the dates: a
+      // rate edited at a later renewal must not leak into an already-locked
+      // month's pro-rate formula or room/carpark split.
+      room_rental:     t.room_rental     ?? null,
+      carpark_rental:  t.carpark_rental  ?? null,
+      carpark2_rental: t.carpark2_rental ?? null,
     };
   });
   return snap;
+}
+
+// Freezes the property/owner/bank fields the report header displays —
+// same "locked means locked" principle as buildTenancySnapshot, just for
+// the property row instead of tenant rows. Structural config (room_codes,
+// carpark_lots) is deliberately NOT captured here — which rooms/lots exist
+// isn't a "financial figure" that should freeze, and freezing it could
+// hide genuinely new rooms from historical reports for no benefit.
+function buildPropertySnapshot(propId){
+  const p = state.properties.find(x=>x.id===propId);
+  if(!p) return null;
+  return {
+    condo:           p.condo           || null,
+    unit:            p.unit            || null,
+    owner_name:      p.owner_name      || null,
+    owner_contact:   p.owner_contact   || null,
+    owner_email:     p.owner_email     || null,
+    bank_name:       p.bank_name       || null,
+    bank_account:    p.bank_account    || null,
+    service_percent: p.service_percent ?? null,
+  };
 }
 
 async function gatherReportData(propId, y, m){
@@ -11616,6 +11646,10 @@ async function gatherReportData(propId, y, m){
     allPayments: allPay.data||[],     // every property's room/carpark payments this month
     allTenants:  state.tenants||[],   // for cross-property carpark resolution
     tenancySnapshot: (rs && rs.tenancy_snapshot) || null,
+    // Frozen condo/unit/owner/bank/service-fee fields for a locked month —
+    // see buildPropertySnapshot(). Renderers should prefer these over the
+    // live `property` record for header display when present.
+    propertySnapshot: (rs && rs.property_snapshot) || null,
   };
 }
 
@@ -11651,7 +11685,28 @@ async function gatherReportData(propId, y, m){
 //   room) are also pulled in so old data continues to work.
 // ============================================================
 function buildReportLineMap(P, ctx, roomTenancies, year, month){
-  const {tenants, payments, aircon, allPayments, allTenants} = ctx;
+  const {tenants, payments, aircon, allPayments, allTenants, tenancySnapshot} = ctx;
+  // Once a report is locked, tenancySnapshot freezes each tenant's dates —
+  // but until now the RENTAL RATES used to compute/display the pro-rate
+  // formula (and even the plain room+carpark split for a normal full-month
+  // payment) were still read live off the tenant record. Editing a rate
+  // later (e.g. at the next renewal) could silently change the formula
+  // text — or even the room/carpark split — shown on an already-locked
+  // past month. frozenTenant() substitutes in the rates captured at lock
+  // time wherever a snapshot entry exists, so every calculation below stays
+  // consistent with history. No effect on unlocked months (tenancySnapshot
+  // is null/cleared there, so this returns `t` unchanged).
+  const frozenTenant = (t) => {
+    if(!t || !t.id || !tenancySnapshot) return t;
+    const snap = tenancySnapshot[String(t.id)];
+    if(!snap) return t;
+    return {
+      ...t,
+      room_rental:     snap.room_rental     ?? t.room_rental,
+      carpark_rental:  snap.carpark_rental  ?? t.carpark_rental,
+      carpark2_rental: snap.carpark2_rental ?? t.carpark2_rental,
+    };
+  };
   const lineMap = new Map();
   const keyOf = (type, code)=> type+'|'+code;
   const ensureLine = (type, code)=>{
@@ -11679,11 +11734,11 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
     // different room_rental) could get picked up instead of whoever was
     // actually in the room during the reported month, silently rewriting
     // an already-verified past month's pro-rate formula and amount.
-    const t = (roomTenancies||[]).find(x=>
+    const t = frozenTenant((roomTenancies||[]).find(x=>
       (x.room_code||'').toUpperCase()===(code||'').toUpperCase()
     ) || (tenants||[]).find(x=>
       (x.room_code||'').toUpperCase()===(code||'').toUpperCase()
-    );
+    ));
     const amt = Number(p.amount||0);
     let roomShare = amt;
     let _lineProRateNote = null; // formula string to attach to the room line
@@ -11840,8 +11895,9 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
   // room payments where the tenant's carpark belongs to us.
   // Also handles item_type:'carpark' payments inserted by ensureFirstMonthProRateExpensesFor
   // for cross-property carpark pro-rate months.
-  (allTenants||[]).forEach(t=>{
-    if(t.property_id === P.id) return;   // same-property — handled above
+  (allTenants||[]).forEach(rawT=>{
+    if(rawT.property_id === P.id) return;   // same-property — handled above
+    const t = frozenTenant(rawT);
     // Either carpark (1 or 2) may belong to this property.
     const claims = [];
     if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===P.id)
@@ -11902,7 +11958,7 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
     // this same carpark code) whenever more than one tenant has ever had
     // this lot on file, silently producing a pro-rate calc that can never
     // match the stored amount.
-    const t = findCarparkTenant(allTenants||tenants, p.room_code, P.id, year, month);
+    const t = frozenTenant(findCarparkTenant(allTenants||tenants, p.room_code, P.id, year, month));
     if(!t) return;
     const isCp2 = normCarpark(t.carpark2||'')===normCarpark(p.room_code);
     const cpFull = isCp2 ? Number(t.carpark2_rental||0) : Number(t.carpark_rental||0);
@@ -11942,7 +11998,12 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
 }
 
 function renderReportHTML(ctx, opts){
-  const {property:P, tenants, payments, aircon, expenses, extras, allTenants, tenancySnapshot} = ctx;
+  const {property:P, tenants, payments, aircon, expenses, extras, allTenants, tenancySnapshot, propertySnapshot} = ctx;
+  // Display-only merge: once locked, the header (condo/unit/owner/bank/fee%)
+  // shows what was true at lock time, not a later edit to the property
+  // record. `P` itself stays live — still used for structural config
+  // (room_codes, carpark_lots) which intentionally does NOT freeze.
+  const dispP = propertySnapshot ? {...P, ...propertySnapshot} : P;
   const {year, month, issueDate, autoFee, autoCom} = opts;
   const first = new Date(year, month-1, 1), last = new Date(year, month, 0);
   const periodText = `1 ${MONTHS[month-1]} ${year} — ${last.getDate()} ${MONTHS[month-1]} ${year}`;
@@ -11967,7 +12028,7 @@ function renderReportHTML(ctx, opts){
   let expRows = expenses.map(e=>({desc:e.description||e.category, amount:Number(e.amount||0), cat:e.category}));
   // auto management fee (rooms+carparks rental * service%/100) if none exists
   if(autoFee && !expenses.some(e=>e.category==='management_fee')){
-    const fee = +(totRental * (Number(P.service_percent||0)/100)).toFixed(2);
+    const fee = +(totRental * (Number(dispP.service_percent||0)/100)).toFixed(2);
     if(fee>0) expRows.unshift({desc:'Management Fee', amount:fee, cat:'management_fee', _auto:true});
   }
   // auto rent commission: any tenancy that started this month → commission
@@ -12219,7 +12280,7 @@ function renderReportHTML(ctx, opts){
     <div>
       <div class="report-label">POLYHOME TMS</div>
       <div class="report-title">Landlord Income Report</div>
-      <div class="report-period">${esc(P.condo)} Residences  ·  Unit ${esc(P.unit)}</div>
+      <div class="report-period">${esc(dispP.condo)} Residences  ·  Unit ${esc(dispP.unit)}</div>
     </div>
     <div class="hdr-month">${MONTHS[month-1].toUpperCase()}</div>
   </div>
@@ -12230,10 +12291,10 @@ function renderReportHTML(ctx, opts){
 </div>
 
 <div class="owner-card">
-  <div class="owner-row"><span class="owner-key">Owner</span><span class="owner-val">${esc(P.owner_name||'')}</span></div>
-  <div class="owner-row"><span class="owner-key">Contact</span><span class="owner-val">📞 ${esc(P.owner_contact||'')}</span></div>
-  <div class="owner-row"><span class="owner-key">Bank</span><span class="owner-val">${esc(P.bank_name||'')}</span></div>
-  <div class="owner-row"><span class="owner-key">Account No.</span><span class="owner-val orange">${esc(P.bank_account||'')}</span></div>
+  <div class="owner-row"><span class="owner-key">Owner</span><span class="owner-val">${esc(dispP.owner_name||'')}</span></div>
+  <div class="owner-row"><span class="owner-key">Contact</span><span class="owner-val">📞 ${esc(dispP.owner_contact||'')}</span></div>
+  <div class="owner-row"><span class="owner-key">Bank</span><span class="owner-val">${esc(dispP.bank_name||'')}</span></div>
+  <div class="owner-row"><span class="owner-key">Account No.</span><span class="owner-val orange">${esc(dispP.bank_account||'')}</span></div>
 </div>
 
 <div class="nett-card">
@@ -12306,7 +12367,10 @@ function renderReportHTML(ctx, opts){
 //  EXPENSES table with cols: No | Amount | Description
 // Palette matches the mobile version (teal #007B8A / orange #F4811F).
 function renderReportDesktopHTML(ctx, opts){
-  const {property:P, tenants, payments, aircon, expenses, extras, allTenants, tenancySnapshot} = ctx;
+  const {property:P, tenants, payments, aircon, expenses, extras, allTenants, tenancySnapshot, propertySnapshot} = ctx;
+  // See renderReportHTML for why: once locked, header display should use
+  // what was true at lock time, not a later edit to the property record.
+  const dispP = propertySnapshot ? {...P, ...propertySnapshot} : P;
   const {year, month, issueDate, autoFee, autoCom} = opts;
   const first = new Date(year, month-1, 1), last = new Date(year, month, 0);
   const periodText = `1 ${MONTHS[month-1]} ${year} — ${last.getDate()} ${MONTHS[month-1]} ${year}`;
@@ -12339,7 +12403,7 @@ function renderReportDesktopHTML(ctx, opts){
   // EXPENSES (same logic as mobile)
   let expRows = expenses.map(e=>({desc:e.description||e.category, amount:Number(e.amount||0), cat:e.category}));
   if(autoFee && !expenses.some(e=>e.category==='management_fee')){
-    const fee = +(totRental * (Number(P.service_percent||0)/100)).toFixed(2);
+    const fee = +(totRental * (Number(dispP.service_percent||0)/100)).toFixed(2);
     if(fee>0) expRows.unshift({desc:'Management Fee', amount:fee, cat:'management_fee', _auto:true});
   }
   if(autoCom){
@@ -12555,22 +12619,22 @@ function renderReportDesktopHTML(ctx, opts){
     </div>
     <div class="addr-box">
       <div class="t">Owner Contact &amp; Bank</div>
-      <div class="addr-row"><span class="t">Bank</span><span class="v">${esc(P.bank_name||'—')}</span></div>
-      <div class="addr-row"><span class="t">Account No.</span><span class="v orange">${esc(P.bank_account||'—')}</span></div>
-      <div class="addr-row"><span class="t">Contact</span><span class="v">${esc(P.owner_contact||'—')}</span></div>
-      <div class="addr-row"><span class="t">Email</span><span class="v">${esc(P.owner_email||'—')}</span></div>
+      <div class="addr-row"><span class="t">Bank</span><span class="v">${esc(dispP.bank_name||'—')}</span></div>
+      <div class="addr-row"><span class="t">Account No.</span><span class="v orange">${esc(dispP.bank_account||'—')}</span></div>
+      <div class="addr-row"><span class="t">Contact</span><span class="v">${esc(dispP.owner_contact||'—')}</span></div>
+      <div class="addr-row"><span class="t">Email</span><span class="v">${esc(dispP.owner_email||'—')}</span></div>
     </div>
   </div>
 
   <div class="hello">
     <div class="hello-left">
       <div class="hi">Hello,</div>
-      <div class="owner">${esc(P.owner_name||'Landlord')}</div>
+      <div class="owner">${esc(dispP.owner_name||'Landlord')}</div>
       <div class="meta-grid">
-        <div><div class="lbl">Condo</div><div class="val">${esc(P.condo||'')}</div></div>
-        <div><div class="lbl">Unit</div><div class="val">${esc(P.unit||'')}</div></div>
+        <div><div class="lbl">Condo</div><div class="val">${esc(dispP.condo||'')}</div></div>
+        <div><div class="lbl">Unit</div><div class="val">${esc(dispP.unit||'')}</div></div>
         <div><div class="lbl">Issue Date</div><div class="val">${issueText}</div></div>
-        <div><div class="lbl">Service Fee</div><div class="val">${Number(P.service_percent||0)}%</div></div>
+        <div><div class="lbl">Service Fee</div><div class="val">${Number(dispP.service_percent||0)}%</div></div>
       </div>
     </div>
     <div class="nett-box">
@@ -12638,7 +12702,7 @@ function renderReportDesktopHTML(ctx, opts){
 
   <div class="foot">
     <div>Thank you for trusting us to manage your property.</div>
-    <div><b>POLYHOME TMS</b> · ${esc(P.condo)} · Unit ${esc(P.unit)} · ${issueText}</div>
+    <div><b>POLYHOME TMS</b> · ${esc(dispP.condo)} · Unit ${esc(dispP.unit)} · ${issueText}</div>
   </div>
   <div style="margin-top:14px;padding-top:12px;border-top:1px solid #C8EDF2;text-align:center;font-size:11px;color:#486870;line-height:1.5">
     <b style="color:#007B8A">Polyhome Properties Sdn Bhd</b>
