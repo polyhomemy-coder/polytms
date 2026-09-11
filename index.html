@@ -13198,13 +13198,19 @@ async function editAnnotation(id){
   const a = state.annotations.find(x=>x.id===id);
   if(!a) return;
   const secOpts = ANNOTATION_SECTIONS.map(s=>`<option value="${s}" ${s===a.section?'selected':''}>${s}</option>`).join('');
+  // IDs are namespaced (an_edit_*, not an_*) so this modal can never collide
+  // with the "Add Query Note" floating panel's #an_sec/#an_note — if both
+  // happened to be open in the DOM at once, document.getElementById() would
+  // silently grab whichever came first, letting one form read/submit the
+  // OTHER note's content (typed text in one panel ending up saved as a
+  // duplicate of the other's).
   openModal('✎ Edit Query Note', `
     <div class="space-y-3">
-      <div><label class="label">Section</label><select id="an_sec" class="input">${secOpts}</select></div>
-      <div><label class="label">Note</label><textarea id="an_note" class="input" rows="4" style="resize:vertical">${esc(a.note)}</textarea></div>
+      <div><label class="label">Section</label><select id="an_edit_sec" class="input">${secOpts}</select></div>
+      <div><label class="label">Note</label><textarea id="an_edit_note" class="input" rows="4" style="resize:vertical">${esc(a.note)}</textarea></div>
     </div>`, async()=>{
-    const section = $('#an_sec').value;
-    const note    = $('#an_note').value.trim();
+    const section = $('#an_edit_sec').value;
+    const note    = $('#an_edit_note').value.trim();
     if(!note) throw new Error('Note cannot be empty');
     const {error} = await sb.from('report_annotations').update({section,note}).eq('id',id);
     if(error) throw error;
