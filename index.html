@@ -12052,15 +12052,26 @@ function renderReportHTML(ctx, opts){
   // Display-only: once a report is locked, show the frozen snapshot dates
   // for that room/carpark instead of the tenant's current (possibly
   // since-renewed) dates. Never used for any pro-rate math.
-  const displayDates = (liveTenant) => {
-    const frozen = tenancySnapshot && liveTenant?.id ? tenancySnapshot[String(liveTenant.id)] : null;
+  // `legacyRoomCode` is a backward-compat fallback ONLY: reports locked
+  // before the snapshot was switched from room_code-keyed to tenant.id-keyed
+  // (to fix a different bug — two tenants sharing a room_code across time
+  // colliding) still have their frozen JSON stored under the OLD room_code
+  // key. Without this, that stale id-keyed lookup misses entirely and
+  // silently falls through to LIVE tenant data — which is exactly what let
+  // a same-room contract renewal leak into an already-locked prior month's
+  // report. Restricted to the ROOM call site (never carpark), since a room's
+  // own live tenant here IS that room's occupant for this month — no
+  // cross-identity collision risk the way carpark/room-code sharing had.
+  const displayDates = (liveTenant, legacyRoomCode) => {
+    let frozen = tenancySnapshot && liveTenant?.id ? tenancySnapshot[String(liveTenant.id)] : null;
+    if(!frozen && tenancySnapshot && legacyRoomCode) frozen = tenancySnapshot[String(legacyRoomCode).toUpperCase()];
     if(frozen && frozen.agreement_start && frozen.agreement_end) return frozen;
     return { agreement_start: liveTenant?.agreement_start, agreement_end: liveTenant?.agreement_end };
   };
   const tenancyEntries = [];
   const assignedRooms = new Set();
   roomTenancies.forEach(t=>{
-    const d = displayDates(t);
+    const d = displayDates(t, t.room_code);
     const mo = tenureMonths(d.agreement_start, d.agreement_end);
     assignedRooms.add(String(t.room_code||'').trim().toUpperCase());
     tenancyEntries.push({
@@ -12426,7 +12437,7 @@ function renderReportDesktopHTML(ctx, opts){
     const cpTenant = l.type==='carpark'
       ? findCarparkTenant(allTenants||tenants, l.code, P.id, year, month)
       : null;
-    const roomDisplay = l.type==='room' ? displayDates(l.tenant) : null;
+    const roomDisplay = l.type==='room' ? displayDates(l.tenant, l.tenant?.room_code||l.code) : null;
     // Snapshot is keyed by tenant id, not room_code — see buildTenancySnapshot.
     const cpDisplay    = l.type==='carpark' && cpTenant ? displayDates(cpTenant) : null;
     const tenancyTxt = l.type==='room'
