@@ -5836,16 +5836,16 @@ function renderAdminDashboard(){
   const paneSignoff = panel(`
     ${secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E')}
     ${reportPending.length===0 ? emptyMsg('All reports launched this month ✓') :
-      `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px 28px">` +
+      `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">` +
       reportPending.map(p=>{
         const rs=(state.reportStatus||[]).find(r=>r.property_id===p.id&&r.year===y&&r.month===m);
         const adminDone=rs&&rs.admin_checked_at, mgrDone=rs&&rs.manager_verified_at;
         const pill=(label,done)=>`<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${done?'rgba(16,185,129,.15)':'var(--th-bg)'};color:${done?'#059669':'var(--muted)'};">${done?'✓':' ○'} ${label}</span>`;
         const openCount = openNotesByProp[p.id]||0;
         const queryAlert = openCount ? `<span title="${openCount} open query note${openCount>1?'s':''}" style="font-size:13px;line-height:1" aria-label="open query notes">🚩</span>` : '';
-        return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:10px;background:var(--th-bg)">
-          <span style="font-size:12px;font-weight:700;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1">${esc(p.condo+' '+p.unit)}</span>
-          <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">${queryAlert}${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:10px;background:var(--th-bg)">
+          <span style="font-size:12px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.condo+' '+p.unit)}${queryAlert}</span>
+          <div style="display:flex;gap:5px;flex-shrink:0">${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
         </div>`;
       }).join('') +
       `</div>`
@@ -9583,22 +9583,45 @@ function openAssignIsewa(pendingId){
   });
 }
 
+// Aircon table's sort/group control — click "Property" to group all rows for
+// the same unit together, "Room" to group all rows for the same room code
+// together (across properties), or "Topped up on" to order by date. Clicking
+// the active column again flips its direction.
+let _airconSort = {key:'property', dir:'asc'};
+function setAirconSort(key){
+  if(_airconSort.key===key) _airconSort.dir = _airconSort.dir==='asc' ? 'desc' : 'asc';
+  else _airconSort = {key, dir:'asc'};
+  renderAircon();
+}
 function renderAircon(){
   renderPendingIsewaBanner();
   const pid = $('#airSelProp').value;
   let list = pid ? state.aircon.filter(p=>p.property_id===pid)
     : state.aircon.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
+  const dirMul = _airconSort.dir==='desc' ? -1 : 1;
+  const propKey = r => { const p=state.properties.find(x=>x.id===r.property_id); return p ? (p.condo+' '+p.unit) : 'zzz'; };
   list = [...list].sort((a,b)=>{
-    const pa = state.properties.find(x=>x.id===a.property_id);
-    const pb = state.properties.find(x=>x.id===b.property_id);
-    const kA = pa ? (pa.condo+' '+pa.unit) : 'zzz';
-    const kB = pb ? (pb.condo+' '+pb.unit) : 'zzz';
-    const pc = kA.localeCompare(kB);
-    if(pc) return pc;
+    if(_airconSort.key==='room'){
+      const rc = compareRoom(a.room_code, b.room_code);
+      if(rc) return rc*dirMul;
+      return propKey(a).localeCompare(propKey(b));
+    }
+    if(_airconSort.key==='date'){
+      const da = a.topped_up_on ? new Date(a.topped_up_on).getTime() : null;
+      const db = b.topped_up_on ? new Date(b.topped_up_on).getTime() : null;
+      if(da==null && db==null) return 0;
+      if(da==null) return 1;  // no-date rows always sink to the bottom
+      if(db==null) return -1;
+      if(da!==db) return (da-db)*dirMul;
+      return propKey(a).localeCompare(propKey(b));
+    }
+    // 'property' (default) — group by unit, then room within that unit
+    const pc = propKey(a).localeCompare(propKey(b));
+    if(pc) return pc*dirMul;
     return compareRoom(a.room_code, b.room_code);
   });
   let _airLastPid = null, _airGrp = -1;
-  const rows = list.map(r=>{
+  const rows = list.map((r,i)=>{
     const p = state.properties.find(x=>x.id===r.property_id);
     if(r.property_id !== _airLastPid){ _airLastPid = r.property_id; _airGrp++; }
     const grpCls = (_airGrp % 2 === 1) ? 'prop-grp-alt' : '';
@@ -9612,6 +9635,7 @@ function renderAircon(){
       : esc(r.remark||'');
     const trCls = [grpCls, isIsewa ? 'isewa-row' : ''].filter(Boolean).join(' ');
     return `<tr class="${trCls}">
+      <td class="text-slate-400">${i+1}</td>
       <td>${esc(p?p.condo+' · '+p.unit:'')}</td>
       <td class="font-bold whitespace-nowrap">Room ${esc(r.room_code)}</td>
       <td class="num">${fmt(r.amount)}</td>
@@ -9630,6 +9654,7 @@ function renderAircon(){
   const _airUntOpts = _unitOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'', pid);
   const dateDefault = `${state.year}-${String(state.month).padStart(2,'0')}-01`;
   const addRow = `<tr class="add-row air-add-row">
+    <td></td>
     <td><div style="display:flex;gap:4px;width:100%">
       <select class="air-add-condo input !text-xs !py-1 !px-2" style="flex:1;min-width:0" onchange="onInlineCondoChange(this,'air-add-prop')">
         <option value="">— condo —</option>${_airCndOpts}
@@ -9647,10 +9672,18 @@ function renderAircon(){
   </tr>`;
 
   const host = $('#airTable');
+  // Sortable column header: click to group/sort by that column, click again
+  // to flip direction. Shows a ▲/▼ arrow on whichever column is active.
+  const sortTh = (label, key) => {
+    const active = _airconSort.key===key;
+    const arrow = active ? (_airconSort.dir==='asc' ? ' ▲' : ' ▼') : '';
+    return `<th style="cursor:pointer;user-select:none;${active?'color:var(--brand)':''}" onclick="setAirconSort('${key}')" title="Click to sort">${label}${arrow}</th>`;
+  };
   // Add a colgroup so the columns stay consistent whether the body has 0 or
   // many rows. table-fixed makes the colgroup widths actually authoritative.
   host.classList.add('table-fixed');
   host.innerHTML = `<colgroup>
+      <col style="width:32px">
       <col style="width:15%">
       <col style="width:72px">
       <col style="width:95px">
@@ -9659,9 +9692,9 @@ function renderAircon(){
       <col style="width:105px">
     </colgroup>
     <thead><tr>
-      <th>Property</th><th>Room</th><th class="num">Amount</th><th>Topped up on</th><th>Remark</th><th></th>
-    </tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-slate-400 py-6">No aircon top-ups yet — add one below.</td></tr>'}
-    ${rows?`<tr><td colspan="2" class="text-right font-bold">TOTAL</td><td class="num font-extrabold">${fmt(tot)}</td><td colspan="3"></td></tr>`:''}
+      <th></th>${sortTh('Property','property')}${sortTh('Room','room')}<th class="num">Amount</th>${sortTh('Topped up on','date')}<th>Remark</th><th></th>
+    </tr></thead><tbody>${rows || '<tr><td colspan="7" class="text-center text-slate-400 py-6">No aircon top-ups yet — add one below.</td></tr>'}
+    ${rows?`<tr><td></td><td colspan="2" class="text-right font-bold">TOTAL</td><td class="num font-extrabold">${fmt(tot)}</td><td colspan="3"></td></tr>`:''}
     ${addRow}
     </tbody>`;
 
