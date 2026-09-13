@@ -2580,12 +2580,16 @@ function tenureMonths(startStr, endStr){
   if(!startStr || !endStr) return null;
   const s = parseISODateLocal(startStr), e = parseISODateLocal(endStr);
   if(isNaN(s) || isNaN(e)) return null;
-  let m = (e.getFullYear()-s.getFullYear())*12 + (e.getMonth()-s.getMonth());
-  // Landlord convention: end = start + N months − 1 day → exactly N months.
-  // E.g. start 2026-05-15, end 2027-05-14 → 12 months (NOT 13).
-  // Only round UP when the end date has crossed the same day-of-month as
-  // the start, meaning we're already into month N+1.
-  if(e.getDate() >= s.getDate()) m += 1;
+  // Floor to the number of FULLY completed months, not the nearest one —
+  // e.g. 8 Aug → 13 Feb is 6 months + 5 days (~6.2 months) and should show
+  // "6 mo", only advancing to "7 mo" once a full 7th month is actually
+  // completed. Work from the day AFTER the (inclusive) end date, since a
+  // clean N-month contract is written as "start + N months − 1 day".
+  const e2 = new Date(e.getFullYear(), e.getMonth(), e.getDate()+1);
+  let m = (e2.getFullYear()-s.getFullYear())*12 + (e2.getMonth()-s.getMonth());
+  // e2 hasn't reached the start's day-of-month yet → month `m` isn't
+  // complete — pull back to the last fully completed month.
+  if(e2.getDate() < s.getDate()) m -= 1;
   return m<=0 ? null : m;
 }
 // Compute an end date given a start date + N months. Contract end is
@@ -3536,12 +3540,32 @@ async function loadPendingIsewa(){
 // iSewa stores all timestamps in UTC. Malaysia is UTC+8, so a top-up at
 // 1:56 AM MYT = 5:56 PM UTC previous day — slicing the raw UTC string directly
 // gives the wrong date. Adding 8 h before slicing fixes this.
+//
+// The raw string has no timezone marker ("2026-07-31 19:28:00", no "Z"/
+// offset). Handing that straight to `new Date(...)` is ambiguous: per spec,
+// a date-time string with no offset is parsed as the RUNTIME'S OWN LOCAL
+// time, not UTC. On a browser already set to MYT (UTC+8) — which is exactly
+// what this app runs on — that silently converts the string to UTC by
+// SUBTRACTING 8h before this function's own +8h correction ever runs. The
+// two cancel out, so the "fix" below was a no-op, and any top-up between
+// midnight and 8 AM MYT (whose UTC timestamp falls on the PREVIOUS
+// calendar day) landed one day early — e.g. an 03:28 AM top-up got
+// recorded as the previous day instead of today. Parsing the components
+// manually with Date.UTC() removes any dependence on the runtime's
+// timezone, so this behaves the same regardless of what machine runs it.
 function iSewaUTCtoMYTDate(ts){
   if(!ts) return '';
-  const d = new Date(ts);
-  if(isNaN(d)) return String(ts).slice(0,10); // fallback: already a date string
+  const m = String(ts).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+  let epochMs;
+  if(m){
+    epochMs = Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]);
+  } else {
+    const d = new Date(ts);
+    if(isNaN(d)) return String(ts).slice(0,10); // fallback: already a date string
+    epochMs = d.getTime();
+  }
   // Shift by +8 hours
-  const myt = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+  const myt = new Date(epochMs + 8 * 60 * 60 * 1000);
   return myt.toISOString().slice(0,10);
 }
 
@@ -5765,8 +5789,8 @@ function renderAdminDashboard(){
   const paneUnpaid = panel(`
     ${secHead('💸','Unpaid / Unmatch — '+MONTHS[m-1]+' '+y,unpaidRows.length,'background:#FEE2E2;color:#B91C1C')}
     ${unpaidRows.length===0 ? emptyMsg('All tenants paid this month ✓') : tbl(
-      miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Contact'},{label:'Expected',right:true},{label:'Status',right:true},{label:'',right:true}),
-      unpaidRows.map(r=>{
+      miniTh({label:'#'},{label:'Tenant'},{label:'Property · Room'},{label:'Contact'},{label:'Expected',right:true},{label:'Status',right:true},{label:'',right:true}),
+      unpaidRows.map((r,i)=>{
         const badge2=r.status==='unpaid'
           ? `<span style="background:#FEE2E2;color:#B91C1C;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">✕ Unpaid</span>`
           : `<span style="background:#FEF3C7;color:#92400E;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">⚠ Unmatch</span>`;
@@ -5775,6 +5799,7 @@ function renderAdminDashboard(){
           ? `<a href="tel:${esc(contact.replace(/[^\d+]/g,''))}" style="color:var(--brand);font-weight:600;text-decoration:none" title="Call ${esc(contact)}">📞 ${esc(contact)}</a>`
           : '—';
         return `<tr>
+          ${td(i+1,{muted:true})}
           ${td(esc(r.tenant.name||'—'),{bold:true})}
           ${td((r.prop?esc(r.prop.condo+' '+r.prop.unit):'—')+' · <b>'+esc(r.tenant.room_code||'?')+'</b>',{muted:true})}
           ${td(contactCell)}
@@ -5788,12 +5813,13 @@ function renderAdminDashboard(){
   const paneLeases = panel(`
     ${secHead('⏰','Lease Alerts — Expiring within 90 days',leaseAlerts.length,'background:#FEF3C7;color:#92400E')}
     ${leaseAlerts.length===0 ? emptyMsg('No leases expiring within 90 days ✓') : tbl(
-      miniTh({label:'Tenant'},{label:'Property · Room'},{label:'End Date',right:true},{label:'Days Left',right:true},{label:'',right:true}),
-      leaseAlerts.map(({t,d})=>{
+      miniTh({label:'#'},{label:'Tenant'},{label:'Property · Room'},{label:'End Date',right:true},{label:'Days Left',right:true},{label:'',right:true}),
+      leaseAlerts.map(({t,d},i)=>{
         const p=state.properties.find(x=>x.id===t.property_id);
         const bg=d<=14?'rgba(254,226,226,.5)':d<=30?'rgba(254,243,199,.5)':'';
         const col=d<=14?'#B91C1C':d<=30?'#92400E':'#047857';
         return `<tr style="background:${bg}">
+          ${td(i+1,{muted:true})}
           ${td(esc(t.name||'—'),{bold:true})}
           ${td((p?esc(p.condo+' '+p.unit):'—')+' · <b>'+esc(t.room_code||'?')+'</b>',{muted:true,wrap:true})}
           ${td(t.agreement_end?fmtDate(t.agreement_end):'—',{right:true})}
@@ -5806,8 +5832,9 @@ function renderAdminDashboard(){
   const paneVacant = panel(`
     ${secHead('🏠','Vacant Rooms',vacants.length,'background:#FEE2E2;color:#B91C1C')}
     ${vacants.length===0 ? emptyMsg('All rooms occupied ✓') : tbl(
-      miniTh({label:'Property'},{label:'City'},{label:'Room',right:true}),
-      vacants.map(v=>`<tr>
+      miniTh({label:'#'},{label:'Property'},{label:'City'},{label:'Room',right:true}),
+      vacants.map((v,i)=>`<tr>
+        ${td(i+1,{muted:true})}
         ${td(esc(v.prop.condo+' '+v.prop.unit),{bold:true})}
         ${td(esc(v.prop.city||'—'),{muted:true})}
         ${td(`<span style="font-weight:800;color:var(--accent)">${esc(v.room)}</span>`,{right:true})}
@@ -5817,8 +5844,9 @@ function renderAdminDashboard(){
   const paneCarpark = panel(`
     ${secHead('🚗','Carpark Assignments',carparkList.length)}
     ${carparkList.length===0 ? emptyMsg('No carpark assignments found') : tbl(
-      miniTh({label:'Tenant'},{label:'Property'},{label:'Lot'},{label:'Rental/mo',right:true},{label:'',right:true}),
-      carparkList.map(({t,prop})=>`<tr>
+      miniTh({label:'#'},{label:'Tenant'},{label:'Property'},{label:'Lot'},{label:'Rental/mo',right:true},{label:'',right:true}),
+      carparkList.map(({t,prop},i)=>`<tr>
+        ${td(i+1,{muted:true})}
         ${td(esc(t.name||'—'),{bold:true})}
         ${td(prop?esc(prop.condo+' '+prop.unit):'—',{muted:true})}
         ${td(`<span style="font-weight:800;color:var(--brand)">${esc(t.carpark)}</span>`)}
@@ -5837,21 +5865,21 @@ function renderAdminDashboard(){
     ${secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E')}
     ${reportPending.length===0 ? emptyMsg('All reports launched this month ✓') :
       `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">` +
-      reportPending.map(p=>{
+      reportPending.map((p,i)=>{
         const rs=(state.reportStatus||[]).find(r=>r.property_id===p.id&&r.year===y&&r.month===m);
         const adminDone=rs&&rs.admin_checked_at, mgrDone=rs&&rs.manager_verified_at;
         const pill=(label,done)=>`<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${done?'rgba(16,185,129,.15)':'var(--th-bg)'};color:${done?'#059669':'var(--muted)'};">${done?'✓':' ○'} ${label}</span>`;
         const openCount = openNotesByProp[p.id]||0;
         const queryAlert = openCount ? `<span title="${openCount} open query note${openCount>1?'s':''}" style="font-size:13px;line-height:1" aria-label="open query notes">🚩</span>` : '';
         return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:10px;background:var(--th-bg)">
-          <span style="font-size:12px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.condo+' '+p.unit)}${queryAlert}</span>
+          <span style="font-size:12px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:var(--muted);font-weight:700">${i+1}.</span> ${esc(p.condo+' '+p.unit)}${queryAlert}</span>
           <div style="display:flex;gap:5px;flex-shrink:0">${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
         </div>`;
       }).join('') +
       `</div>`
     }`);
 
-  const buildProRow = (t, isIn) => {
+  const buildProRow = (t, isIn, i) => {
     const p = state.properties.find(x=>x.id===t.property_id);
     // Use the SAME canonical helper as the Income Report / Payment Ledger
     // so room AND carpark pro-rate consistently everywhere — this table
@@ -5881,6 +5909,7 @@ function renderAdminDashboard(){
       proRateCell=td(`<b style="color:${col}">RM ${clean(pr.total)}</b>`,{right:true});
     }
     return `<tr>
+      ${td(i+1,{muted:true})}
       ${td(esc(t.name||'—'),{bold:true})}
       ${td(p?esc(p.condo+' '+p.unit+' · Room '+t.room_code):'—',{muted:true})}
       ${td(dateStr?fmtDate(dateStr):'—',{color:isIn?'#065F46':'#B91C1C'})}
@@ -5888,18 +5917,18 @@ function renderAdminDashboard(){
       ${td(viewBtn(t.id),{right:true})}
     </tr>`;
   };
-  const moveTh = miniTh({label:'Tenant'},{label:'Property · Room'},{label:'Date'},{label:'Rental/mo',right:true},{label:'Formula',right:true},{label:'Pro-Rate',right:true},{label:'',right:true});
+  const moveTh = miniTh({label:'#'},{label:'Tenant'},{label:'Property · Room'},{label:'Date'},{label:'Rental/mo',right:true},{label:'Formula',right:true},{label:'Pro-Rate',right:true},{label:'',right:true});
   const paneMovements = panel(`
     ${secHead('📦','Movements This Month',moveIns.length+moveOuts.length)}
     ${moveIns.length===0&&moveOuts.length===0 ? emptyMsg('No move-ins or move-outs recorded this month') : ''}
     ${moveIns.length ? `
       <div style="font-size:11px;font-weight:800;color:#065F46;margin-bottom:6px">🆕 MOVE-INS (${moveIns.length}) <span style="font-size:10px;font-weight:500;color:var(--muted)">— pro-rate for first partial month</span></div>
-      ${tbl(moveTh, moveIns.map(t=>buildProRow(t,true)).join(''))}
+      ${tbl(moveTh, moveIns.map((t,i)=>buildProRow(t,true,i)).join(''))}
       <div style="margin-top:5px;font-size:10.5px;color:var(--muted)">💡 Rent ÷ Days in Month × Days Remaining (from move-in, inclusive)</div>
     ` : ''}
     ${moveOuts.length ? `
       <div style="font-size:11px;font-weight:800;color:#B91C1C;margin-top:${moveIns.length?16:0}px;margin-bottom:6px">📦 MOVE-OUTS (${moveOuts.length}) <span style="font-size:10px;font-weight:500;color:var(--muted)">— pro-rate for last partial month</span></div>
-      ${tbl(moveTh, moveOuts.map(t=>buildProRow(t,false)).join(''))}
+      ${tbl(moveTh, moveOuts.map((t,i)=>buildProRow(t,false,i)).join(''))}
       <div style="margin-top:5px;font-size:10.5px;color:var(--muted)">💡 Rent ÷ Days in Month × Days Occupied (up to move-out day)</div>
     ` : ''}`);
 
@@ -7031,7 +7060,7 @@ function renderTenants(){
   const isMovedOut = sub==='movedout';
   // Track property groups for alternating row banding
   let _lastPropId = null, _propGrp = -1;
-  const rows = tenants.map(t=>{
+  const rows = tenants.map((t,i)=>{
     const p = state.properties.find(x=>x.id===t.property_id);
     const mo = tenureMonths(t.agreement_start, t.agreement_end);
     // Group separator: add top border on first row of each new property group
@@ -7045,6 +7074,7 @@ function renderTenants(){
     if(isMovedOut){
       const moDate = t.move_out_date ? fmtDate(t.move_out_date) : (t.agreement_end ? fmtDate(t.agreement_end) : '—');
       return `<tr class="${grpCls}">
+        <td class="text-slate-400">${i+1}</td>
         <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
         <td class="font-semibold whitespace-nowrap">${p ? esc(p.unit) : ''}</td>
         <td class="text-center font-bold">${esc(t.room_code||'')}</td>
@@ -7063,6 +7093,7 @@ function renderTenants(){
       </tr>`;
     }
     return `<tr class="${[cls, grpCls].filter(Boolean).join(' ')}">
+      <td class="text-slate-400">${i+1}</td>
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
       <td class="font-semibold whitespace-nowrap">${p ? esc(p.unit) : ''}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
@@ -7107,8 +7138,9 @@ function renderTenants(){
       );
       const vacant = allRooms.filter(r=>!occupiedRooms.has(r));
       const propLabel = prop.condo+' · '+prop.unit;
-      vacantRows = vacant.map(r=>`
+      vacantRows = vacant.map((r,i)=>`
         <tr class="bg-amber-50/40">
+          <td class="text-slate-400">${tenants.length+i+1}</td>
           <td class="text-slate-500 font-semibold">${esc(prop.condo)}</td>
           <td class="font-semibold whitespace-nowrap">${esc(prop.unit)}</td>
           <td class="text-center font-bold text-[#92400E]">${esc(r)}</td>
@@ -7135,12 +7167,12 @@ function renderTenants(){
   }
   if(isMovedOut){
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Name</th><th>Contact</th><th class="text-center px-1">PPL</th><th></th>
-    </tr></thead><tbody>${rows || `<tr><td colspan="10" class="text-center text-slate-400 py-10">No moved-out tenants on record.</td></tr>`}</tbody>`;
+      <th></th><th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Name</th><th>Contact</th><th class="text-center px-1">PPL</th><th></th>
+    </tr></thead><tbody>${rows || `<tr><td colspan="11" class="text-center text-slate-400 py-10">No moved-out tenants on record.</td></tr>`}</tbody>`;
   } else {
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Name</th><th>Contact</th><th class="text-center px-1">PPL</th><th></th>
-    </tr></thead><tbody>${allRows || `<tr><td colspan="12" class="text-center text-slate-400 py-10">${q?'No tenants match your search.':'No tenants yet.'}</td></tr>`}</tbody>`;
+      <th></th><th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Name</th><th>Contact</th><th class="text-center px-1">PPL</th><th></th>
+    </tr></thead><tbody>${allRows || `<tr><td colspan="13" class="text-center text-slate-400 py-10">${q?'No tenants match your search.':'No tenants yet.'}</td></tr>`}</tbody>`;
   }
 }
 
@@ -9615,6 +9647,11 @@ function renderAircon(){
       if(da!==db) return (da-db)*dirMul;
       return propKey(a).localeCompare(propKey(b));
     }
+    if(_airconSort.key==='amount'){
+      const aa = Number(a.amount||0), ab = Number(b.amount||0);
+      if(aa!==ab) return (aa-ab)*dirMul;
+      return propKey(a).localeCompare(propKey(b));
+    }
     // 'property' (default) — group by unit, then room within that unit
     const pc = propKey(a).localeCompare(propKey(b));
     if(pc) return pc*dirMul;
@@ -9674,10 +9711,10 @@ function renderAircon(){
   const host = $('#airTable');
   // Sortable column header: click to group/sort by that column, click again
   // to flip direction. Shows a ▲/▼ arrow on whichever column is active.
-  const sortTh = (label, key) => {
+  const sortTh = (label, key, cls) => {
     const active = _airconSort.key===key;
     const arrow = active ? (_airconSort.dir==='asc' ? ' ▲' : ' ▼') : '';
-    return `<th style="cursor:pointer;user-select:none;${active?'color:var(--brand)':''}" onclick="setAirconSort('${key}')" title="Click to sort">${label}${arrow}</th>`;
+    return `<th${cls?` class="${cls}"`:''} style="cursor:pointer;user-select:none;${active?'color:var(--brand)':''}" onclick="setAirconSort('${key}')" title="Click to sort">${label}${arrow}</th>`;
   };
   // Add a colgroup so the columns stay consistent whether the body has 0 or
   // many rows. table-fixed makes the colgroup widths actually authoritative.
@@ -9692,7 +9729,7 @@ function renderAircon(){
       <col style="width:105px">
     </colgroup>
     <thead><tr>
-      <th></th>${sortTh('Property','property')}${sortTh('Room','room')}<th class="num">Amount</th>${sortTh('Topped up on','date')}<th>Remark</th><th></th>
+      <th></th>${sortTh('Property','property')}${sortTh('Room','room')}${sortTh('Amount','amount','num')}${sortTh('Topped up on','date')}<th>Remark</th><th></th>
     </tr></thead><tbody>${rows || '<tr><td colspan="7" class="text-center text-slate-400 py-6">No aircon top-ups yet — add one below.</td></tr>'}
     ${rows?`<tr><td></td><td colspan="2" class="text-right font-bold">TOTAL</td><td class="num font-extrabold">${fmt(tot)}</td><td colspan="3"></td></tr>`:''}
     ${addRow}
@@ -12942,6 +12979,17 @@ function _annotationsFor(propId, y, m){
   );
 }
 
+// Normalizes a query note's reply thread to an array of {text, by, at}.
+// Rows created before multi-reply support only have the legacy single
+// reply/reply_by/reply_at columns — those are folded in as the thread's
+// first (and only) entry so old data still displays, without needing a
+// backfill migration.
+function _annotationReplies(n){
+  if(Array.isArray(n.replies) && n.replies.length) return n.replies;
+  if(n.reply) return [{text:n.reply, by:n.reply_by, at:n.reply_at}];
+  return [];
+}
+
 // "Admin Irene" / "Manager Aaron" — role + the logged-in user's actual
 // name, so query note authorship is identifiable instead of just "Admin".
 // Falls back to the bare role label if no name is on file.
@@ -12999,15 +13047,20 @@ function renderAnnotations(){
     const tagClr  = n.resolved ? '#065F46' : '#B91C1C';
     const noteClr = n.resolved ? '#166534' : '#7F1D1D';
 
-    const replyHtml = n.reply ? `
+    // Thread of every reply so far — a query note can now get replied to
+    // repeatedly, back and forth, instead of just once. Rows saved before
+    // this change only have the old single reply/reply_by/reply_at fields;
+    // _annotationReplies() folds that in as the thread's first entry so
+    // nothing already written is lost.
+    const thread = _annotationReplies(n);
+    const replyHtml = thread.length ? thread.map(r => `
       <div style="margin-top:8px;padding:7px 10px;background:#EFF6FF;border-left:3px solid #3B82F6;border-radius:0 7px 7px 0">
-        <div style="font-size:10px;font-weight:700;color:#1D4ED8;margin-bottom:3px">💬 ${esc(n.reply_by||'Reply')} · ${fmtDate(n.reply_at)}</div>
-        <div style="font-size:12px;color:#1E3A5F;line-height:1.5">${esc(n.reply)}</div>
-        ${(isAdmin||isManager) ? `<button onclick="replyAnnotation('${n.id}')" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:5px;border:none;cursor:pointer;background:#DBEAFE;color:#1D4ED8;margin-top:4px">✎ Edit Reply</button>` : ''}
-      </div>` : '';
+        <div style="font-size:10px;font-weight:700;color:#1D4ED8;margin-bottom:3px">💬 ${esc(r.by||'Reply')} · ${fmtDate(r.at)}</div>
+        <div style="font-size:12px;color:#1E3A5F;line-height:1.5">${esc(r.text)}</div>
+      </div>`).join('') : '';
 
     const canReply  = (isAdmin || isManager) && !n.resolved;
-    const replyBtn  = canReply && !n.reply
+    const replyBtn  = canReply
       ? `<button onclick="replyAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#DBEAFE;color:#1D4ED8">💬 Reply</button>`
       : '';
     const resolveBtn= !n.resolved
@@ -13136,6 +13189,20 @@ async function replyAnnotation(id){
   if(existing && existing.dataset.forId===id){ existing.remove(); return; }
   if(existing) existing.remove();
 
+  // Show the existing back-and-forth (if any) above the compose box, so
+  // replying again has context — this is a thread now, not a one-shot
+  // single reply.
+  const thread = _annotationReplies(a);
+  const fmtDate = ts => ts ? new Date(ts).toLocaleDateString('en-MY',{day:'2-digit',month:'short'}) : '';
+  const threadHtml = thread.length ? `
+    <div style="max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
+      ${thread.map(r=>`
+        <div style="padding:6px 9px;background:#EFF6FF;border-left:3px solid #3B82F6;border-radius:0 6px 6px 0">
+          <div style="font-size:10px;font-weight:700;color:#1D4ED8;margin-bottom:2px">💬 ${esc(r.by||'Reply')} · ${fmtDate(r.at)}</div>
+          <div style="font-size:12px;color:#1E3A5F;line-height:1.4">${esc(r.text)}</div>
+        </div>`).join('')}
+    </div>` : '';
+
   const panel = document.createElement('div');
   panel.id = 'annotationReplyPanel';
   panel.dataset.forId = id;
@@ -13150,13 +13217,14 @@ async function replyAnnotation(id){
         <span style="color:#B91C1C">🚩 ${esc(a.section||'General')}</span> · ${esc(a.created_by||'')}
         <div style="margin-top:4px;color:#64748B">${esc(a.note)}</div>
       </div>
+      ${threadHtml}
       <div>
-        <div class="label" style="margin-bottom:4px;">Your Reply <span style="color:#ef4444">*</span></div>
-        <textarea id="reply_note" class="input" rows="4" placeholder="Type your reply…" style="resize:vertical;width:100%;">${esc(a.reply||'')}</textarea>
+        <div class="label" style="margin-bottom:4px;">${thread.length ? 'Add Another Reply' : 'Your Reply'} <span style="color:#ef4444">*</span></div>
+        <textarea id="reply_note" class="input" rows="4" placeholder="Type your reply…" style="resize:vertical;width:100%;"></textarea>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
         <button id="annotationReplyCancel" class="px-4 py-2 rounded-xl font-semibold text-sm" style="background:var(--muted,#f1f5f9);">Cancel</button>
-        <button id="annotationReplySave" class="px-4 py-2 rounded-xl font-bold text-sm" style="background:#1D4ED8;color:#fff;">Save Reply</button>
+        <button id="annotationReplySave" class="px-4 py-2 rounded-xl font-bold text-sm" style="background:#1D4ED8;color:#fff;">Send Reply</button>
         ${!a.resolved ? `<button id="annotationReplyResolve" class="px-4 py-2 rounded-xl font-bold text-sm" style="background:#065F46;color:#fff;">💬 Reply &amp; Resolve</button>` : ''}
       </div>
     </div>`;
@@ -13179,23 +13247,26 @@ async function replyAnnotation(id){
   document.addEventListener('mouseup', ()=>{ dragging=false; });
 
   const doSave = async (andResolve)=>{
-    const reply = (document.getElementById('reply_note').value||'').trim();
-    if(!reply){ toast('Reply cannot be empty','warn'); return; }
+    const replyText = (document.getElementById('reply_note').value||'').trim();
+    if(!replyText){ toast('Reply cannot be empty','warn'); return; }
     const saveBtn = document.getElementById(andResolve ? 'annotationReplyResolve' : 'annotationReplySave');
     if(saveBtn){ saveBtn.disabled=true; saveBtn.style.opacity='.6'; saveBtn.textContent='⏳…'; }
     const byLabel = _signoffNameLabel();
-    const patch = { reply, reply_by: byLabel, reply_at: new Date().toISOString() };
+    // Append to the thread rather than overwrite — this is what actually
+    // allows more than one reply per query note.
+    const newReplies = [..._annotationReplies(a), {text:replyText, by:byLabel, at:new Date().toISOString()}];
+    const patch = { replies: newReplies };
     if(andResolve){ patch.resolved=true; patch.resolved_by=byLabel; patch.resolved_at=new Date().toISOString(); }
     try {
       const {error} = await sb.from('report_annotations').update(patch).eq('id',id);
       if(error) throw error;
       Object.assign(a, patch);
       renderAnnotations();
-      toast(andResolve ? '💬 Replied & resolved ✓' : '💬 Reply saved ✓');
+      toast(andResolve ? '💬 Replied & resolved ✓' : '💬 Reply sent ✓');
       closePanel();
     } catch(e){
       toast(e.message||'Failed','bad');
-      if(saveBtn){ saveBtn.disabled=false; saveBtn.style.opacity=''; saveBtn.textContent=andResolve?'💬 Reply & Resolve':'Save Reply'; }
+      if(saveBtn){ saveBtn.disabled=false; saveBtn.style.opacity=''; saveBtn.textContent=andResolve?'💬 Reply & Resolve':'Send Reply'; }
     }
   };
 
