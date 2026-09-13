@@ -5592,6 +5592,7 @@ function renderAdminDashboard(){
     {id:'vacant',    label:'🏠 Vacant'+badge(vacants.length, vacants.length>0)},
     {id:'carpark',   label:'🚗 Carpark'+badge(carparkList.length, false)},
     {id:'signoff',   label:'📋 Sign-off'+badge(reportPending.length, reportPending.length>0)},
+    {id:'utilities', label:'🚿 Utilities'},
     {id:'track',     label:'🗓️ Payment Track'},
     ...(state.role==='manager'||state.role==='admin' ? [{id:'users', label:'👥 Users'}] : []),
     ...(state.role==='manager'||state.role==='admin' ? [{id:'notices', label:'📢 Notices'}, {id:'backup', label:'🗄️ Backup'}] : []),
@@ -5948,12 +5949,13 @@ function renderAdminDashboard(){
       <div style="margin-top:5px;font-size:10.5px;color:var(--muted)">💡 Rent ÷ Days in Month × Days Occupied (up to move-out day)</div>
     ` : ''}`);
 
-  const paneUsers   = `<div id="userMgmtPanel"></div>`;
-  const paneNotices = `<div id="announcementsPanel"></div>`;
-  const paneBackup  = `<div id="backupPanel"></div>`;
-  const paneTrack   = `<div id="tenantTrackPanel"></div>`;
+  const paneUsers     = `<div id="userMgmtPanel"></div>`;
+  const paneNotices   = `<div id="announcementsPanel"></div>`;
+  const paneBackup    = `<div id="backupPanel"></div>`;
+  const paneTrack     = `<div id="tenantTrackPanel"></div>`;
+  const paneUtilities = `<div id="utilitiesPanel"></div>`;
 
-  const paneMap = {overview:paneOverview, unpaid:paneUnpaid, leases:paneLeases, movements:paneMovements, vacant:paneVacant, carpark:paneCarpark, signoff:paneSignoff, track:paneTrack, users:paneUsers, notices:paneNotices, backup:paneBackup};
+  const paneMap = {overview:paneOverview, unpaid:paneUnpaid, leases:paneLeases, movements:paneMovements, vacant:paneVacant, carpark:paneCarpark, signoff:paneSignoff, utilities:paneUtilities, track:paneTrack, users:paneUsers, notices:paneNotices, backup:paneBackup};
 
   // ─────────────────────────────────────────────────────────────────────────
   try {
@@ -5984,6 +5986,10 @@ function renderAdminDashboard(){
   if(sub === 'track'){
     const p = document.getElementById('tenantTrackPanel');
     if(p) renderTenantTrackRecord(p);
+  }
+  if(sub === 'utilities'){
+    const p = document.getElementById('utilitiesPanel');
+    if(p) renderUtilitiesPanel(p);
   }
 }
 
@@ -6166,6 +6172,167 @@ function _paintTenantTrack(container){
       _paintTenantTrack(container);
     });
   }
+}
+
+// ============================================================
+//  UTILITIES — Water / Electric / Internet, month-by-month, R2R (Own Unit)
+//  properties only. R2R is the arrangement where Polyhome itself covers the
+//  unit's utility bills (an H2M/Other-Unit property's utilities are the
+//  owner's own cost, not tracked here).
+//
+//  There's no dedicated "utility type" column on expenses — this reads the
+//  category='other' rows already keyed in and buckets them by matching
+//  keywords in the free-text description (e.g. "water payment", "TNB
+//  payment", "wifi payment"). A row whose description doesn't match any
+//  of the three patterns simply doesn't show up here — nothing new to
+//  enter, this only surfaces what's already been recorded.
+// ============================================================
+function _isR2RProperty(p){
+  return p.unit_type ? p.unit_type === 'own_unit' : String(p.property_type||'H2M').toUpperCase() === 'R2R';
+}
+const UTIL_PATTERNS = {
+  water:    /\bwater\b|\bair\s*bill\b/i,
+  electric: /\btnb\b|\belectric(ity)?\b|\belektrik\b/i,
+  internet: /\bwifi\b|\binternet\b|\bunifi\b|\bstreamyx\b|\btime\s*fibre\b/i,
+};
+
+async function renderUtilitiesPanel(container){
+  container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);font-size:13px">Loading utilities…</div>';
+
+  const props = state.properties.filter(p=>p.active!==false && _isR2RProperty(p) && _propPassesGlobalFilter(p));
+  const propIds = props.map(p=>p.id);
+  if(!propIds.length){
+    container.innerHTML = '<div class="card" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No R2R (Own Unit) properties match the current filters.</div>';
+    return;
+  }
+
+  // Trailing 12 months ending at the topbar's selected month — same window
+  // convention as Payment Track, for consistency across the Admin tab.
+  const months = [];
+  { let y = state.year, m = state.month;
+    for(let i=0;i<12;i++){ months.unshift({y,m}); m--; if(m<1){ m=12; y--; } } }
+  const minY = months[0].y;
+  const monthKeys = new Set(months.map(mo=>mo.y+'-'+mo.m));
+
+  const [expRes, airconRes] = await Promise.all([
+    sb.from('expenses').select('property_id,year,month,description,amount')
+      .in('property_id', propIds).gte('year', minY),
+    sb.from('aircon_topups').select('property_id,year,month,amount')
+      .in('property_id', propIds).gte('year', minY),
+  ]);
+  if(expRes.error){ toast(expRes.error.message,'bad'); container.innerHTML = '<div class="card" style="padding:20px;color:#B91C1C;font-size:13px">Failed to load expenses.</div>'; return; }
+  if(airconRes.error){ toast(airconRes.error.message,'bad'); container.innerHTML = '<div class="card" style="padding:20px;color:#B91C1C;font-size:13px">Failed to load aircon top-ups.</div>'; return; }
+
+  const waterMap = new Map(), electricRawMap = new Map(), internetMap = new Map();
+  const addTo = (map, key, amt) => map.set(key, (map.get(key)||0) + amt);
+  (expRes.data||[]).forEach(r=>{
+    if(!monthKeys.has(r.year+'-'+r.month)) return;
+    const desc = r.description||'';
+    const key = r.property_id+'|'+r.year+'|'+r.month;
+    const amt = Number(r.amount||0);
+    if(UTIL_PATTERNS.water.test(desc))    addTo(waterMap, key, amt);
+    if(UTIL_PATTERNS.electric.test(desc)) addTo(electricRawMap, key, amt);
+    if(UTIL_PATTERNS.internet.test(desc)) addTo(internetMap, key, amt);
+  });
+
+  const airconMap = new Map();
+  (airconRes.data||[]).forEach(r=>{
+    if(!monthKeys.has(r.year+'-'+r.month)) return;
+    addTo(airconMap, r.property_id+'|'+r.year+'|'+r.month, Number(r.amount||0));
+  });
+
+  container._utilCache = { props, months, waterMap, electricRawMap, internetMap, airconMap };
+  _paintUtilities(container);
+}
+
+function _paintUtilities(container){
+  const cache = container._utilCache;
+  if(!cache) return;
+  const { props, months, waterMap, electricRawMap, internetMap, airconMap } = cache;
+  const sub = state.utilitiesSub || 'water';
+
+  const sortedProps = props.slice().sort((a,b)=>(a.condo+a.unit).localeCompare(b.condo+b.unit));
+
+  const subTabs = [
+    {id:'water',    label:'💧 Water'},
+    {id:'electric', label:'⚡ Electric'},
+    {id:'internet', label:'📶 Internet'},
+  ];
+  const subTabBar = `<div style="display:flex;gap:6px;margin-bottom:12px">
+    ${subTabs.map(t=>`<button onclick="state.utilitiesSub='${t.id}';_paintUtilities(document.getElementById('utilitiesPanel'))"
+      style="padding:6px 12px;border-radius:8px;font-size:11.5px;font-weight:700;border:none;cursor:pointer;
+      background:${sub===t.id?'var(--brand)':'var(--th-bg)'};color:${sub===t.id?'#fff':'var(--ink)'}">
+      ${t.label}</button>`).join('')}
+  </div>`;
+
+  // Electric = TNB bill minus the aircon top-ups already collected from
+  // tenants for that unit that month — the actual net cost. A negative
+  // result (top-ups collected exceed the TNB bill on file) is highlighted
+  // rather than hidden, since it usually means a bill hasn't been entered
+  // yet rather than a real negative cost.
+  const valueFor = (propId, y, m) => {
+    const key = propId+'|'+y+'|'+m;
+    if(sub==='water')    return { v: waterMap.get(key)||0, has: waterMap.has(key) };
+    if(sub==='internet') return { v: internetMap.get(key)||0, has: internetMap.has(key) };
+    // electric
+    const raw = electricRawMap.get(key)||0;
+    const ac  = airconMap.get(key)||0;
+    return { v: raw-ac, has: electricRawMap.has(key), raw, ac };
+  };
+
+  const monthHeaders = months.map(({y,m})=>`<th style="font-size:9.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 8px 6px;white-space:nowrap">${MONTHS[m-1]}<br>'${String(y).slice(2)}</th>`).join('');
+
+  const bodyRows = sortedProps.map(p=>{
+    let rowTotal = 0;
+    const cells = months.map(({y,m})=>{
+      const {v, has, raw, ac} = valueFor(p.id, y, m);
+      if(!has) return `<td style="padding:5px 8px;text-align:right;color:var(--line)">·</td>`;
+      rowTotal += v;
+      const neg = v<0;
+      const title = sub==='electric' ? `TNB RM${fmt(raw)} − Aircon top-up RM${fmt(ac)} = RM${fmt(v)}` : `RM${fmt(v)}`;
+      return `<td style="padding:5px 8px;text-align:right;font-size:11.5px;font-weight:700;color:${neg?'#B91C1C':'var(--ink)'}" title="${esc(title)}">${neg?'−':''}${fmt(Math.abs(v))}</td>`;
+    }).join('');
+    return `<tr>
+      <td style="padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap;font-weight:700;font-size:12px">${esc(p.condo+' '+p.unit)}</td>
+      ${cells}
+      <td style="padding:6px 0 6px 10px;border-bottom:1px solid var(--line);text-align:right;font-weight:800;font-size:12px">RM ${fmt(rowTotal)}</td>
+    </tr>`;
+  }).join('');
+
+  // Column totals across all R2R units, per month — quick "total utility
+  // spend this month" read.
+  const colTotals = months.map(({y,m})=>{
+    const t = sortedProps.reduce((s,p)=> s + valueFor(p.id,y,m).v, 0);
+    return `<td style="padding:8px 8px 0;border-top:2px solid var(--line);text-align:right;font-weight:800;font-size:11px">RM ${fmt(t)}</td>`;
+  }).join('');
+  const grandTotal = sortedProps.reduce((s,p)=> s + months.reduce((s2,{y,m})=>s2+valueFor(p.id,y,m).v,0), 0);
+
+  const note = sub==='electric'
+    ? '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">⚡ Each figure = TNB bill − aircon top-up collected from tenants that month (hover a cell for the breakdown). Negative (red) usually means the TNB bill for that month hasn\'t been entered yet.</div>'
+    : `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">${sub==='water'?'💧':'📶'} Pulled from expense rows already entered whose description mentions ${sub==='water'?'"water"':'"wifi"/"internet"'} — nothing new to key in.</div>`;
+
+  container.innerHTML = `
+    <div class="card" style="overflow-x:auto">
+      <div style="margin-bottom:4px">
+        <div style="font-size:13px;font-weight:800;color:var(--ink)">🚿 Utilities — R2R (Own Unit) properties</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Trailing 12 months · owner-managed (H2M/Other Unit) properties are excluded — their utilities are the owner's own cost</div>
+      </div>
+      ${subTabBar}
+      ${note}
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:0 10px 6px 0;white-space:nowrap">Unit</th>
+          ${monthHeaders}
+          <th style="text-align:right;font-size:10px;font-weight:700;color:var(--muted);padding:0 0 6px 10px;white-space:nowrap">Total</th>
+        </tr></thead>
+        <tbody>${bodyRows || `<tr><td colspan="${months.length+2}" style="padding:20px;text-align:center;color:var(--muted)">No R2R properties match.</td></tr>`}</tbody>
+        ${bodyRows ? `<tfoot><tr>
+          <td style="padding:8px 10px 0 0;border-top:2px solid var(--line);font-weight:800;font-size:11.5px">TOTAL</td>
+          ${colTotals}
+          <td style="padding:8px 0 0 10px;border-top:2px solid var(--line);text-align:right;font-weight:800;font-size:12px">RM ${fmt(grandTotal)}</td>
+        </tr></tfoot>` : ''}
+      </table>
+    </div>`;
 }
 
 // ============================================================
