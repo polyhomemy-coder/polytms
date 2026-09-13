@@ -5861,18 +5861,34 @@ function renderAdminDashboard(){
     openNotesByProp[n.property_id] = (openNotesByProp[n.property_id]||0) + 1;
   });
 
+  // CSS Grid's own auto-flow fills row-by-row (1,2,3 / 4,5,6 / ...) — to get
+  // a DOWN-then-across reading order (1,5,9 / 2,6,10 / 3,7,11 / 4,8,12)
+  // instead, the items have to be physically reordered before rendering,
+  // since the grid places each element into the next cell in document
+  // order regardless of what number is printed on it.
+  const _signoffCols = 3;
+  const _signoffRows = Math.ceil(reportPending.length / _signoffCols);
+  const _signoffOrdered = [];
+  for(let r=0; r<_signoffRows; r++){
+    for(let c=0; c<_signoffCols; c++){
+      const idx = c*_signoffRows + r;
+      _signoffOrdered.push(idx < reportPending.length ? {p:reportPending[idx], num:idx+1} : null);
+    }
+  }
   const paneSignoff = panel(`
     ${secHead('📋','Report Sign-off Pending',reportPending.length,'background:#FEF3C7;color:#92400E')}
     ${reportPending.length===0 ? emptyMsg('All reports launched this month ✓') :
       `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">` +
-      reportPending.map((p,i)=>{
+      _signoffOrdered.map(entry=>{
+        if(!entry) return `<div></div>`;
+        const {p, num} = entry;
         const rs=(state.reportStatus||[]).find(r=>r.property_id===p.id&&r.year===y&&r.month===m);
         const adminDone=rs&&rs.admin_checked_at, mgrDone=rs&&rs.manager_verified_at;
         const pill=(label,done)=>`<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${done?'rgba(16,185,129,.15)':'var(--th-bg)'};color:${done?'#059669':'var(--muted)'};">${done?'✓':' ○'} ${label}</span>`;
         const openCount = openNotesByProp[p.id]||0;
         const queryAlert = openCount ? `<span title="${openCount} open query note${openCount>1?'s':''}" style="font-size:13px;line-height:1" aria-label="open query notes">🚩</span>` : '';
         return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:10px;background:var(--th-bg)">
-          <span style="font-size:12px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:var(--muted);font-weight:700">${i+1}.</span> ${esc(p.condo+' '+p.unit)}${queryAlert}</span>
+          <span style="font-size:12px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:var(--muted);font-weight:700">${num}.</span> ${esc(p.condo+' '+p.unit)}${queryAlert}</span>
           <div style="display:flex;gap:5px;flex-shrink:0">${pill('Admin',adminDone)}${pill('Mgr',mgrDone)}</div>
         </div>`;
       }).join('') +
