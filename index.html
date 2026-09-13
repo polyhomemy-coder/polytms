@@ -6206,27 +6206,23 @@ async function renderUtilitiesPanel(container){
     return;
   }
 
-  // Trailing 12 months ending at the topbar's selected month — same window
-  // convention as Payment Track, for consistency across the Admin tab.
-  const months = [];
-  { let y = state.year, m = state.month;
-    for(let i=0;i<12;i++){ months.unshift({y,m}); m--; if(m<1){ m=12; y--; } } }
-  const minY = months[0].y;
-  const monthKeys = new Set(months.map(mo=>mo.y+'-'+mo.m));
-
+  // Full history for these (few) R2R properties, fetched once — the view
+  // switches between calendar YEARS (Jan–Dec), not a rolling window, so
+  // there's no natural "recent months only" bound to filter on up front.
   const [expRes, airconRes] = await Promise.all([
     sb.from('expenses').select('property_id,year,month,description,amount')
-      .in('property_id', propIds).gte('year', minY),
+      .in('property_id', propIds),
     sb.from('aircon_topups').select('property_id,year,month,amount')
-      .in('property_id', propIds).gte('year', minY),
+      .in('property_id', propIds),
   ]);
   if(expRes.error){ toast(expRes.error.message,'bad'); container.innerHTML = '<div class="card" style="padding:20px;color:#B91C1C;font-size:13px">Failed to load expenses.</div>'; return; }
   if(airconRes.error){ toast(airconRes.error.message,'bad'); container.innerHTML = '<div class="card" style="padding:20px;color:#B91C1C;font-size:13px">Failed to load aircon top-ups.</div>'; return; }
 
   const waterMap = new Map(), electricRawMap = new Map(), internetMap = new Map();
   const addTo = (map, key, amt) => map.set(key, (map.get(key)||0) + amt);
+  const yearsSeen = new Set([state.year]); // always offer the current year, even with no data yet
   (expRes.data||[]).forEach(r=>{
-    if(!monthKeys.has(r.year+'-'+r.month)) return;
+    yearsSeen.add(r.year);
     const desc = r.description||'';
     const key = r.property_id+'|'+r.year+'|'+r.month;
     const amt = Number(r.amount||0);
@@ -6237,21 +6233,35 @@ async function renderUtilitiesPanel(container){
 
   const airconMap = new Map();
   (airconRes.data||[]).forEach(r=>{
-    if(!monthKeys.has(r.year+'-'+r.month)) return;
+    yearsSeen.add(r.year);
     addTo(airconMap, r.property_id+'|'+r.year+'|'+r.month, Number(r.amount||0));
   });
 
-  container._utilCache = { props, months, waterMap, electricRawMap, internetMap, airconMap };
+  const years = [...yearsSeen].sort((a,b)=>a-b);
+  if(!years.includes(state.utilitiesYear)) state.utilitiesYear = state.year;
+
+  container._utilCache = { props, years, waterMap, electricRawMap, internetMap, airconMap };
   _paintUtilities(container);
 }
 
 function _paintUtilities(container){
   const cache = container._utilCache;
   if(!cache) return;
-  const { props, months, waterMap, electricRawMap, internetMap, airconMap } = cache;
+  const { props, years, waterMap, electricRawMap, internetMap, airconMap } = cache;
   const sub = state.utilitiesSub || 'water';
+  const selYear = years.includes(state.utilitiesYear) ? state.utilitiesYear : years[years.length-1];
+  state.utilitiesYear = selYear;
+  // Calendar year Jan → Dec for whichever year is selected, not a rolling
+  // trailing-12-months window — the tabs let you flip between "Year 2025",
+  // "Year 2026", etc.
+  const months = Array.from({length:12}, (_,i)=>({y:selYear, m:i+1}));
 
-  const sortedProps = props.slice().sort((a,b)=>(a.condo+a.unit).localeCompare(b.condo+b.unit));
+  const yearTabBar = `<div style="display:flex;gap:6px;margin-bottom:8px">
+    ${years.map(yr=>`<button onclick="state.utilitiesYear=${yr};_paintUtilities(document.getElementById('utilitiesPanel'))"
+      style="padding:5px 12px;border-radius:8px;font-size:11.5px;font-weight:800;border:none;cursor:pointer;
+      background:${selYear===yr?'var(--ink)':'var(--th-bg)'};color:${selYear===yr?'#fff':'var(--ink)'}">
+      Year ${yr}</button>`).join('')}
+  </div>`;
 
   const subTabs = [
     {id:'water',    label:'💧 Water'},
@@ -6280,7 +6290,15 @@ function _paintUtilities(container){
     return { v: raw-ac, has: electricRawMap.has(key), raw, ac };
   };
 
-  const monthHeaders = months.map(({y,m})=>`<th style="font-size:9.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 8px 6px;white-space:nowrap">${MONTHS[m-1]}<br>'${String(y).slice(2)}</th>`).join('');
+  // Same ordering as the Manager tab's Own Unit yearly matrix — sorted by
+  // the unit's own yearly total (for whichever utility is selected),
+  // biggest absolute figure first, so the most material units bubble up.
+  const sortedProps = props
+    .map(p=>({ p, total: months.reduce((s,{y,m})=>s+valueFor(p.id,y,m).v, 0) }))
+    .sort((a,b)=>Math.abs(b.total)-Math.abs(a.total))
+    .map(x=>x.p);
+
+  const monthHeaders = months.map(({m})=>`<th style="font-size:9.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 8px 6px;white-space:nowrap">${MONTHS[m-1]}</th>`).join('');
 
   const bodyRows = sortedProps.map(p=>{
     let rowTotal = 0;
@@ -6289,11 +6307,20 @@ function _paintUtilities(container){
       if(!has) return `<td style="padding:5px 8px;text-align:right;color:var(--line)">·</td>`;
       rowTotal += v;
       const neg = v<0;
-      const title = sub==='electric' ? `TNB RM${fmt(raw)} − Aircon top-up RM${fmt(ac)} = RM${fmt(v)}` : `RM${fmt(v)}`;
-      return `<td style="padding:5px 8px;text-align:right;font-size:11.5px;font-weight:700;color:${neg?'#B91C1C':'var(--ink)'}" title="${esc(title)}">${neg?'−':''}${fmt(Math.abs(v))}</td>`;
+      const netHtml = `<div style="font-weight:700;font-size:11.5px;color:${neg?'#B91C1C':'var(--ink)'}">${neg?'−':''}${fmt(Math.abs(v))}</div>`;
+      // Electric shows the TNB bill and aircon top-up figures right in the
+      // cell (not just on hover) so both numbers behind the net cost are
+      // visible at a glance, not just the subtracted result.
+      const breakdownHtml = sub==='electric'
+        ? `<div style="font-size:9px;color:var(--muted);white-space:nowrap">${fmt(raw)} − ${fmt(ac)}</div>`
+        : '';
+      return `<td style="padding:5px 8px;text-align:right">${netHtml}${breakdownHtml}</td>`;
     }).join('');
     return `<tr>
-      <td style="padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap;font-weight:700;font-size:12px">${esc(p.condo+' '+p.unit)}</td>
+      <td style="padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap">
+        <div style="font-weight:700;font-size:12px">${esc(p.condo)}</div>
+        <div style="font-size:11px;color:var(--muted)">${esc(p.unit)}</div>
+      </td>
       ${cells}
       <td style="padding:6px 0 6px 10px;border-bottom:1px solid var(--line);text-align:right;font-weight:800;font-size:12px">RM ${fmt(rowTotal)}</td>
     </tr>`;
@@ -6313,10 +6340,11 @@ function _paintUtilities(container){
 
   container.innerHTML = `
     <div class="card" style="overflow-x:auto">
-      <div style="margin-bottom:4px">
+      <div style="margin-bottom:10px">
         <div style="font-size:13px;font-weight:800;color:var(--ink)">🚿 Utilities — R2R (Own Unit) properties</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">Trailing 12 months · owner-managed (H2M/Other Unit) properties are excluded — their utilities are the owner's own cost</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Calendar year, Jan–Dec · owner-managed (H2M/Other Unit) properties are excluded — their utilities are the owner's own cost</div>
       </div>
+      ${yearTabBar}
       ${subTabBar}
       ${note}
       <table style="width:100%;border-collapse:collapse">
