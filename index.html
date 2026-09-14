@@ -6313,13 +6313,15 @@ function _paintUtilities(container){
     return { v: raw-ac, has: electricRawMap.has(key) };
   };
 
-  // Same ordering as the Manager tab's Own Unit yearly matrix — sorted by
-  // the unit's own yearly total (for whichever utility/metric is selected),
-  // biggest absolute figure first, so the most material units bubble up.
-  const sortedProps = props
-    .map(p=>({ p, total: months.reduce((s,{y,m})=>s+valueFor(p.id,y,m).v, 0) }))
-    .sort((a,b)=>Math.abs(b.total)-Math.abs(a.total))
-    .map(x=>x.p);
+  // Ordered by unit commencement date (earliest first), same fixed sequence
+  // no matter which sub-tab (Water/Electric/Internet) or Electric metric is
+  // selected — so a unit stays on the same row as you flip between them.
+  const sortedProps = [...props].sort((a,b)=>{
+    const da = a.created_at ? new Date(a.created_at).getTime() : Infinity;
+    const db = b.created_at ? new Date(b.created_at).getTime() : Infinity;
+    if(da !== db) return da - db;
+    return String(a.condo||'').localeCompare(String(b.condo||''));
+  });
 
   const monthHeaders = months.map(({m})=>`<th style="font-size:9.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 8px 6px;white-space:nowrap">${MONTHS[m-1]}</th>`).join('');
 
