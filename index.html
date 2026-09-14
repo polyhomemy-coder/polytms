@@ -6278,6 +6278,24 @@ function _paintUtilities(container){
       ${t.label}</button>`).join('')}
   </div>`;
 
+  const isElectric = sub === 'electric';
+  // Electric has 3 underlying numbers per cell (TNB bill, aircon top-up,
+  // and the actual cost = TNB − top-up). Rather than cramming all 3 into
+  // every cell, a metric picker chooses which single number the listing
+  // shows — same one-column-per-month layout as Water/Internet.
+  const electricMetrics = [
+    {id:'tnb',  label:'TNB Bill'},
+    {id:'ac',   label:'AC Top Up'},
+    {id:'cost', label:'Actual Cost'},
+  ];
+  const electricMetric = electricMetrics.some(x=>x.id===state.utilitiesElectricMetric) ? state.utilitiesElectricMetric : 'cost';
+  const electricMetricBar = isElectric ? `<div style="display:flex;gap:6px;margin-bottom:12px">
+    ${electricMetrics.map(t=>`<button onclick="state.utilitiesElectricMetric='${t.id}';_paintUtilities(document.getElementById('utilitiesPanel'))"
+      style="padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;border:1px solid var(--line);cursor:pointer;
+      background:${electricMetric===t.id?'var(--ink)':'transparent'};color:${electricMetric===t.id?'#fff':'var(--ink)'}">
+      ${t.label}</button>`).join('')}
+  </div>` : '';
+
   // Electric = TNB bill minus the aircon top-ups already collected from
   // tenants for that unit that month — the actual net cost. A negative
   // result (top-ups collected exceed the TNB bill on file) is highlighted
@@ -6290,50 +6308,29 @@ function _paintUtilities(container){
     // electric
     const raw = electricRawMap.get(key)||0;
     const ac  = airconMap.get(key)||0;
-    return { v: raw-ac, has: electricRawMap.has(key), raw, ac };
+    if(electricMetric==='tnb') return { v: raw, has: electricRawMap.has(key) };
+    if(electricMetric==='ac')  return { v: ac,  has: airconMap.has(key) };
+    return { v: raw-ac, has: electricRawMap.has(key) };
   };
 
   // Same ordering as the Manager tab's Own Unit yearly matrix — sorted by
-  // the unit's own yearly total (for whichever utility is selected),
+  // the unit's own yearly total (for whichever utility/metric is selected),
   // biggest absolute figure first, so the most material units bubble up.
   const sortedProps = props
     .map(p=>({ p, total: months.reduce((s,{y,m})=>s+valueFor(p.id,y,m).v, 0) }))
     .sort((a,b)=>Math.abs(b.total)-Math.abs(a.total))
     .map(x=>x.p);
 
-  const isElectric = sub === 'electric';
-  const colsPerMonth = isElectric ? 3 : 1;
-
-  // Electric gets a two-row header: month name spanning its 3 sub-columns
-  // (TNB bill, Aircon top-up, net Cost), so both source numbers are visible
-  // as real columns instead of only inside a hover tooltip.
-  const monthHeaderRow = isElectric
-    ? months.map(({m})=>`<th colspan="3" style="font-size:9.5px;font-weight:700;color:var(--muted);text-align:center;padding:0 4px 2px;white-space:nowrap;border-bottom:1px solid var(--line)">${MONTHS[m-1]}</th>`).join('')
-    : months.map(({m})=>`<th style="font-size:9.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 8px 6px;white-space:nowrap">${MONTHS[m-1]}</th>`).join('');
-  const subHeaderRow = isElectric
-    ? months.map(()=>[
-        `<th style="font-size:8.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 4px 6px;white-space:nowrap">TNB</th>`,
-        `<th style="font-size:8.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 4px 6px;white-space:nowrap">AC</th>`,
-        `<th style="font-size:8.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 4px 6px 8px;white-space:nowrap">Cost</th>`,
-      ].join('')).join('')
-    : '';
+  const monthHeaders = months.map(({m})=>`<th style="font-size:9.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 8px 6px;white-space:nowrap">${MONTHS[m-1]}</th>`).join('');
 
   const bodyRows = sortedProps.map(p=>{
     let rowTotal = 0;
     const cells = months.map(({y,m})=>{
-      const {v, has, raw, ac} = valueFor(p.id, y, m);
-      if(!has){
-        return isElectric
-          ? `<td colspan="3" style="padding:5px 4px;text-align:center;color:var(--line)">·</td>`
-          : `<td style="padding:5px 8px;text-align:right;color:var(--line)">·</td>`;
-      }
+      const {v, has} = valueFor(p.id, y, m);
+      if(!has) return `<td style="padding:5px 8px;text-align:right;color:var(--line)">·</td>`;
       rowTotal += v;
       const neg = v<0;
-      const netTd = `<td style="padding:5px 4px 5px 8px;text-align:right;font-size:11.5px;font-weight:700;color:${neg?'#B91C1C':'var(--ink)'}">${neg?'−':''}${fmt(Math.abs(v))}</td>`;
-      if(!isElectric) return `<td style="padding:5px 8px;text-align:right;font-size:11.5px;font-weight:700;color:${neg?'#B91C1C':'var(--ink)'}">${neg?'−':''}${fmt(Math.abs(v))}</td>`;
-      return `<td style="padding:5px 4px;text-align:right;font-size:11px;color:var(--ink)">${fmt(raw)}</td>`
-           + `<td style="padding:5px 4px;text-align:right;font-size:11px;color:var(--ink)">${fmt(ac)}</td>`
-           + netTd;
+      return `<td style="padding:5px 8px;text-align:right;font-size:11.5px;font-weight:700;color:${neg?'#B91C1C':'var(--ink)'}">${neg?'−':''}${fmt(Math.abs(v))}</td>`;
     }).join('');
     return `<tr>
       <td style="padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap">
@@ -6345,28 +6342,21 @@ function _paintUtilities(container){
     </tr>`;
   }).join('');
 
-  // Column totals across all R2R units, per month — quick "total utility
-  // spend this month" read. Electric totals each of the 3 sub-columns.
-  const colTotals = isElectric
-    ? months.map(({y,m})=>{
-        const tnbT  = sortedProps.reduce((s,p)=>{ const r=valueFor(p.id,y,m); return r.has ? s+r.raw : s; },0);
-        const acT   = sortedProps.reduce((s,p)=>{ const r=valueFor(p.id,y,m); return r.has ? s+r.ac  : s; },0);
-        const costT = sortedProps.reduce((s,p)=> s + valueFor(p.id,y,m).v, 0);
-        return `<td style="padding:8px 4px 0;border-top:2px solid var(--line);text-align:right;font-weight:700;font-size:10.5px">${fmt(tnbT)}</td>`
-             + `<td style="padding:8px 4px 0;border-top:2px solid var(--line);text-align:right;font-weight:700;font-size:10.5px">${fmt(acT)}</td>`
-             + `<td style="padding:8px 4px 0 8px;border-top:2px solid var(--line);text-align:right;font-weight:800;font-size:11px">RM ${fmt(costT)}</td>`;
-      }).join('')
-    : months.map(({y,m})=>{
-        const t = sortedProps.reduce((s,p)=> s + valueFor(p.id,y,m).v, 0);
-        return `<td style="padding:8px 8px 0;border-top:2px solid var(--line);text-align:right;font-weight:800;font-size:11px">RM ${fmt(t)}</td>`;
-      }).join('');
+  // Column totals across all R2R units, per month — quick "total for this
+  // metric this month" read.
+  const colTotals = months.map(({y,m})=>{
+    const t = sortedProps.reduce((s,p)=> s + valueFor(p.id,y,m).v, 0);
+    return `<td style="padding:8px 8px 0;border-top:2px solid var(--line);text-align:right;font-weight:800;font-size:11px">RM ${fmt(t)}</td>`;
+  }).join('');
   const grandTotal = sortedProps.reduce((s,p)=> s + months.reduce((s2,{y,m})=>s2+valueFor(p.id,y,m).v,0), 0);
 
   const note = isElectric
-    ? '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">⚡ TNB = bill on file · AC = aircon top-up collected from tenants that month · Cost = TNB − AC (actual net cost). Negative Cost (red) usually means the TNB bill for that month hasn\'t been entered yet.</div>'
+    ? (electricMetric==='tnb'
+        ? '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">⚡ TNB bill amount recorded for that month.</div>'
+        : electricMetric==='ac'
+        ? '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">⚡ Aircon top-up collected from tenants for that month.</div>'
+        : '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">⚡ TNB bill − aircon top-up = actual net electric cost. Negative (red) usually means the TNB bill for that month hasn\'t been entered yet.</div>')
     : `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">${sub==='water'?'💧':'📶'} Pulled from expense rows already entered whose description mentions ${sub==='water'?'"water"':'"wifi"/"internet"'} — nothing new to key in.</div>`;
-
-  const colCount = 2 + months.length * colsPerMonth;
 
   container.innerHTML = `
     <div class="card" style="overflow-x:auto">
@@ -6376,17 +6366,15 @@ function _paintUtilities(container){
       </div>
       ${yearTabBar}
       ${subTabBar}
+      ${electricMetricBar}
       ${note}
       <table style="width:100%;border-collapse:collapse">
-        <thead>
-          <tr>
-            <th rowspan="${isElectric?2:1}" style="text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:0 10px 6px 0;white-space:nowrap">Unit</th>
-            ${monthHeaderRow}
-            <th rowspan="${isElectric?2:1}" style="text-align:right;font-size:10px;font-weight:700;color:var(--muted);padding:0 0 6px 10px;white-space:nowrap">Total</th>
-          </tr>
-          ${isElectric ? `<tr>${subHeaderRow}</tr>` : ''}
-        </thead>
-        <tbody>${bodyRows || `<tr><td colspan="${colCount}" style="padding:20px;text-align:center;color:var(--muted)">No R2R properties match.</td></tr>`}</tbody>
+        <thead><tr>
+          <th style="text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:0 10px 6px 0;white-space:nowrap">Unit</th>
+          ${monthHeaders}
+          <th style="text-align:right;font-size:10px;font-weight:700;color:var(--muted);padding:0 0 6px 10px;white-space:nowrap">Total</th>
+        </tr></thead>
+        <tbody>${bodyRows || `<tr><td colspan="${months.length+2}" style="padding:20px;text-align:center;color:var(--muted)">No R2R properties match.</td></tr>`}</tbody>
         ${bodyRows ? `<tfoot><tr>
           <td style="padding:8px 10px 0 0;border-top:2px solid var(--line);font-weight:800;font-size:11.5px">TOTAL</td>
           ${colTotals}
