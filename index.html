@@ -6188,10 +6188,11 @@ function _paintTenantTrack(container){
 //  enter, this only surfaces what's already been recorded.
 // ============================================================
 function _isR2RProperty(p){
-  // Same strict AND as the Manager tab's Own Unit dashboard/matrix —
-  // model='R2R' AND unit_type='own_unit' — so Utilities always lists
-  // exactly the same property set as that view.
-  return p.model === 'R2R' && p.unit_type === 'own_unit';
+  // R2R model only — Polyhome bears the unit's own utility cost under the
+  // subletting arrangement regardless of Unit Type (Own Unit or Other
+  // Unit), so Utilities lists both together. H2M is excluded: those
+  // utilities are the owner's own cost, not Polyhome's.
+  return p.model === 'R2R';
 }
 const UTIL_PATTERNS = {
   water:    /\bwater\b|\bair\s*bill\b/i,
@@ -6205,7 +6206,7 @@ async function renderUtilitiesPanel(container){
   const props = state.properties.filter(p=>p.active!==false && _isR2RProperty(p) && _propPassesGlobalFilter(p));
   const propIds = props.map(p=>p.id);
   if(!propIds.length){
-    container.innerHTML = '<div class="card" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No R2R (Own Unit) properties match the current filters.</div>';
+    container.innerHTML = '<div class="card" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No R2R properties match the current filters.</div>';
     return;
   }
 
@@ -6325,7 +6326,7 @@ function _paintUtilities(container){
 
   const monthHeaders = months.map(({m})=>`<th style="font-size:9.5px;font-weight:700;color:var(--muted);text-align:right;padding:0 8px 6px;white-space:nowrap">${MONTHS[m-1]}</th>`).join('');
 
-  const bodyRows = sortedProps.map(p=>{
+  const bodyRows = sortedProps.map((p,i)=>{
     let rowTotal = 0;
     const cells = months.map(({y,m})=>{
       const {v, has} = valueFor(p.id, y, m);
@@ -6335,6 +6336,7 @@ function _paintUtilities(container){
       return `<td style="padding:5px 8px;text-align:right;font-size:11.5px;font-weight:700;color:${neg?'#B91C1C':'var(--ink)'}">${neg?'−':''}${fmt(Math.abs(v))}</td>`;
     }).join('');
     return `<tr>
+      <td style="padding:6px 8px 6px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:11px">${i+1}.</td>
       <td style="padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap">
         <div style="font-weight:700;font-size:12px">${esc(p.condo)}</div>
         <div style="font-size:11px;color:var(--muted)">${esc(p.unit)}</div>
@@ -6363,8 +6365,8 @@ function _paintUtilities(container){
   container.innerHTML = `
     <div class="card" style="overflow-x:auto">
       <div style="margin-bottom:10px">
-        <div style="font-size:13px;font-weight:800;color:var(--ink)">🚿 Utilities — R2R (Own Unit) properties</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">Calendar year, Jan–Dec · owner-managed (H2M/Other Unit) properties are excluded — their utilities are the owner's own cost</div>
+        <div style="font-size:13px;font-weight:800;color:var(--ink)">🚿 Utilities — R2R properties (Own Unit + Other Unit)</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Calendar year, Jan–Dec · H2M properties are excluded — their utilities are the owner's own cost</div>
       </div>
       ${yearTabBar}
       ${subTabBar}
@@ -6372,13 +6374,14 @@ function _paintUtilities(container){
       ${note}
       <table style="width:100%;border-collapse:collapse">
         <thead><tr>
+          <th style="text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:0 8px 6px 0;white-space:nowrap">#</th>
           <th style="text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:0 10px 6px 0;white-space:nowrap">Unit</th>
           ${monthHeaders}
           <th style="text-align:right;font-size:10px;font-weight:700;color:var(--muted);padding:0 0 6px 10px;white-space:nowrap">Total</th>
         </tr></thead>
-        <tbody>${bodyRows || `<tr><td colspan="${months.length+2}" style="padding:20px;text-align:center;color:var(--muted)">No R2R properties match.</td></tr>`}</tbody>
+        <tbody>${bodyRows || `<tr><td colspan="${months.length+3}" style="padding:20px;text-align:center;color:var(--muted)">No R2R properties match.</td></tr>`}</tbody>
         ${bodyRows ? `<tfoot><tr>
-          <td style="padding:8px 10px 0 0;border-top:2px solid var(--line);font-weight:800;font-size:11.5px">TOTAL</td>
+          <td colspan="2" style="padding:8px 10px 0 0;border-top:2px solid var(--line);font-weight:800;font-size:11.5px">TOTAL</td>
           ${colTotals}
           <td style="padding:8px 0 0 10px;border-top:2px solid var(--line);text-align:right;font-weight:800;font-size:12px">RM ${fmt(grandTotal)}</td>
         </tr></tfoot>` : ''}
