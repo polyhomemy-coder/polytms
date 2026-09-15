@@ -6346,25 +6346,25 @@ function _paintUtilities(container){
   // gets its own boxed border, and the border-bottom on every td doubles as
   // the horizontal rule separating one unit's row from the next.
   const CELL_BORDER = 'border:1px solid var(--line)';
-  const monthHeaders = months.map(({m})=>`<th style="${CELL_BORDER};font-size:9.5px;font-weight:700;color:var(--muted);text-align:right;padding:4px 8px;white-space:nowrap">${MONTHS[m-1]}</th>`).join('');
+  const monthHeaders = months.map(({m})=>`<th style="${CELL_BORDER};font-size:9.5px;font-weight:700;color:var(--muted);text-align:right;padding:3px 6px;white-space:nowrap">${MONTHS[m-1]}</th>`).join('');
 
   const bodyRows = sortedProps.map((p,i)=>{
     let rowTotal = 0;
     const cells = months.map(({y,m})=>{
       const {v, has} = valueFor(p.id, y, m);
-      if(!has) return `<td style="${CELL_BORDER};padding:5px 8px;text-align:right;color:var(--line)">·</td>`;
+      if(!has) return `<td style="${CELL_BORDER};padding:4px 6px;text-align:right;color:var(--line)">·</td>`;
       rowTotal += v;
       const neg = v<0;
-      return `<td style="${CELL_BORDER};padding:5px 8px;text-align:right;font-size:11.5px;font-weight:700;color:${neg?'#B91C1C':'var(--ink)'}">${neg?'−':''}${fmt(Math.abs(v))}</td>`;
+      return `<td style="${CELL_BORDER};padding:4px 6px;text-align:right;font-size:11.5px;font-weight:700;color:${neg?'#B91C1C':'var(--ink)'}">${neg?'−':''}${fmt(Math.abs(v))}</td>`;
     }).join('');
     return `<tr>
-      <td style="${CELL_BORDER};padding:6px 8px;color:var(--muted);font-size:11px">${i+1}.</td>
-      <td style="${CELL_BORDER};padding:6px 10px;overflow:hidden">
+      <td style="${CELL_BORDER};padding:5px 6px;color:var(--muted);font-size:11px">${i+1}.</td>
+      <td style="${CELL_BORDER};padding:5px 8px;overflow:hidden">
         <div style="font-weight:700;font-size:12px">${esc(p.condo)}</div>
         <div style="font-size:11px;color:var(--muted)">${esc(p.unit)}</div>
       </td>
       ${cells}
-      <td style="${CELL_BORDER};padding:6px 10px;text-align:right;font-weight:800;font-size:12px">RM ${fmt(rowTotal)}</td>
+      <td style="${CELL_BORDER};padding:5px 8px;text-align:right;font-weight:800;font-size:12px">RM ${fmt(rowTotal)}</td>
     </tr>`;
   }).join('');
 
@@ -6372,7 +6372,7 @@ function _paintUtilities(container){
   // metric this month" read.
   const colTotals = months.map(({y,m})=>{
     const t = sortedProps.reduce((s,p)=> s + valueFor(p.id,y,m).v, 0);
-    return `<td style="${CELL_BORDER};padding:8px;text-align:right;font-weight:800;font-size:11px">RM ${fmt(t)}</td>`;
+    return `<td style="${CELL_BORDER};padding:6px;text-align:right;font-weight:800;font-size:11px">RM ${fmt(t)}</td>`;
   }).join('');
   const grandTotal = sortedProps.reduce((s,p)=> s + months.reduce((s2,{y,m})=>s2+valueFor(p.id,y,m).v,0), 0);
 
@@ -6396,22 +6396,22 @@ function _paintUtilities(container){
       ${note}
       <table style="width:100%;table-layout:fixed;border-collapse:collapse">
         <colgroup>
-          <col style="width:40px">
-          <col style="width:140px">
-          ${months.map(()=>'<col style="width:90px">').join('')}
-          <col style="width:110px">
+          <col style="width:32px">
+          <col style="width:112px">
+          ${months.map(()=>'<col style="width:72px">').join('')}
+          <col style="width:88px">
         </colgroup>
         <thead><tr>
-          <th style="${CELL_BORDER};text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:4px 8px;white-space:nowrap">#</th>
-          <th style="${CELL_BORDER};text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:4px 10px;white-space:nowrap">Unit</th>
+          <th style="${CELL_BORDER};text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:3px 6px;white-space:nowrap">#</th>
+          <th style="${CELL_BORDER};text-align:left;font-size:10px;font-weight:700;color:var(--muted);padding:3px 8px;white-space:nowrap">Unit</th>
           ${monthHeaders}
-          <th style="${CELL_BORDER};text-align:right;font-size:10px;font-weight:700;color:var(--muted);padding:4px 10px;white-space:nowrap">Total</th>
+          <th style="${CELL_BORDER};text-align:right;font-size:10px;font-weight:700;color:var(--muted);padding:3px 8px;white-space:nowrap">Total</th>
         </tr></thead>
-        <tbody>${bodyRows || `<tr><td colspan="${months.length+3}" style="${CELL_BORDER};padding:20px;text-align:center;color:var(--muted)">No R2R properties match.</td></tr>`}</tbody>
+        <tbody>${bodyRows || `<tr><td colspan="${months.length+3}" style="${CELL_BORDER};padding:16px;text-align:center;color:var(--muted)">No R2R properties match.</td></tr>`}</tbody>
         ${bodyRows ? `<tfoot><tr>
-          <td colspan="2" style="${CELL_BORDER};padding:8px 10px;font-weight:800;font-size:11.5px">TOTAL</td>
+          <td colspan="2" style="${CELL_BORDER};padding:6px 8px;font-weight:800;font-size:11.5px">TOTAL</td>
           ${colTotals}
-          <td style="${CELL_BORDER};padding:8px 10px;text-align:right;font-weight:800;font-size:12px">RM ${fmt(grandTotal)}</td>
+          <td style="${CELL_BORDER};padding:6px 8px;text-align:right;font-weight:800;font-size:12px">RM ${fmt(grandTotal)}</td>
         </tr></tfoot>` : ''}
       </table>
     </div>`;
