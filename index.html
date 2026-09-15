@@ -6369,10 +6369,13 @@ function _paintUtilities(container){
   }).join('');
 
   // Column totals across all R2R units, per month — quick "total for this
-  // metric this month" read.
+  // metric this month" read. "RM" is stated once in the row label instead
+  // of repeating on every cell, so a negative total doesn't wrap onto two
+  // lines in the narrow month columns.
   const colTotals = months.map(({y,m})=>{
     const t = sortedProps.reduce((s,p)=> s + valueFor(p.id,y,m).v, 0);
-    return `<td style="${CELL_BORDER};padding:6px;text-align:right;font-weight:800;font-size:11px">RM ${fmt(t)}</td>`;
+    const neg = t<0;
+    return `<td style="${CELL_BORDER};padding:6px;text-align:right;font-weight:800;font-size:11px;color:${neg?'#B91C1C':'var(--ink)'};white-space:nowrap">${neg?'−':''}${fmt(Math.abs(t))}</td>`;
   }).join('');
   const grandTotal = sortedProps.reduce((s,p)=> s + months.reduce((s2,{y,m})=>s2+valueFor(p.id,y,m).v,0), 0);
 
@@ -6409,9 +6412,9 @@ function _paintUtilities(container){
         </tr></thead>
         <tbody>${bodyRows || `<tr><td colspan="${months.length+3}" style="${CELL_BORDER};padding:16px;text-align:center;color:var(--muted)">No R2R properties match.</td></tr>`}</tbody>
         ${bodyRows ? `<tfoot><tr>
-          <td colspan="2" style="${CELL_BORDER};padding:6px 8px;font-weight:800;font-size:11.5px">TOTAL</td>
+          <td colspan="2" style="${CELL_BORDER};padding:6px 8px;font-weight:800;font-size:11.5px">TOTAL (RM)</td>
           ${colTotals}
-          <td style="${CELL_BORDER};padding:6px 8px;text-align:right;font-weight:800;font-size:12px">RM ${fmt(grandTotal)}</td>
+          <td style="${CELL_BORDER};padding:6px 8px;text-align:right;font-weight:800;font-size:12px;color:${grandTotal<0?'#B91C1C':'var(--ink)'};white-space:nowrap">${grandTotal<0?'−':''}${fmt(Math.abs(grandTotal))}</td>
         </tr></tfoot>` : ''}
       </table>
     </div>`;
