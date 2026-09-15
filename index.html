@@ -8108,6 +8108,11 @@ function recontractTenant(id){
   // The new period extends from the current agreement_end. If for some reason
   // there's no end date on file, fall back to today so the math still works.
   const fromDate = t.agreement_end || todayISODateLocal();
+  // R2R + Own Unit = Polyhome's own subletted unit — there's no external
+  // owner to charge a retention commission to, so the fee is forced to 0.
+  // The expense row still gets posted (at RM 0) so the renewal is on record.
+  const P = (state.properties||[]).find(p=>p.id===t.property_id);
+  const isOwnR2R = !!P && P.model==='R2R' && P.unit_type==='own_unit';
 
   openModal('Recontract — '+t.name, `
     <div class="space-y-3">
@@ -8158,8 +8163,9 @@ function recontractTenant(id){
       requireReportEditable(t.property_id, state.year, state.month);
       // Pro-rated retention fee: rental ÷ 12 × extension_months × 20%.
       // 12-month recontract = full month's rental × 20%, anything shorter
-      // scales down linearly, longer scales up.
-      const fee = +((newRental / 12) * months * 0.2).toFixed(2);
+      // scales down linearly, longer scales up. Forced to 0 for R2R Own
+      // Unit — Polyhome doesn't charge itself a retention commission.
+      const fee = isOwnR2R ? 0 : +((newRental / 12) * months * 0.2).toFixed(2);
 
       // 1) Update the tenant — extend end + apply any price changes.
       const tPatch = {agreement_end: newEnd, updated_at: new Date().toISOString()};
@@ -8168,8 +8174,10 @@ function recontractTenant(id){
       const {error: tErr} = await sb.from('tenants').update(tPatch).eq('id', t.id);
       if(tErr) throw tErr;
 
-      // 2) Post the retention fee (only if there's actually a rental on file).
-      if(fee > 0){
+      // 2) Post the retention fee — always for R2R Own Unit (as a RM 0
+      // record so the renewal is still on file), otherwise only when
+      // there's actually a rental on file to charge against.
+      if(fee > 0 || isOwnR2R){
         const desc = `Tenant Retention Fee (Room ${t.room_code||'?'}) — ${t.name} · +${months} mo`;
         const {error: eErr} = await sb.from('expenses').insert({
           property_id: t.property_id,
@@ -8210,16 +8218,20 @@ function recontractTenant(id){
       const r  = Math.max(0, Number(rEl?.value)||0);
       const cp = Math.max(0, Number(cpEl?.value)||0);
       const mo = Math.max(0, Number(mEl?.value)||0);
-      // Pro-rated: (rental / 12) × months × 20%
-      const fee = +((r/12) * mo * 0.2).toFixed(2);
+      // Pro-rated: (rental / 12) × months × 20%. Forced to 0 for R2R Own
+      // Unit — Polyhome doesn't charge itself a retention commission.
+      const fee = isOwnR2R ? 0 : +((r/12) * mo * 0.2).toFixed(2);
       const priceChanged = (r!==oldRental) || (hasCarpark && cp!==oldCarpark);
       const priceLines = priceChanged
         ? `<div class="mt-1 text-emerald-700"><b>Price change:</b> Room RM ${fmt(oldRental)} → <b>RM ${fmt(r)}</b>${hasCarpark?' · Carpark RM '+fmt(oldCarpark)+' → <b>RM '+fmt(cp)+'</b>':''}</div>`
         : '<div class="mt-1 text-slate-500">No price change.</div>';
+      const feeLine = isOwnR2R
+        ? `<div class="text-slate-500 text-[11px] mt-0.5">R2R Own Unit — no retention fee charged to yourself.</div>`
+        : `<div class="text-slate-500 text-[11px] mt-0.5">RM ${fmt(r)} ÷ 12 × ${mo||0} mo × 20% = RM ${fmt(fee)}</div>`;
       prev.innerHTML = `
         <div class="font-bold mb-1">Auto-posted Expense (pro-rated)</div>
         <div><b>Tenant Retention Fee (Room ${esc(t.room_code||'?')})</b> = <b class="text-[#F4811F]">RM ${fmt(fee)}</b></div>
-        <div class="text-slate-500 text-[11px] mt-0.5">RM ${fmt(r)} ÷ 12 × ${mo||0} mo × 20% = RM ${fmt(fee)}</div>
+        ${feeLine}
         <div class="text-slate-500">Filed under <b>Rent Commission</b> for ${esc(MONTHS_FULL[state.month-1]+' '+state.year)}.</div>
         ${priceLines}`;
     };
