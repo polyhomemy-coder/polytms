@@ -1739,6 +1739,7 @@
       <span class="subtab-btn" data-mgrsub="feelist">🧾 Management Fee Unit Listing</span>
       <span class="subtab-btn" data-mgrsub="ownunit">🏠 Own Unit</span>
       <span class="subtab-btn" data-mgrsub="assign">🏢 Property Assignment</span>
+      <span class="subtab-btn" data-mgrsub="export">🧮 Export to Accountant</span>
     </div>
     <!-- ====================================================== -->
     <!-- DASHBOARD VIEW — metrics across ALL properties matching   -->
@@ -1943,6 +1944,13 @@
       <div class="card">
         <div id="propAssignPanel"></div>
       </div>
+    </div>
+
+    <!-- ====================================================== -->
+    <!-- EXPORT TO ACCOUNTANT VIEW                                 -->
+    <!-- ====================================================== -->
+    <div id="dashExportView" class="hidden-force">
+      <div id="acctExportPanel"></div>
     </div>
   </section>
 
@@ -2488,6 +2496,9 @@ let state = {
   adminProfiles: [],          // [{id,email}] — all admin users, fetched on manager login
   tenantCityFilter: [],       // selected city values for tenant list — empty = show all
   tenantSub: 'active',        // 'active' | 'movedout' — Tenants parent sub-pane
+  acctExportSel: {property:true, tenant:true, income:true, expenses:true}, // Export to Accountant — ticked data types
+  acctExportYear: null,       // year shown in the Export to Accountant month picker; null = follow state.year
+  acctExportMonths: [],       // selected month numbers (1-12) for Export to Accountant
 };
 
 // Human-readable labels for expense categories
@@ -5456,10 +5467,12 @@ function renderDashboard(){
   const feeListView  = $('#dashFeeListView');
   const r2rView      = $('#dashR2RView');
   const assignView   = $('#dashAssignView');
+  const exportView   = $('#dashExportView');
   if(overviewView) overviewView.classList.toggle('hidden-force', sub!=='dashboard');
   if(feeListView)  feeListView.classList.toggle('hidden-force',  sub!=='feelist');
   if(r2rView)      r2rView.classList.toggle('hidden-force',      sub!=='ownunit');
   if(assignView)   assignView.classList.toggle('hidden-force',   sub!=='assign');
+  if(exportView)   exportView.classList.toggle('hidden-force',   sub!=='export');
 
   if(sub === 'ownunit') return renderOwnUnitDashboard();
   if(sub === 'feelist')  return renderManagementFeeUnitListing();
@@ -5468,6 +5481,11 @@ function renderDashboard(){
       const panel = document.getElementById('propAssignPanel');
       if(panel) renderPropAssignPanel(panel);
     }
+    return;
+  }
+  if(sub === 'export'){
+    const panel = document.getElementById('acctExportPanel');
+    if(panel) renderAccountantExport(panel);
     return;
   }
   // Payment Rate / Room Occupancy / Race Breakdown now live inside the
@@ -6387,6 +6405,360 @@ function _paintUtilities(container){
         </tr></tfoot>` : ''}
       </table>
     </div>`;
+}
+
+// ============================================================
+//  EXPORT TO ACCOUNTANT
+// ============================================================
+// One button, one Excel workbook, handed to the accountant with no PolyTMS
+// login needed.
+//   - Property / Tenant: lump-sum sheets (every record, no month picker) —
+//     column layout matches the accountant's own reference "2.TMS.xlsx".
+//   - Income / Expenses: one sheet PER selected month, built from the exact
+//     same pipeline as the on-screen/PDF income report (gatherReportData →
+//     buildReportLineMap → the same auto management-fee / auto rent-
+//     commission injection — see computeReportSummary below, mirroring
+//     renderReportHTML) so the accountant's numbers always match PolyTMS,
+//     just with every property stacked into one sheet instead of one PDF
+//     per property.
+// ============================================================
+
+function renderAccountantExport(container){
+  const sel = state.acctExportSel;
+  const y = state.acctExportYear || state.year;
+  const years = [state.year-1, state.year, state.year+1];
+  const monthsSel = new Set(state.acctExportMonths||[]);
+  const needsMonths = sel.income || sel.expenses;
+
+  const dataChk = (key, label, hint) => `
+    <label style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;cursor:pointer">
+      <input type="checkbox" data-acct-sel="${key}" ${sel[key]?'checked':''} style="margin-top:2px;width:16px;height:16px;accent-color:#007B8A">
+      <span>
+        <div style="font-weight:700;font-size:13px">${label}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${hint}</div>
+      </span>
+    </label>`;
+
+  const monthGrid = MONTHS.map((mn,i)=>{
+    const mo = i+1;
+    const checked = monthsSel.has(mo);
+    return `<label style="display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;cursor:pointer;background:${checked?'#E8F8FA':'transparent'}">
+      <input type="checkbox" data-acct-month="${mo}" ${checked?'checked':''} style="width:14px;height:14px;accent-color:#007B8A">
+      <span style="font-size:12px;font-weight:${checked?'800':'600'}">${mn}</span>
+    </label>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="card" style="max-width:720px">
+      <div style="font-size:15px;font-weight:800;color:var(--ink)">🧮 Export to Accountant</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;margin-bottom:16px">
+        Generates one Excel file the accountant can work from — no PolyTMS login needed. Tick what to include, pick the month(s) for Income/Expenses, then export.
+      </div>
+
+      <div style="font-size:12px;font-weight:800;color:var(--ink);margin-bottom:8px">What to export</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+        ${dataChk('property','🏢 Property','All properties · lump sum, no month needed')}
+        ${dataChk('tenant','👤 Tenant','Active + Moved Out · lump sum, no month needed')}
+        ${dataChk('income','💰 Income','Rent collection, aircon top-up, extra income — by month')}
+        ${dataChk('expenses','🧾 Expenses','Management fee, rent commission, cleaning, maintenance, balance forward, other — by month')}
+      </div>
+
+      <div id="acctMonthSection" style="${needsMonths?'':'opacity:.4;pointer-events:none'}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <div style="font-size:12px;font-weight:800;color:var(--ink)">Which month(s) — for Income / Expenses</div>
+          <select id="acctYearSel" style="font-size:12px;font-weight:700;border:1px solid var(--line);border-radius:8px;padding:3px 8px">
+            ${years.map(yr=>`<option value="${yr}" ${yr===y?'selected':''}>${yr}</option>`).join('')}
+          </select>
+          <button type="button" id="acctSelAllMonths" style="margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;background:#E8F8FA;color:#007B8A;border:none;cursor:pointer">Select All</button>
+          <button type="button" id="acctClearMonths" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;background:#F1F5F9;color:#475569;border:none;cursor:pointer">Clear</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:16px">${monthGrid}</div>
+      </div>
+
+      <button id="acctExportBtn" class="btn-brand px-5 py-2.5 rounded-xl font-bold text-sm">📥 Export to Accountant</button>
+      <div id="acctExportStatus" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+    </div>`;
+
+  container.querySelectorAll('[data-acct-sel]').forEach(chk=>{
+    chk.onchange = ()=>{ state.acctExportSel[chk.dataset.acctSel] = chk.checked; renderAccountantExport(container); };
+  });
+  const yearSel = container.querySelector('#acctYearSel');
+  if(yearSel) yearSel.onchange = ()=>{ state.acctExportYear = Number(yearSel.value); renderAccountantExport(container); };
+  container.querySelectorAll('[data-acct-month]').forEach(chk=>{
+    chk.onchange = ()=>{
+      const mo = Number(chk.dataset.acctMonth);
+      const set = new Set(state.acctExportMonths||[]);
+      if(chk.checked) set.add(mo); else set.delete(mo);
+      state.acctExportMonths = [...set];
+      renderAccountantExport(container);
+    };
+  });
+  const selAllBtn = container.querySelector('#acctSelAllMonths');
+  if(selAllBtn) selAllBtn.onclick = ()=>{ state.acctExportMonths = MONTHS.map((_,i)=>i+1); renderAccountantExport(container); };
+  const clearBtn = container.querySelector('#acctClearMonths');
+  if(clearBtn) clearBtn.onclick = ()=>{ state.acctExportMonths = []; renderAccountantExport(container); };
+  const exportBtn = container.querySelector('#acctExportBtn');
+  if(exportBtn) exportBtn.onclick = ()=>generateAccountantExport(container);
+}
+
+// Same calculation pipeline as the on-screen/PDF income report — see
+// renderReportHTML — just returning plain structured data instead of HTML,
+// so the Excel export's numbers always match what PolyTMS itself shows.
+async function computeReportSummary(propId, y, m){
+  const ctx = await gatherReportData(propId, y, m);
+  const P = ctx.property;
+  if(!P) return null;
+  const dispP = ctx.propertySnapshot ? {...P, ...ctx.propertySnapshot} : P;
+
+  const roomTenancies = tenancyForMonth(ctx.tenants, y, m)
+    .filter(t=>t.room_code)
+    .sort((a,b)=>compareRoom(a.room_code, b.room_code));
+
+  const lineMap = buildReportLineMap(P, ctx, roomTenancies, y, m);
+  const lines = [...lineMap.values()].sort((a,b)=>{
+    if(a.type!==b.type) return a.type==='room' ? -1:1;
+    if(a.type==='room') return compareRoom(a.code, b.code);
+    return (a.code||'').localeCompare(b.code||'');
+  });
+  const totRental  = lines.reduce((s,x)=>s+x.rental,0);
+  const totAircond = lines.reduce((s,x)=>s+x.aircond,0);
+
+  const autoFee = true;
+  const autoCom = !_rcAutoComIsOff(propId, y, m);
+
+  let expRows = ctx.expenses.map(e=>({desc:e.description||e.category, amount:Number(e.amount||0), cat:e.category}));
+  if(autoFee && !ctx.expenses.some(e=>e.category==='management_fee')){
+    const fee = +(totRental * (Number(dispP.service_percent||0)/100)).toFixed(2);
+    if(fee>0) expRows.unshift({desc:'Management Fee', amount:fee, cat:'management_fee', _auto:true});
+  }
+  if(autoCom){
+    roomTenancies.forEach(t=>{
+      const s = t.agreement_start ? new Date(t.agreement_start) : null;
+      if(s && s.getFullYear()===y && (s.getMonth()+1)===m){
+        const mo = tenureMonths(t.agreement_start, t.agreement_end);
+        const ratio = mo ? (mo/12) : 1;
+        const moTxt = mo ? ` · ${mo}/12 mo` : '';
+        const hasRoomRC = ctx.expenses.some(e=>e.category==='rent_commission'
+          && (e.description||'').includes('Room '+t.room_code+')'));
+        if(!hasRoomRC){
+          const amt = +(Number(t.room_rental||0) * ratio).toFixed(2);
+          if(amt>0) expRows.push({desc:'Rent Commission (Room '+t.room_code+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
+        }
+        const cpFull = Number(t.carpark_rental||0);
+        const cpProp = t.carpark_property_id || t.property_id;
+        if(t.carpark && cpFull>0 && cpProp===P.id){
+          const cpLot = String(t.carpark).trim();
+          const hasCpRC = ctx.expenses.some(e=>e.category==='rent_commission'
+            && (e.description||'').includes('Carpark '+cpLot+')'));
+          if(!hasCpRC){
+            const amt = +(cpFull * ratio).toFixed(2);
+            if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
+          }
+        }
+      }
+    });
+    const pStart = P.commence_date ? new Date(P.commence_date) : null;
+    if(pStart && pStart.getFullYear()===y && (pStart.getMonth()+1)===m){
+      (P.carpark_lots||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(lot=>{
+        if(roomTenancies.some(t=>(t.carpark||'').trim()===lot && (t.carpark_property_id||t.property_id)===P.id)) return;
+        const cpLine = lines.find(l=>l.type==='carpark' && l.code===lot);
+        const amt = cpLine ? cpLine.rental : 0;
+        if(amt>0 && !ctx.expenses.some(e=>e.category==='rent_commission' && (e.description||'').includes(lot))){
+          expRows.push({desc:'Rent Commission (Carpark '+lot+')', amount:amt, cat:'rent_commission', _auto:true});
+        }
+      });
+    }
+  }
+  expRows = expRows
+    .map((r,i)=>({r,i}))
+    .sort((a,b)=>{
+      const am = a.r.cat==='management_fee' ? 0 : 1;
+      const bm = b.r.cat==='management_fee' ? 0 : 1;
+      if(am !== bm) return am - bm;
+      return a.i - b.i;
+    })
+    .map(x=>x.r);
+  const totExp = expRows.reduce((s,x)=>s+x.amount,0);
+
+  const extRows = ctx.extras.map(e=>({desc:e.description||'', amount:Number(e.amount||0)}));
+  const totExt = extRows.reduce((s,x)=>s+x.amount,0);
+
+  const nett = totRental + totAircond + totExt - totExp;
+
+  return { property: dispP, lines, expRows, extRows, totRental, totAircond, totExt, totExp, nett };
+}
+
+function _acctStyleHeaderRow(ws, ncols){
+  for(let c=0;c<ncols;c++){
+    const cell = ws[XLSX.utils.encode_cell({r:0,c})];
+    if(cell) cell.s = { font:{bold:true, color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'007B8A'}} };
+  }
+}
+
+function _acctAddPropertySheet(wb){
+  const header = ['CONDO','UNIT','Carpark Lots','OWNER NAME','IC','EMAIL','CONTACT','BANK NAME','BANK ACC','CONDO ADDRESS','OWNER ADDRESS','COMMENCE DATE','PERIOD (months)','Date of Agreement','service %'];
+  const props = (state.properties||[]).filter(p=>p.active!==false)
+    .sort((a,b)=>(a.condo+a.unit).localeCompare(b.condo+b.unit));
+  const rows = [header, ...props.map(p=>[
+    p.condo||'', p.unit||'', p.carpark_lots||'', p.owner_name||'', p.owner_ic||'',
+    p.owner_email||'', p.owner_contact||'', p.bank_name||'', p.bank_account||'',
+    p.condo_address||'', p.owner_address||'', p.commence_date||'', p.period_months||'',
+    p.agreement_date||'', p.service_percent||'',
+  ])];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:14},{wch:10},{wch:16},{wch:20},{wch:18},{wch:24},{wch:14},{wch:14},{wch:18},{wch:34},{wch:34},{wch:13},{wch:10},{wch:13},{wch:9}];
+  _acctStyleHeaderRow(ws, header.length);
+  XLSX.utils.book_append_sheet(wb, ws, 'Property');
+}
+
+async function _acctAddTenantSheet(wb){
+  await loadTenants({includeMovedOut:true});
+  const header = ['name','ic','gender','contact','email','nationality','race','marital status','emergency contact name','emergency contact number','company','occupation','no. of staying','condo','unit','room','room rental','carpark','carpark rental','agreement start date','agreement end date','tenancy period (mo)','room deposit','carpark deposit','key card set'];
+  const propOf = id => (state.properties||[]).find(p=>p.id===id) || {};
+  const rowFor = t => {
+    const p = propOf(t.property_id);
+    return [
+      t.name||'', t.ic||'', t.gender||'', t.contact||'', t.email||'',
+      t.nationality||'', t.race||'', t.marital_status||'',
+      t.emergency_name||'', t.emergency_contact||'',
+      t.company||'', t.occupation||'', t.no_of_staying||'',
+      p.condo||'', p.unit||'', t.room_code||'', Number(t.room_rental||0),
+      t.carpark||'', Number(t.carpark_rental||0),
+      t.agreement_start||'', t.agreement_end||'',
+      tenureMonths(t.agreement_start, t.agreement_end)||'',
+      t.room_deposit==null?'':Number(t.room_deposit),
+      t.carpark_deposit==null?'':Number(t.carpark_deposit),
+      t.key_card_set==null?'':t.key_card_set,
+    ];
+  };
+  const sortKey = t => { const p = propOf(t.property_id); return (p.condo||'')+(p.unit||'')+(t.room_code||''); };
+  const active = (state.tenants||[]).filter(t=>t.active!==false).sort((a,b)=>sortKey(a).localeCompare(sortKey(b)));
+  const movedOut = (state.tenants||[]).filter(t=>t.active===false)
+    .sort((a,b)=>String(a.move_out_date||a.agreement_end||'').localeCompare(String(b.move_out_date||b.agreement_end||'')));
+
+  const rows = [header, ...active.map(rowFor)];
+  if(movedOut.length){
+    rows.push([]);
+    const headline = Array(header.length).fill('');
+    headline[0] = 'MOVED OUT TENANTS';
+    rows.push(headline);
+    rows.push(...movedOut.map(rowFor));
+  }
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = header.map(()=>({wch:14}));
+  _acctStyleHeaderRow(ws, header.length);
+  if(movedOut.length){
+    const headlineRow = active.length + 2; // 0-based: header row + active rows + blank row
+    const cell = ws[XLSX.utils.encode_cell({r:headlineRow, c:0})];
+    if(cell) cell.s = { font:{bold:true, color:{rgb:'B91C1C'}} };
+  }
+  XLSX.utils.book_append_sheet(wb, ws, 'Tenant');
+}
+
+async function _acctAddMonthSheet(wb, props, year, mo, includeIncome, includeExpenses){
+  const rows = [];
+  let anyData = false;
+
+  for(const p of props){
+    if(!_propExistedByMonth(p, year, mo)) continue;
+    let summary;
+    try{ summary = await computeReportSummary(p.id, year, mo); }
+    catch(e){ continue; } // skip a property that fails to load rather than aborting the whole export
+    if(!summary) continue;
+    anyData = true;
+
+    rows.push(['Property:', `${summary.property.condo||''} ${summary.property.unit||''}`.trim()]);
+    rows.push([]);
+
+    if(includeIncome){
+      rows.push(['INCOME']);
+      rows.push(['No.','Type','Code','Rental (RM)','Air-Cond (RM)','Tenancy Start','','Tenancy End']);
+      summary.lines.forEach((l,i)=>{
+        const t = l.tenant;
+        const to = t && (t.agreement_start || t.agreement_end) ? 'to' : '';
+        rows.push([i+1, l.type==='room'?'Room':'Carpark', l.code||'', Number(l.rental||0), Number(l.aircond||0), t?.agreement_start||'', to, t?.agreement_end||'']);
+      });
+      rows.push(['TOTAL INCOME:', '', '', summary.totRental, summary.totAircond]);
+      rows.push([]);
+
+      rows.push(['EXTRA INCOME']);
+      rows.push(['No.','Amount (RM)','Description']);
+      summary.extRows.forEach((r,i)=> rows.push([i+1, Number(r.amount||0), r.desc||'']));
+      rows.push(['TOTAL EXTRA INCOME:', summary.totExt]);
+      rows.push([]);
+    }
+
+    if(includeExpenses){
+      rows.push(['EXPENSES']);
+      rows.push(['No.','Amount (RM)','Description']);
+      summary.expRows.forEach((r,i)=> rows.push([i+1, Number(r.amount||0), r.desc||'']));
+      rows.push(['TOTAL EXPENSES:', summary.totExp]);
+      rows.push([]);
+    }
+
+    if(includeIncome && includeExpenses){
+      rows.push(['NETT INCOME:', summary.nett]);
+    }
+    rows.push([]); rows.push([]); // spacer between properties
+  }
+
+  if(!anyData) return;
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:18},{wch:22},{wch:12},{wch:14},{wch:14},{wch:13},{wch:5},{wch:13}];
+  const sheetName = `${MONTHS[mo-1]} ${year}`.slice(0,31);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+}
+
+async function generateAccountantExport(container){
+  const sel = state.acctExportSel;
+  const months = [...(state.acctExportMonths||[])].sort((a,b)=>a-b);
+  const year = state.acctExportYear || state.year;
+
+  if(!sel.property && !sel.tenant && !sel.income && !sel.expenses){
+    toast('Tick at least one data type to export','warn'); return;
+  }
+  if((sel.income || sel.expenses) && !months.length){
+    toast('Pick at least one month for Income/Expenses','warn'); return;
+  }
+
+  const btn = container.querySelector('#acctExportBtn');
+  const statusEl = container.querySelector('#acctExportStatus');
+  const setStatus = msg => { if(statusEl) statusEl.textContent = msg; };
+  if(btn){ btn.disabled = true; btn.style.opacity = '.6'; btn.textContent = '⏳ Generating…'; }
+
+  try{
+    const wb = XLSX.utils.book_new();
+
+    if(sel.property){
+      setStatus('Building Property sheet…');
+      _acctAddPropertySheet(wb);
+    }
+    if(sel.tenant){
+      setStatus('Building Tenant sheet…');
+      await _acctAddTenantSheet(wb);
+    }
+    if(sel.income || sel.expenses){
+      const props = (state.properties||[]).filter(p=>p.active!==false)
+        .sort((a,b)=>(a.condo+a.unit).localeCompare(b.condo+b.unit));
+      for(const mo of months){
+        setStatus(`Building ${MONTHS[mo-1]} ${year} sheet…`);
+        await _acctAddMonthSheet(wb, props, year, mo, sel.income, sel.expenses);
+      }
+    }
+
+    if(!wb.SheetNames.length){ toast('Nothing to export','warn'); return; }
+
+    const fname = `Accountant_Export_${todayISODateLocal()}.xlsx`;
+    XLSX.writeFile(wb, fname);
+    setStatus(`✅ Exported ${wb.SheetNames.length} sheet${wb.SheetNames.length!==1?'s':''} → ${fname}`);
+    toast('Exported → '+fname, 'ok');
+  } catch(e){
+    toast('Export failed: '+(e.message||e), 'bad');
+    setStatus('❌ Export failed: '+(e.message||e));
+  } finally {
+    if(btn){ btn.disabled = false; btn.style.opacity = ''; btn.textContent = '📥 Export to Accountant'; }
+  }
 }
 
 // ============================================================
