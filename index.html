@@ -6410,17 +6410,22 @@ function _paintUtilities(container){
 // ============================================================
 //  EXPORT TO ACCOUNTANT
 // ============================================================
-// One button, one Excel workbook, handed to the accountant with no PolyTMS
-// login needed.
-//   - Property / Tenant: lump-sum sheets (every record, no month picker) —
-//     column layout matches the accountant's own reference "2.TMS.xlsx".
-//   - Income / Expenses: one sheet PER selected month, built from the exact
-//     same pipeline as the on-screen/PDF income report (gatherReportData →
-//     buildReportLineMap → the same auto management-fee / auto rent-
-//     commission injection — see computeReportSummary below, mirroring
-//     renderReportHTML) so the accountant's numbers always match PolyTMS,
-//     just with every property stacked into one sheet instead of one PDF
-//     per property.
+// A separate Excel FILE per ticked section, handed to the accountant with
+// no PolyTMS login needed:
+//   - Property_Export.xlsx — one sheet, every property, lump sum (no month
+//     needed). Column layout matches the accountant's own reference
+//     "2.TMS.xlsx".
+//   - Tenant_Export.xlsx — one sheet, Active tenants then a "MOVED OUT
+//     TENANTS" headline + Moved Out tenants, lump sum (no month needed).
+//   - Income_Export_<year>.xlsx — 3 sheets: Rent Collection, Aircon Top-up,
+//     Extra Income. Each is a flat row-per-record listing across every
+//     selected month, matching the raw tables shown in the Income tab
+//     (Payments Ledger / Aircon Top-ups / Extra Income) — NOT the computed
+//     per-property income-report layout.
+//   - Expenses_Export_<year>.xlsx — one sheet per expense category
+//     (Management Fee, Rent Commission, Cleaning, Maintenance, Balance
+//     Forward, Other), same flat listing style, matching the Expenses tab's
+//     own category grouping.
 // ============================================================
 
 function renderAccountantExport(container){
@@ -6452,15 +6457,15 @@ function renderAccountantExport(container){
     <div class="card" style="max-width:720px">
       <div style="font-size:15px;font-weight:800;color:var(--ink)">🧮 Export to Accountant</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px;margin-bottom:16px">
-        Generates one Excel file the accountant can work from — no PolyTMS login needed. Tick what to include, pick the month(s) for Income/Expenses, then export.
+        Generates a separate Excel file for each section you tick — no PolyTMS login needed. Income/Expenses are flat listings (like the Income/Expenses tabs), not the income-report layout. Tick what to include, pick the month(s) for Income/Expenses, then export.
       </div>
 
       <div style="font-size:12px;font-weight:800;color:var(--ink);margin-bottom:8px">What to export</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
-        ${dataChk('property','🏢 Property','All properties · lump sum, no month needed')}
-        ${dataChk('tenant','👤 Tenant','Active + Moved Out · lump sum, no month needed')}
-        ${dataChk('income','💰 Income','Rent collection, aircon top-up, extra income — by month')}
-        ${dataChk('expenses','🧾 Expenses','Management fee, rent commission, cleaning, maintenance, balance forward, other — by month')}
+        ${dataChk('property','🏢 Property','→ Property_Export.xlsx · all properties · lump sum, no month needed')}
+        ${dataChk('tenant','👤 Tenant','→ Tenant_Export.xlsx · Active + Moved Out · lump sum, no month needed')}
+        ${dataChk('income','💰 Income','→ Income_Export.xlsx · Rent Collection, Aircon Top-up, Extra Income sheets — flat listing by month')}
+        ${dataChk('expenses','🧾 Expenses','→ Expenses_Export.xlsx · one sheet per category (management fee, rent commission, cleaning, maintenance, balance forward, other) — flat listing by month')}
       </div>
 
       <div id="acctMonthSection" style="${needsMonths?'':'opacity:.4;pointer-events:none'}">
@@ -6499,93 +6504,6 @@ function renderAccountantExport(container){
   if(clearBtn) clearBtn.onclick = ()=>{ state.acctExportMonths = []; renderAccountantExport(container); };
   const exportBtn = container.querySelector('#acctExportBtn');
   if(exportBtn) exportBtn.onclick = ()=>generateAccountantExport(container);
-}
-
-// Same calculation pipeline as the on-screen/PDF income report — see
-// renderReportHTML — just returning plain structured data instead of HTML,
-// so the Excel export's numbers always match what PolyTMS itself shows.
-async function computeReportSummary(propId, y, m){
-  const ctx = await gatherReportData(propId, y, m);
-  const P = ctx.property;
-  if(!P) return null;
-  const dispP = ctx.propertySnapshot ? {...P, ...ctx.propertySnapshot} : P;
-
-  const roomTenancies = tenancyForMonth(ctx.tenants, y, m)
-    .filter(t=>t.room_code)
-    .sort((a,b)=>compareRoom(a.room_code, b.room_code));
-
-  const lineMap = buildReportLineMap(P, ctx, roomTenancies, y, m);
-  const lines = [...lineMap.values()].sort((a,b)=>{
-    if(a.type!==b.type) return a.type==='room' ? -1:1;
-    if(a.type==='room') return compareRoom(a.code, b.code);
-    return (a.code||'').localeCompare(b.code||'');
-  });
-  const totRental  = lines.reduce((s,x)=>s+x.rental,0);
-  const totAircond = lines.reduce((s,x)=>s+x.aircond,0);
-
-  const autoFee = true;
-  const autoCom = !_rcAutoComIsOff(propId, y, m);
-
-  let expRows = ctx.expenses.map(e=>({desc:e.description||e.category, amount:Number(e.amount||0), cat:e.category}));
-  if(autoFee && !ctx.expenses.some(e=>e.category==='management_fee')){
-    const fee = +(totRental * (Number(dispP.service_percent||0)/100)).toFixed(2);
-    if(fee>0) expRows.unshift({desc:'Management Fee', amount:fee, cat:'management_fee', _auto:true});
-  }
-  if(autoCom){
-    roomTenancies.forEach(t=>{
-      const s = t.agreement_start ? new Date(t.agreement_start) : null;
-      if(s && s.getFullYear()===y && (s.getMonth()+1)===m){
-        const mo = tenureMonths(t.agreement_start, t.agreement_end);
-        const ratio = mo ? (mo/12) : 1;
-        const moTxt = mo ? ` · ${mo}/12 mo` : '';
-        const hasRoomRC = ctx.expenses.some(e=>e.category==='rent_commission'
-          && (e.description||'').includes('Room '+t.room_code+')'));
-        if(!hasRoomRC){
-          const amt = +(Number(t.room_rental||0) * ratio).toFixed(2);
-          if(amt>0) expRows.push({desc:'Rent Commission (Room '+t.room_code+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
-        }
-        const cpFull = Number(t.carpark_rental||0);
-        const cpProp = t.carpark_property_id || t.property_id;
-        if(t.carpark && cpFull>0 && cpProp===P.id){
-          const cpLot = String(t.carpark).trim();
-          const hasCpRC = ctx.expenses.some(e=>e.category==='rent_commission'
-            && (e.description||'').includes('Carpark '+cpLot+')'));
-          if(!hasCpRC){
-            const amt = +(cpFull * ratio).toFixed(2);
-            if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
-          }
-        }
-      }
-    });
-    const pStart = P.commence_date ? new Date(P.commence_date) : null;
-    if(pStart && pStart.getFullYear()===y && (pStart.getMonth()+1)===m){
-      (P.carpark_lots||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(lot=>{
-        if(roomTenancies.some(t=>(t.carpark||'').trim()===lot && (t.carpark_property_id||t.property_id)===P.id)) return;
-        const cpLine = lines.find(l=>l.type==='carpark' && l.code===lot);
-        const amt = cpLine ? cpLine.rental : 0;
-        if(amt>0 && !ctx.expenses.some(e=>e.category==='rent_commission' && (e.description||'').includes(lot))){
-          expRows.push({desc:'Rent Commission (Carpark '+lot+')', amount:amt, cat:'rent_commission', _auto:true});
-        }
-      });
-    }
-  }
-  expRows = expRows
-    .map((r,i)=>({r,i}))
-    .sort((a,b)=>{
-      const am = a.r.cat==='management_fee' ? 0 : 1;
-      const bm = b.r.cat==='management_fee' ? 0 : 1;
-      if(am !== bm) return am - bm;
-      return a.i - b.i;
-    })
-    .map(x=>x.r);
-  const totExp = expRows.reduce((s,x)=>s+x.amount,0);
-
-  const extRows = ctx.extras.map(e=>({desc:e.description||'', amount:Number(e.amount||0)}));
-  const totExt = extRows.reduce((s,x)=>s+x.amount,0);
-
-  const nett = totRental + totAircond + totExt - totExp;
-
-  return { property: dispP, lines, expRows, extRows, totRental, totAircond, totExt, totExp, nett };
 }
 
 function _acctStyleHeaderRow(ws, ncols){
@@ -6655,59 +6573,94 @@ async function _acctAddTenantSheet(wb){
   XLSX.utils.book_append_sheet(wb, ws, 'Tenant');
 }
 
-async function _acctAddMonthSheet(wb, props, year, mo, includeIncome, includeExpenses){
-  const rows = [];
-  let anyData = false;
-
-  for(const p of props){
-    if(!_propExistedByMonth(p, year, mo)) continue;
-    let summary;
-    try{ summary = await computeReportSummary(p.id, year, mo); }
-    catch(e){ continue; } // skip a property that fails to load rather than aborting the whole export
-    if(!summary) continue;
-    anyData = true;
-
-    rows.push(['Property:', `${summary.property.condo||''} ${summary.property.unit||''}`.trim()]);
-    rows.push([]);
-
-    if(includeIncome){
-      rows.push(['INCOME']);
-      rows.push(['No.','Type','Code','Rental (RM)','Air-Cond (RM)','Tenancy Start','','Tenancy End']);
-      summary.lines.forEach((l,i)=>{
-        const t = l.tenant;
-        const to = t && (t.agreement_start || t.agreement_end) ? 'to' : '';
-        rows.push([i+1, l.type==='room'?'Room':'Carpark', l.code||'', Number(l.rental||0), Number(l.aircond||0), t?.agreement_start||'', to, t?.agreement_end||'']);
-      });
-      rows.push(['TOTAL INCOME:', '', '', summary.totRental, summary.totAircond]);
-      rows.push([]);
-
-      rows.push(['EXTRA INCOME']);
-      rows.push(['No.','Amount (RM)','Description']);
-      summary.extRows.forEach((r,i)=> rows.push([i+1, Number(r.amount||0), r.desc||'']));
-      rows.push(['TOTAL EXTRA INCOME:', summary.totExt]);
-      rows.push([]);
-    }
-
-    if(includeExpenses){
-      rows.push(['EXPENSES']);
-      rows.push(['No.','Amount (RM)','Description']);
-      summary.expRows.forEach((r,i)=> rows.push([i+1, Number(r.amount||0), r.desc||'']));
-      rows.push(['TOTAL EXPENSES:', summary.totExp]);
-      rows.push([]);
-    }
-
-    if(includeIncome && includeExpenses){
-      rows.push(['NETT INCOME:', summary.nett]);
-    }
-    rows.push([]); rows.push([]); // spacer between properties
+// Fetches the raw Income/Expense records for the selected year+months,
+// across the given properties — the same tables the Income/Expenses tabs
+// themselves read (rental_payments, aircon_topups, extra_incomes,
+// expenses), not the computed income-report figures.
+async function _acctFetchIncomeExpenseRaw(year, months, propIds){
+  const [pay, air, ext, exp] = await Promise.all([
+    sb.from('rental_payments').select('*').eq('year',year).in('month',months).in('property_id',propIds),
+    sb.from('aircon_topups').select('*').eq('year',year).in('month',months).in('property_id',propIds),
+    sb.from('extra_incomes').select('*').eq('year',year).in('month',months).in('property_id',propIds),
+    sb.from('expenses').select('*').eq('year',year).in('month',months).in('property_id',propIds),
+  ]);
+  for(const [label,res] of [['payments',pay],['aircon',air],['extra income',ext],['expenses',exp]]){
+    if(res.error) throw new Error(`Failed to load ${label}: ${res.error.message||res.error}`);
   }
+  return { payments: pay.data||[], aircon: air.data||[], extras: ext.data||[], expenses: exp.data||[] };
+}
 
-  if(!anyData) return;
+// Builds one flat sheet: header row + one row per record + an optional
+// TOTAL row summing `amountColIdx`. Mirrors the Income/Expenses tabs'
+// own raw listing — no aggregation, no auto-calculated rows.
+function _acctSheetFromRows(header, rows, amountColIdx){
+  const aoa = [header, ...rows];
+  if(amountColIdx!=null && rows.length){
+    const total = rows.reduce((s,r)=>s+Number(r[amountColIdx]||0),0);
+    const totalRow = Array(header.length).fill('');
+    totalRow[0] = 'TOTAL';
+    totalRow[amountColIdx] = total;
+    aoa.push(totalRow);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = header.map(()=>({wch:16}));
+  _acctStyleHeaderRow(ws, header.length);
+  return ws;
+}
 
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:18},{wch:22},{wch:12},{wch:14},{wch:14},{wch:13},{wch:5},{wch:13}];
-  const sheetName = `${MONTHS[mo-1]} ${year}`.slice(0,31);
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+// Income_Export.xlsx — 3 sheets, one per Income sub-tab, each a flat
+// listing (Month + property + the same columns shown on-screen).
+function _acctAddIncomeSheets(wb, props, raw){
+  const propOf = id => props.find(p=>p.id===id) || {};
+  const sortKey = r => { const p = propOf(r.property_id); return (p.condo||'')+(p.unit||'')+String(r.month).padStart(2,'0')+(r.room_code||''); };
+
+  const payRows = [...raw.payments].sort((a,b)=>sortKey(a).localeCompare(sortKey(b))).map(r=>{
+    const p = propOf(r.property_id);
+    return [MONTHS[r.month-1], p.condo||'', p.unit||'', r.room_code||'', Number(r.amount||0), r.paid_on||'', r.remark||''];
+  });
+  XLSX.utils.book_append_sheet(wb,
+    _acctSheetFromRows(['Month','Condo','Unit','Room','Amount (RM)','Paid On','Remark'], payRows, 4),
+    'Rent Collection');
+
+  const airRows = [...raw.aircon].sort((a,b)=>sortKey(a).localeCompare(sortKey(b))).map(r=>{
+    const p = propOf(r.property_id);
+    return [MONTHS[r.month-1], p.condo||'', p.unit||'', r.room_code||'', Number(r.amount||0), r.topped_up_on||'', r.remark||''];
+  });
+  XLSX.utils.book_append_sheet(wb,
+    _acctSheetFromRows(['Month','Condo','Unit','Room','Amount (RM)','Topped Up On','Remark'], airRows, 4),
+    'Aircon Top-up');
+
+  const extRows = [...raw.extras].sort((a,b)=>sortKey(a).localeCompare(sortKey(b))).map(r=>{
+    const p = propOf(r.property_id);
+    return [MONTHS[r.month-1], p.condo||'', p.unit||'', r.description||'', Number(r.amount||0)];
+  });
+  XLSX.utils.book_append_sheet(wb,
+    _acctSheetFromRows(['Month','Condo','Unit','Description','Amount (RM)'], extRows, 4),
+    'Extra Income');
+}
+
+// Expenses_Export.xlsx — one sheet per category, same order as the
+// Expenses tab's own sub-tabs, each a flat listing.
+function _acctAddExpenseSheets(wb, props, raw){
+  const propOf = id => props.find(p=>p.id===id) || {};
+  const order = ['management_fee','rent_commission','cleaning','maintenance','balance_forward','other'];
+  order.forEach(cat=>{
+    const items = raw.expenses
+      .filter(e=>(e.category||'other')===cat)
+      .sort((a,b)=>{
+        const pa=propOf(a.property_id), pb=propOf(b.property_id);
+        const ka=(pa.condo||'')+(pa.unit||'')+String(a.month).padStart(2,'0');
+        const kb=(pb.condo||'')+(pb.unit||'')+String(b.month).padStart(2,'0');
+        return ka.localeCompare(kb);
+      })
+      .map(e=>{
+        const p = propOf(e.property_id);
+        return [MONTHS[e.month-1], p.condo||'', p.unit||'', e.description||'', Number(e.amount||0), e.expense_date||''];
+      });
+    XLSX.utils.book_append_sheet(wb,
+      _acctSheetFromRows(['Month','Condo','Unit','Description','Amount (RM)','Date'], items, 4),
+      EXP_CAT_LABELS[cat]);
+  });
 }
 
 async function generateAccountantExport(container){
@@ -6727,32 +6680,51 @@ async function generateAccountantExport(container){
   const setStatus = msg => { if(statusEl) statusEl.textContent = msg; };
   if(btn){ btn.disabled = true; btn.style.opacity = '.6'; btn.textContent = '⏳ Generating…'; }
 
-  try{
-    const wb = XLSX.utils.book_new();
+  let filesDone = 0;
+  const pause = () => new Promise(r=>setTimeout(r,400));
 
+  try{
     if(sel.property){
-      setStatus('Building Property sheet…');
+      setStatus('Exporting Property_Export.xlsx…');
+      const wb = XLSX.utils.book_new();
       _acctAddPropertySheet(wb);
+      XLSX.writeFile(wb, 'Property_Export.xlsx');
+      filesDone++;
+      await pause();
     }
     if(sel.tenant){
-      setStatus('Building Tenant sheet…');
+      setStatus('Exporting Tenant_Export.xlsx…');
+      const wb = XLSX.utils.book_new();
       await _acctAddTenantSheet(wb);
+      XLSX.writeFile(wb, 'Tenant_Export.xlsx');
+      filesDone++;
+      await pause();
     }
     if(sel.income || sel.expenses){
       const props = (state.properties||[]).filter(p=>p.active!==false)
         .sort((a,b)=>(a.condo+a.unit).localeCompare(b.condo+b.unit));
-      for(const mo of months){
-        setStatus(`Building ${MONTHS[mo-1]} ${year} sheet…`);
-        await _acctAddMonthSheet(wb, props, year, mo, sel.income, sel.expenses);
+      setStatus('Loading Income/Expense records…');
+      const raw = await _acctFetchIncomeExpenseRaw(year, months, props.map(p=>p.id));
+
+      if(sel.income){
+        setStatus(`Exporting Income_Export_${year}.xlsx…`);
+        const wb = XLSX.utils.book_new();
+        _acctAddIncomeSheets(wb, props, raw);
+        XLSX.writeFile(wb, `Income_Export_${year}.xlsx`);
+        filesDone++;
+        await pause();
+      }
+      if(sel.expenses){
+        setStatus(`Exporting Expenses_Export_${year}.xlsx…`);
+        const wb = XLSX.utils.book_new();
+        _acctAddExpenseSheets(wb, props, raw);
+        XLSX.writeFile(wb, `Expenses_Export_${year}.xlsx`);
+        filesDone++;
       }
     }
 
-    if(!wb.SheetNames.length){ toast('Nothing to export','warn'); return; }
-
-    const fname = `Accountant_Export_${todayISODateLocal()}.xlsx`;
-    XLSX.writeFile(wb, fname);
-    setStatus(`✅ Exported ${wb.SheetNames.length} sheet${wb.SheetNames.length!==1?'s':''} → ${fname}`);
-    toast('Exported → '+fname, 'ok');
+    setStatus(`✅ Exported ${filesDone} file${filesDone!==1?'s':''}`);
+    toast(`Exported ${filesDone} file${filesDone!==1?'s':''}`, 'ok');
   } catch(e){
     toast('Export failed: '+(e.message||e), 'bad');
     setStatus('❌ Export failed: '+(e.message||e));
