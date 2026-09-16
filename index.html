@@ -1873,9 +1873,10 @@
         <div class="hero-card hero-orange-light anim-hero" style="animation-delay:.35s">
           <div class="hero-label">🏦 Deposit Held</div>
           <div class="hero-value" id="stDeposit">RM –</div>
-          <div class="hero-sub" id="stDepositSub">room + carpark</div>
+          <div class="hero-sub" id="stDepositSub">room + carpark + key card</div>
         </div>
       </div>
+      <div id="depositBreakdown" class="help mb-3" style="margin-top:-6px"></div>
     </div>
 
     <!-- ====================================================== -->
@@ -7186,21 +7187,32 @@ function renderDashboardMetrics(){
     el.textContent = txt + ' · ' + monthName;
   });
 
-  // Total Deposit Collected — sum of room_deposit + carpark_deposit for every
-  // active tenant in the H2M-filtered set. Falls back to room/carpark rental
-  // when deposit hasn't been explicitly entered (mirrors the modal's defaulting
-  // logic so older tenants don't get counted as zero).
-  const totalDeposit = tenants.reduce((s, t)=>{
-    const rd = (t.room_deposit==null||t.room_deposit==='')
-              ? Number(t.room_rental||0)
-              : Number(t.room_deposit||0);
-    const cd = (t.carpark_deposit==null||t.carpark_deposit==='')
-              ? Number(t.carpark_rental||0)
-              : Number(t.carpark_deposit||0);
-    return s + rd + cd;
-  }, 0);
+  // Total Deposit Held — Room + Carpark + Key Card, every active tenant in
+  // the filtered set. Room/Carpark fall back to the room/carpark rental
+  // when no deposit was explicitly entered (mirrors the modal's defaulting
+  // logic so older tenants don't get counted as zero). Key Card deposit is
+  // a fixed RM 100 per key card, KL units only — JB units don't collect one.
+  const propByIdForDeposit = new Map(props.map(p=>[p.id, p]));
+  const KEY_CARD_DEPOSIT_RATE = 100;
+  let roomDepositHeld = 0, carparkDepositHeld = 0, keyCardDepositHeld = 0;
+  tenants.forEach(t=>{
+    roomDepositHeld += (t.room_deposit==null||t.room_deposit==='')
+      ? Number(t.room_rental||0)
+      : Number(t.room_deposit||0);
+    carparkDepositHeld += (t.carpark_deposit==null||t.carpark_deposit==='')
+      ? Number(t.carpark_rental||0)
+      : Number(t.carpark_deposit||0);
+    const p = propByIdForDeposit.get(t.property_id);
+    if(p && String(p.city||'').trim().toUpperCase()==='KL'){
+      keyCardDepositHeld += Number(t.key_card_set||0) * KEY_CARD_DEPOSIT_RATE;
+    }
+  });
+  const totalDeposit = roomDepositHeld + carparkDepositHeld + keyCardDepositHeld;
   if($('#stDeposit'))    $('#stDeposit').textContent    = 'RM ' + fmt(totalDeposit);
   if($('#stDepositSub')) $('#stDepositSub').textContent = tenants.length+' active tenant'+(tenants.length===1?'':'s');
+  const depositBreakdownEl = $('#depositBreakdown');
+  if(depositBreakdownEl) depositBreakdownEl.textContent =
+    `🏦 Room deposit held = RM ${fmt(roomDepositHeld)}   ·   🚗 Carpark deposit held = RM ${fmt(carparkDepositHeld)}   ·   🔑 Key card deposit held = RM ${fmt(keyCardDepositHeld)} (KL only, RM ${KEY_CARD_DEPOSIT_RATE}/card)`;
 
   // Own R2R Income — strictly properties that are BOTH model='R2R' AND
   // unit_type='own_unit'. Model and Unit Type are two independent filter
