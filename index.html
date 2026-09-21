@@ -8952,7 +8952,12 @@ function buildTAFields(tenant){
   const today = new Date();
   const dateStr = today.getDate()+' '+MONTHS_FULL[today.getMonth()]+' '+today.getFullYear();
   const fmtRM = v => v==null||v===''||isNaN(Number(v)) ? '' : Number(v).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const addr = [p.condo_address, p.condo, p.unit, p.city].filter(Boolean).join(', ');
+  // condo_address is already the FULL address (unit + condo name + street +
+  // postcode + state — see the property form/seed data), so it's used as-is.
+  // Appending condo/unit/city on top of it duplicated them at the end of
+  // every generated agreement's address line. Only fall back to building
+  // one from the parts when condo_address itself is blank.
+  const addr = p.condo_address || [p.condo, p.unit, p.city].filter(Boolean).join(', ');
   return {
     date:                   dateStr,
     name:                   t.name||'',
@@ -9309,7 +9314,11 @@ function buildSAFields(property){
     endDate = fmtDate(sd.toISOString().slice(0,10));
   }
 
-  const fullAddr = [p.condo_address, p.condo, p.unit, p.city].filter(Boolean).join(', ');
+  // condo_address is already the FULL address (unit + condo name + street +
+  // postcode + state), so it's used as-is — see the matching fix/comment in
+  // buildTAFields. Appending condo/unit/city again duplicated them at the
+  // end of every generated Service Agreement's address line.
+  const fullAddr = p.condo_address || [p.condo, p.unit, p.city].filter(Boolean).join(', ');
 
   return {
     date:            p.agreement_date ? fmtDate(p.agreement_date) : dateStr,
