@@ -2502,6 +2502,16 @@ let state = {
   acctExportMonths: [],       // selected month numbers (1-12) for Export to Accountant
 };
 
+// Key card deposit — RM 100 per key card, KL units only; JB units don't
+// collect one at all. Single source of truth shared by the Manager
+// dashboard's "Deposit Held" tile and the TA generator's "Keys Return
+// Security Deposit" merge field, so the two can never drift apart.
+const KEY_CARD_DEPOSIT_RATE = 100;
+function keyCardDepositAmount(property, keyCardCount){
+  const isKL = String((property||{}).city||'').trim().toUpperCase()==='KL';
+  return isKL ? Number(keyCardCount||0) * KEY_CARD_DEPOSIT_RATE : 0;
+}
+
 // Human-readable labels for expense categories
 const EXP_CAT_LABELS = {
   management_fee:  'Management Fee',
@@ -7193,7 +7203,6 @@ function renderDashboardMetrics(){
   // logic so older tenants don't get counted as zero). Key Card deposit is
   // a fixed RM 100 per key card, KL units only — JB units don't collect one.
   const propByIdForDeposit = new Map(props.map(p=>[p.id, p]));
-  const KEY_CARD_DEPOSIT_RATE = 100;
   let roomDepositHeld = 0, carparkDepositHeld = 0, keyCardDepositHeld = 0;
   tenants.forEach(t=>{
     roomDepositHeld += (t.room_deposit==null||t.room_deposit==='')
@@ -7202,10 +7211,7 @@ function renderDashboardMetrics(){
     carparkDepositHeld += (t.carpark_deposit==null||t.carpark_deposit==='')
       ? Number(t.carpark_rental||0)
       : Number(t.carpark_deposit||0);
-    const p = propByIdForDeposit.get(t.property_id);
-    if(p && String(p.city||'').trim().toUpperCase()==='KL'){
-      keyCardDepositHeld += Number(t.key_card_set||0) * KEY_CARD_DEPOSIT_RATE;
-    }
+    keyCardDepositHeld += keyCardDepositAmount(propByIdForDeposit.get(t.property_id), t.key_card_set);
   });
   const totalDeposit = roomDepositHeld + carparkDepositHeld + keyCardDepositHeld;
   if($('#stDeposit'))    $('#stDeposit').textContent    = 'RM ' + fmt(totalDeposit);
@@ -8958,6 +8964,11 @@ function buildTAFields(tenant){
   // every generated agreement's address line. Only fall back to building
   // one from the parts when condo_address itself is blank.
   const addr = p.condo_address || [p.condo, p.unit, p.city].filter(Boolean).join(', ');
+  // Keys Return Security Deposit — RM 100 per key card for KL units, RM 0
+  // for JB units (JB doesn't collect one). Same rule/rate as the Manager
+  // dashboard's "Key Card Deposit Held" tile — see keyCardDepositAmount().
+  const keyCardCount = Number(t.key_card_set||0);
+  const keyDepositAmt = keyCardDepositAmount(p, keyCardCount);
   return {
     date:                   dateStr,
     name:                   t.name||'',
@@ -8972,6 +8983,8 @@ function buildTAFields(tenant){
     roomDeposit:            fmtRM(t.room_deposit==null||t.room_deposit==='' ? t.room_rental : t.room_deposit),
     carparkDeposit:         fmtRM(t.carpark_deposit==null||t.carpark_deposit==='' ? t.carpark_rental : t.carpark_deposit),
     keyCardSet:             t.key_card_set==null||t.key_card_set===''?'':String(t.key_card_set),
+    keyDepositAmount:       String(keyDepositAmt),
+    keysReturnDeposit:      `RM ${keyDepositAmt} = ${keyCardCount} card${keyCardCount===1?'':'s'}`,
     nationality:            t.nationality||'',
     gender:                 t.gender||'',
     maritalStatus:          t.marital_status||'',
@@ -9007,7 +9020,8 @@ const TA_FIELD_LABELS = {
   moveInDate:'Move-in Date', moveOutDate:'Move-out Date',
   roomRental:'Room Rental (RM)', carparkRental:'Carpark Rental (RM)',
   roomDeposit:'Room Deposit (RM)', carparkDeposit:'Carpark Deposit (RM)',
-  keyCardSet:'Key Card Set', nationality:'Nationality', gender:'Gender',
+  keyCardSet:'Key Card Set', keyDepositAmount:'Key Deposit Amount (RM)',
+  keysReturnDeposit:'Keys Return Security Deposit', nationality:'Nationality', gender:'Gender',
   maritalStatus:'Marital Status', company:'Company', occupation:'Occupation',
   noOfStaying:'No. of Staying', contact:'Contact', email:'Email',
   emergencyContactName:'Emergency Name', emergencyContactNumber:'Emergency Contact',
