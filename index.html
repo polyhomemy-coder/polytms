@@ -8873,9 +8873,14 @@ async function _fetchTATemplateFromSupabase(){
   } catch(e){ console.warn('[polyTMS] Supabase template fetch failed:', e); }
 }
 function _getStoredTATemplate(){ return _taTemplateCache || ''; }
+// Returns {synced:true} only when the file genuinely made it to Supabase
+// Storage (the shared "server" copy every other user's browser reads from).
+// The caller MUST check this — a local-only save is not enough for other
+// users/devices to see the new template.
 async function _setStoredTATemplate(b64, file){
   _taTemplateCache = b64 || '';
-  // 1) Save to local IndexedDB cache
+  // 1) Save to local IndexedDB cache (best-effort speed/offline copy —
+  //    failure here doesn't block the server sync below).
   try { await _idbSet(TA_TEMPLATE_KEY, _taTemplateCache); }
   catch(e){
     const sizeKB = b64 ? Math.round((b64.length * 3 / 4) / 1024) : 0;
@@ -8884,12 +8889,21 @@ async function _setStoredTATemplate(b64, file){
       toast(`⚠ Browser storage full — TA template (${sizeKB} KB) was NOT saved locally.`, 'bad');
     }
   }
-  // 2) Upload to Supabase Storage so all users/devices share the same template
-  if(file){
-    try {
-      const {error} = await sb.storage.from('tms-templates').upload('TA_template.docx', file, {upsert:true, contentType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
-      if(error) console.warn('[polyTMS] Supabase template upload failed:', error.message);
-    } catch(e){ console.warn('[polyTMS] Supabase template upload error:', e); }
+  // 2) Upload to Supabase Storage so all users/devices share the same
+  //    template. This is the part that actually matters for "other users
+  //    see it too" — its result is returned instead of just console.warn'd
+  //    so the UI can tell the manager the truth instead of a blind "synced".
+  if(!file) return {synced:false, error:'No file to sync'};
+  try {
+    const {error} = await sb.storage.from('tms-templates').upload('TA_template.docx', file, {upsert:true, contentType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+    if(error){
+      console.warn('[polyTMS] Supabase template upload failed:', error.message);
+      return {synced:false, error: error.message};
+    }
+    return {synced:true};
+  } catch(e){
+    console.warn('[polyTMS] Supabase template upload error:', e);
+    return {synced:false, error: e.message||String(e)};
   }
 }
 // Approx % of localStorage quota currently used (best-effort; 5MB assumed).
@@ -8907,6 +8921,13 @@ async function _clearStoredTATemplate(){
   _taTemplateCache = '';
   try { await _idbDel(TA_TEMPLATE_KEY); } catch(_){}
   try { localStorage.removeItem(TA_TEMPLATE_KEY); } catch(_){} // legacy cleanup
+  // Also remove the shared copy on Supabase Storage — otherwise it just
+  // sits there and gets silently re-downloaded the next time any device
+  // (including this one) checks the server, making "Remove" a no-op.
+  try {
+    const {error} = await sb.storage.from('tms-templates').remove(['TA_template.docx']);
+    if(error) console.warn('[polyTMS] Supabase template remove failed:', error.message);
+  } catch(e){ console.warn('[polyTMS] Supabase template remove error:', e); }
 }
 function _arrayBufferToBase64(buf){
   const bytes = new Uint8Array(buf);
@@ -8995,8 +9016,13 @@ const TA_FIELD_LABELS = {
 async function openGenerateTAModal(tenantId){
   const t = state.tenants.find(x=>x.id===tenantId);
   if(!t) return toast('Tenant not found','bad');
-  // If no local cache, try fetching from Supabase Storage silently first
-  if(!_getStoredTATemplate()) await _fetchTATemplateFromSupabase();
+  // Always check Supabase for the latest master template — a manager may
+  // have uploaded a newer version from another device/session since this
+  // one last cached it. The local IndexedDB copy is only a same-session
+  // fallback if this fetch fails (e.g. offline), never a "checked once,
+  // done forever" cache — otherwise an admin who already has any cached
+  // template would never see a version the manager re-uploads later.
+  await _fetchTATemplateFromSupabase();
   const fields = buildTAFields(t);
   const hasTpl = !!_getStoredTATemplate();
   // Secondary fields are only required when the contract has 2 occupants;
@@ -9067,7 +9093,11 @@ async function openGenerateTAModal(tenantId){
 //  that's used for ALL tenants. Opens from the "📝 Edit Master
 //  Template" button at the top of openGenerateTAModal.
 // ============================================================
-function openTAEditTemplateModal(returnToTenantId){
+async function openTAEditTemplateModal(returnToTenantId){
+  // Refresh from Supabase first so the status shown (and the "Remove"
+  // button) always reflects the real shared copy, not a stale local cache
+  // from a previous session or a different device.
+  await _fetchTATemplateFromSupabase();
   const hasTpl = !!_getStoredTATemplate();
   const sizeKB = hasTpl ? Math.round((_getStoredTATemplate().length * 3 / 4) / 1024) : 0;
 
@@ -9122,8 +9152,15 @@ async function taOnMasterTemplateUpload(ev, returnToTenantId){
   try{
     const buf = await f.arrayBuffer();
     const b64 = _arrayBufferToBase64(buf);
-    await _setStoredTATemplate(b64, f); // pass file for Supabase upload
-    toast('Master template saved & synced — all users will use this template from now on ✓');
+    const result = await _setStoredTATemplate(b64, f); // pass file for Supabase upload
+    if(result.synced){
+      toast('Master template saved & synced — all users will use this template from now on ✓');
+    } else {
+      // Do NOT claim success — this device has it, but nobody else will
+      // until the server-side sync actually works. Surface the real reason
+      // instead of a false "✓ synced".
+      toast(`⚠ Saved on this device only — server sync failed: ${result.error}. Other users/admins won't see it yet.`, 'bad');
+    }
     openTAEditTemplateModal(returnToTenantId);
   }catch(e){
     toast('Failed to read template: '+e.message,'bad');
