@@ -8866,12 +8866,28 @@ async function _hydrateTATemplate(){
   await _fetchTATemplateFromSupabase();
 }
 
+// Downloads a file from the (private) 'tms-templates' bucket, bypassing ALL
+// HTTP caching. Supabase's storage upload defaults to a 1-hour cache-control
+// header, so a plain `.download()` call can keep returning a browser-cached
+// STALE copy for up to an hour after a manager re-uploads a new version —
+// even though the server-side file is already correct, and a page
+// hard-refresh does NOT fix it (that only bypasses cache for the page's own
+// initial resources, not a later JS-triggered storage fetch). A signed URL
+// carries a fresh, unique token on every call, so the browser can never key
+// a cache hit against "the same" URL from a previous request — combined
+// with `cache:'no-store'` as a belt-and-suspenders measure.
+async function _downloadTemplateFresh(filename){
+  const {data: signed, error: signErr} = await sb.storage.from('tms-templates').createSignedUrl(filename, 60);
+  if(signErr || !signed || !signed.signedUrl) throw signErr || new Error('Could not get a download link');
+  const resp = await fetch(signed.signedUrl, {cache:'no-store'});
+  if(!resp.ok) throw new Error('Download failed: HTTP '+resp.status);
+  return resp.arrayBuffer();
+}
+
 // Download TA template from Supabase Storage → cache locally
 async function _fetchTATemplateFromSupabase(){
   try {
-    const {data, error} = await sb.storage.from('tms-templates').download('TA_template.docx');
-    if(error || !data) return;
-    const buf = await data.arrayBuffer();
+    const buf = await _downloadTemplateFresh('TA_template.docx');
     const b64 = _arrayBufferToBase64(buf);
     _taTemplateCache = b64;
     // Save to local IndexedDB so next open is instant
@@ -8901,7 +8917,10 @@ async function _setStoredTATemplate(b64, file){
   //    so the UI can tell the manager the truth instead of a blind "synced".
   if(!file) return {synced:false, error:'No file to sync'};
   try {
-    const {error} = await sb.storage.from('tms-templates').upload('TA_template.docx', file, {upsert:true, contentType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+    // cacheControl:'0' — without this, Supabase defaults to a 1-hour cache
+    // header, which is what caused the stale-download bug this comment is
+    // next to fixing (see _downloadTemplateFresh above).
+    const {error} = await sb.storage.from('tms-templates').upload('TA_template.docx', file, {upsert:true, cacheControl:'0', contentType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
     if(error){
       console.warn('[polyTMS] Supabase template upload failed:', error.message);
       return {synced:false, error: error.message};
@@ -9267,12 +9286,12 @@ async function _loadSATemplateCache(){
   } catch(_){}
   await _fetchSATemplateFromSupabase();
 }
-// Download SA template from Supabase Storage → cache locally.
+// Download SA template from Supabase Storage → cache locally. Uses
+// _downloadTemplateFresh (see _fetchTATemplateFromSupabase above) to bypass
+// the browser HTTP cache — same stale-download issue applies here too.
 async function _fetchSATemplateFromSupabase(){
   try {
-    const {data, error} = await sb.storage.from('tms-templates').download('SA_template.docx');
-    if(error || !data) return;
-    const buf = await data.arrayBuffer();
+    const buf = await _downloadTemplateFresh('SA_template.docx');
     const b64 = _arrayBufferToBase64(buf);
     _saTemplateCache = b64;
     try { await _idbSet(SA_TEMPLATE_KEY, b64); } catch(_){}
@@ -9291,7 +9310,7 @@ async function _setStoredSATemplate(b64, file){
   }
   if(!file) return {synced:false, error:'No file to sync'};
   try {
-    const {error} = await sb.storage.from('tms-templates').upload('SA_template.docx', file, {upsert:true, contentType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+    const {error} = await sb.storage.from('tms-templates').upload('SA_template.docx', file, {upsert:true, cacheControl:'0', contentType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
     if(error){
       console.warn('[polyTMS] Supabase SA template upload failed:', error.message);
       return {synced:false, error: error.message};
