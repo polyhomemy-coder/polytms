@@ -12189,9 +12189,24 @@ async function prefillPayments(){
   // (only the carpark portion is added when the tenant's carpark belongs to
   // THIS property — cross-property carparks are billed via the OTHER
   // property's prefill so the money lands where it was actually received).
+  //
+  // Pro-rate aware: if this reporting month is the tenant's actual move-in
+  // or move-out month, prefill the PRO-RATED share (what they actually owe
+  // for the partial month) via the same _proRateInsertRows() every other
+  // pro-rate flow in the app uses — not the full month's rental. Prefilling
+  // a full-month figure here meant the ledger (and its Excel/PDF export)
+  // showed "tenant paid a full month" even when they'd only actually paid/
+  // owed a partial pro-rated amount, which never reconciled against the
+  // bank statement.
   tenants.forEach(t=>{
     if(!t.room_code) return;
     if(existing.find(e=>e.item_type==='room' && (e.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase())) return;
+    const fp = computeFirstMonthProRate(t, state.year, state.month);
+    if(fp){ rows.push(..._proRateInsertRows(t, fp, state.year, state.month, false)); return; }
+    const lp = computeLastMonthProRate(t);
+    if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month){
+      rows.push(..._proRateInsertRows(t, lp, state.year, state.month, true)); return;
+    }
     let amt = Number(t.room_rental||0);
     const cpProp = t.carpark_property_id || t.property_id;
     if(t.carpark && t.carpark!=='NA' && Number(t.carpark_rental||0)>0 && cpProp===pid){
