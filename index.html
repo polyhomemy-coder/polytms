@@ -8274,6 +8274,123 @@ function recontractTenant(id){
   }, 0);
 }
 
+// Every (year, month) strictly before (beforeY, beforeM), starting at
+// (fromY, fromM), that ISN'T locked yet for this property.
+function _unlockedMonthsBefore(propId, fromY, fromM, beforeY, beforeM){
+  const months = [];
+  let y = fromY, m = fromM;
+  while(y < beforeY || (y === beforeY && m < beforeM)){
+    if(!isReportLocked(propId, y, m)) months.push({y, m});
+    m++; if(m>12){ m=1; y++; }
+  }
+  return months;
+}
+
+// ============================================================
+//  ADD CARPARK MID-TENANCY
+// ============================================================
+// A tenant's room and carpark share ONE agreement_start/agreement_end pair
+// on the tenants table — there's no separate "carpark start date" field.
+// So directly typing a carpark into the plain Edit Tenant form makes the
+// system treat it as if it had existed since the tenant's ORIGINAL move-in
+// date: Rent Collection Status would immediately start expecting carpark
+// rent for every past month of the tenancy, flagging months that were
+// actually paid correctly at the time as "Unmatch".
+//
+// This guided action doesn't change that data model (still one carpark
+// field, no new schema) — it just does the two things that actually matter
+// at the moment of the real-world event: post the correct payment for the
+// month the carpark truly starts (pro-rated if not the 1st), and warn if
+// earlier months for this tenancy aren't locked yet, since those are the
+// ones that would start showing the "Unmatch" side effect once saved.
+function openAddCarparkModal(id){
+  const t = state.tenants.find(x=>x.id===id); if(!t) return;
+  if(t.active===false) return toast('Reactivate the tenant first before adding a carpark','warn');
+  if(t.carpark && t.carpark!=='NA') return toast('This tenant already has a carpark — edit it from the regular Edit form','warn');
+  const today = todayISODateLocal();
+
+  openModal(`Add Carpark — ${t.name}`, `
+    <div class="space-y-3">
+      <div class="rounded-xl bg-[#E8F4FD] border border-[#BAD8F0] px-3 py-2 text-xs leading-relaxed text-slate-700">
+        For a carpark added <b>partway through</b> an existing tenancy. This posts the correct payment for the start month (pro-rated if it's not the 1st) and checks whether earlier months need locking first.
+      </div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div><label class="label">Carpark Lot *</label><input id="ac_lot" class="input" placeholder="e.g. P3-448"></div>
+        <div><label class="label">Start Date *</label><input type="date" id="ac_start" class="input" value="${today}"></div>
+        <div><label class="label">Carpark Rental (RM) *</label><input type="number" step="0.01" min="0" id="ac_rental" class="input"></div>
+        <div><label class="label">Carpark Deposit (RM) <span class="help">defaults to rental</span></label><input type="number" step="0.01" min="0" id="ac_deposit" class="input" placeholder="auto = carpark rental"></div>
+      </div>
+      <div class="help">Cross-property carpark (belongs to a different unit than the room)? Use the regular <b>Edit Tenant</b> form instead — this quick action only covers a carpark at the tenant's own property.</div>
+    </div>`,
+    async ()=>{
+      const lot    = ($('#ac_lot').value||'').trim();
+      const start  = $('#ac_start').value;
+      const rental = Number($('#ac_rental').value)||0;
+      const depositRaw = $('#ac_deposit').value;
+      if(!lot) throw new Error('Enter the carpark lot code');
+      if(!start) throw new Error('Enter the start date');
+      if(!(rental>0)) throw new Error('Enter the carpark rental');
+      const [sy, sm, sd] = start.split('-').map(Number);
+      requireReportEditable(t.property_id, sy, sm);
+
+      // Warn about earlier unlocked months for this tenancy — they're the
+      // ones that will start showing "Unmatch" on Rent Collection Status
+      // the moment carpark_rental is saved onto the tenant, since that tab
+      // has no way to know the carpark wasn't owed back then. The
+      // underlying income figures for those months are NOT changed by
+      // this — this is a heads-up about a display-only side effect.
+      const tsStart = t.agreement_start ? parseISODateLocal(t.agreement_start) : null;
+      if(tsStart){
+        const unlocked = _unlockedMonthsBefore(t.property_id, tsStart.getFullYear(), tsStart.getMonth()+1, sy, sm);
+        if(unlocked.length){
+          const list = unlocked.map(u=>MONTHS[u.m-1]+' '+u.y).join(', ');
+          const proceed = await confirmModal(
+            `${unlocked.length} earlier month(s) for this tenancy aren't locked yet: ${list}.\n\n`+
+            `Once this carpark is saved, Rent Collection Status will show those months as "Unmatch" (it will now expect a carpark rental they didn't actually owe back then). The recorded income for those months is unaffected — this is a display-only side effect on that one tab.\n\n`+
+            `Recommended: Cancel, lock those months first (Income Report → Admin Check + Manager Verify), then add the carpark. Or continue anyway if that's acceptable.`,
+            {confirmText:'Continue Anyway', cancelText:'Cancel', danger:true}
+          );
+          if(!proceed) return;
+        }
+      }
+
+      const daysInMonth  = new Date(sy, sm, 0).getDate();
+      const daysOccupied = daysInMonth - sd + 1;
+      const isProRate    = sd !== 1;
+      const amount       = isProRate ? Math.ceil(rental * daysOccupied / daysInMonth) : rental;
+      const deposit      = (depositRaw==='' || depositRaw==null) ? rental : Number(depositRaw)||0;
+
+      const {error: tErr} = await sb.from('tenants').update({
+        carpark: lot, carpark_rental: rental, carpark_deposit: deposit,
+        updated_at: new Date().toISOString(),
+      }).eq('id', t.id);
+      if(tErr) throw tErr;
+
+      const remark = isProRate
+        ? `🅿️ Carpark ${lot} added mid-tenancy, starts ${fmtDate(start)}: RM ${rental}/${daysInMonth}×${daysOccupied} = RM ${amount}`
+        : `🅿️ Carpark ${lot} added mid-tenancy, starts ${fmtDate(start)} (full month)`;
+      const {error: pErr} = await sb.from('rental_payments').insert({
+        property_id: t.property_id, year: sy, month: sm,
+        item_type: 'carpark', room_code: normCarpark(lot),
+        amount, paid_on: start, remark,
+      });
+      if(pErr) throw pErr;
+
+      await loadTenants();
+      // Only the currently-viewed month's payment list needs a live refresh;
+      // an insert for a different month is already saved, just not shown
+      // until the user navigates there.
+      if(sy===state.year && sm===state.month){
+        await loadPayments();
+        await syncDerivedExpenses(sy, sm);
+      }
+      renderTab('tenants');
+      toast(`Carpark ${lot} added · RM ${fmt(amount)} posted for ${MONTHS[sm-1]} ${sy}${isProRate?' (pro-rated)':''}`);
+    },
+    'Add Carpark'
+  );
+}
+
 async function moveOutTenant(id){
   const t = state.tenants.find(x=>x.id===id); if(!t) return;
   const today = todayISODateLocal();
@@ -8745,9 +8862,12 @@ function openTenantView(id){
   const moDetailsBtn = t.active===false
     ? `<button class="bg-[#FFF4E5] text-[#F4811F] px-4 py-2 rounded-xl text-sm font-bold ml-2" onclick="closeModal();openMoveOutDetails('${t.id}')">${iconBtn(ICON.edit,'Move-out details')}</button>`
     : '';
+  const addCarparkBtn = (t.active!==false && (!t.carpark || t.carpark==='NA'))
+    ? `<button class="bg-[#FFF7ED] text-[#BF8355] px-4 py-2 rounded-xl text-sm font-bold ml-2 border border-[#FCE3C8]" onclick="closeModal();openAddCarparkModal('${t.id}')" title="Add a carpark mid-tenancy without misdating past months">🅿️ Add Carpark</button>`
+    : '';
   $('#modalFoot').innerHTML = `
     <button class="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100" onclick="closeModal()">Close</button>
-    ${taBtn}${moDetailsBtn}${editBtn}`;
+    ${taBtn}${moDetailsBtn}${addCarparkBtn}${editBtn}`;
   $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex');
 }
 
