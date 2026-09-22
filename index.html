@@ -2048,6 +2048,8 @@
           <select id="paySelProp" class="input !w-auto !text-xs"></select>
           <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#EEF7F8] text-[color:var(--brand)] border border-[color:var(--line)]" onclick="openReceiptUpload()">📤 Upload Receipts</button>
           <button class="btn-accent px-4 py-2 rounded-xl text-sm font-bold" onclick="prefillPayments()">⚡ Prefill from tenancy</button>
+          <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#DCFCE7] text-[#065F46] border border-[#86EFAC] hover:bg-[#BBF7D0]" onclick="exportPaymentsXlsx()">📊 Export Excel</button>
+          <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#FEE2E2] text-[#991B1B] border border-[#FCA5A5] hover:bg-[#FECACA]" onclick="exportPaymentsPdf()">📄 Export PDF</button>
           <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openPaymentModal()">+ Add Row</button>
         </div>
       </div>
@@ -2058,7 +2060,7 @@
         </div>
         <div class="overflow-x-auto"><table class="data" id="payTable"></table></div>
       </div>
-      <p class="help mt-2"><b>Upload Receipts</b> auto-extracts unit, room, amount and date from bank-transfer PDFs/images. &nbsp;·&nbsp; <b>Prefill from tenancy</b> copies this property's tenancy list (rooms + carparks) into this month, so you just have to tick/adjust.</p>
+      <p class="help mt-2"><b>Upload Receipts</b> auto-extracts unit, room, amount and date from bank-transfer PDFs/images. &nbsp;·&nbsp; <b>Prefill from tenancy</b> copies this property's tenancy list (rooms + carparks) into this month, so you just have to tick/adjust. &nbsp;·&nbsp; <b>Export Excel/PDF</b> exports exactly what's shown here (Condo, Unit, Room, Tenant, Amount, Paid On, Remark) for reconciling against your bank statement.</p>
     </div>
 
     <!-- SUB-PANE: RENT COLLECTION STATUS ------------------------ -->
@@ -9976,6 +9978,117 @@ function renderPayments(){
       commitInlinePayment(tr);
     });
     host._inlineBound = true;
+  }
+}
+
+// Same filter (selected property, or the global sidebar filter) and sort
+// order as renderPayments() itself, so an export always matches exactly
+// what's currently shown on screen in the Payments Ledger.
+function _paymentLedgerExportRows(){
+  const pid = $('#paySelProp')?.value || '';
+  let list = pid ? state.payments.filter(p=>p.property_id===pid)
+    : state.payments.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
+  return [...list].sort((a,b)=>{
+    const pa = state.properties.find(x=>x.id===a.property_id);
+    const pb = state.properties.find(x=>x.id===b.property_id);
+    const kA = pa ? (pa.condo+' '+pa.unit) : 'zzz';
+    const kB = pb ? (pb.condo+' '+pb.unit) : 'zzz';
+    const pc = kA.localeCompare(kB);
+    if(pc) return pc;
+    return compareRoom(a.room_code, b.room_code);
+  });
+}
+// Tenant currently on this (property, room) — used to label each payment
+// row with a name so it's identifiable against a bank statement line.
+function _tenantForPaymentRow(r){
+  return state.tenants.find(x=>
+    x.property_id===r.property_id &&
+    (x.room_code||'').toUpperCase()===(r.room_code||'').toUpperCase()
+  );
+}
+
+function exportPaymentsXlsx(){
+  const list = _paymentLedgerExportRows();
+  if(!list.length){ toast('No payment rows to export','warn'); return; }
+  const monthLabel = MONTHS[state.month-1]+' '+state.year;
+  const total = list.reduce((s,x)=>s+Number(x.amount||0),0);
+  const dataRows = list.map(r=>{
+    const p = state.properties.find(x=>x.id===r.property_id);
+    const t = _tenantForPaymentRow(r);
+    return {
+      'Condo':                p ? p.condo : '',
+      'Unit':                 p ? p.unit : '',
+      'Room':                 'Room '+(r.room_code||''),
+      'Tenant Name':          t ? (t.name||'') : '',
+      'Amount Received (RM)': Number(r.amount||0),
+      'Paid On':              r.paid_on||'',
+      'Remark':               (r.remark||'').replace(/\s*·?\s*TranID:[^\s·]+/,'').trim(),
+    };
+  });
+  dataRows.push({'Condo':'','Unit':'','Room':'','Tenant Name':'TOTAL','Amount Received (RM)':total,'Paid On':'','Remark':''});
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(dataRows, { header:['Condo','Unit','Room','Tenant Name','Amount Received (RM)','Paid On','Remark'] });
+  ws['!cols'] = [{wch:16},{wch:10},{wch:10},{wch:24},{wch:18},{wch:14},{wch:50}];
+  for(let i=2;i<=dataRows.length;i++){ const cell = ws['E'+i]; if(cell) cell.z = '#,##0.00'; }
+  const totalRow = dataRows.length + 1;
+  ['A','B','C','D','E','F','G'].forEach(col=>{ const cell = ws[col+totalRow]; if(cell) cell.s = { font:{bold:true} }; });
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Payments Ledger');
+  XLSX.writeFile(wb, `Payments_Ledger_${monthLabel.replace(' ','_')}.xlsx`);
+  toast('Exported '+list.length+' payment row'+(list.length!==1?'s':'')+' → .xlsx');
+}
+
+async function loadPdfAutoTable(){
+  await loadPdfLibs();
+  await loadScript('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+}
+
+async function exportPaymentsPdf(){
+  const list = _paymentLedgerExportRows();
+  if(!list.length){ toast('No payment rows to export','warn'); return; }
+  try{
+    await loadPdfAutoTable();
+    const {jsPDF} = window.jspdf;
+    const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+    const monthLabel = MONTHS[state.month-1]+' '+state.year;
+    const fmtRM = n => Number(n||0).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const total = list.reduce((s,x)=>s+Number(x.amount||0),0);
+
+    doc.setFontSize(14); doc.setFont(undefined,'bold');
+    doc.text('Payments Ledger — '+monthLabel, 14, 15);
+    doc.setFontSize(9); doc.setFont(undefined,'normal'); doc.setTextColor(120);
+    doc.text('Generated '+fmtDate(todayISODateLocal())+' · '+list.length+' row'+(list.length!==1?'s':''), 14, 21);
+    doc.setTextColor(0);
+
+    const body = list.map(r=>{
+      const p = state.properties.find(x=>x.id===r.property_id);
+      const t = _tenantForPaymentRow(r);
+      return [
+        p ? p.condo : '', p ? p.unit : '', 'Room '+(r.room_code||''),
+        t ? (t.name||'') : '',
+        fmtRM(r.amount),
+        r.paid_on ? fmtDate(r.paid_on) : '',
+        (r.remark||'').replace(/\s*·?\s*TranID:[^\s·]+/,'').trim(),
+      ];
+    });
+
+    doc.autoTable({
+      startY: 26,
+      head: [['Condo','Unit','Room','Tenant','Amount (RM)','Paid On','Remark']],
+      body,
+      foot: [['','','','TOTAL', fmtRM(total), '', '']],
+      styles: { fontSize:8, cellPadding:2 },
+      headStyles: { fillColor:[0,123,138], textColor:255, fontStyle:'bold' },
+      footStyles: { fillColor:[232,248,250], textColor:[0,123,138], fontStyle:'bold' },
+      columnStyles: { 4:{ halign:'right' } },
+      margin: { left:14, right:14 },
+    });
+
+    doc.save(`Payments_Ledger_${monthLabel.replace(' ','_')}.pdf`);
+    toast('Exported '+list.length+' payment row'+(list.length!==1?'s':'')+' → .pdf');
+  }catch(e){
+    toast('PDF export failed: '+(e.message||e), 'bad');
   }
 }
 
