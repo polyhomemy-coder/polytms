@@ -5944,17 +5944,31 @@ function renderAdminDashboard(){
       const chip = f => `<span style="display:block;font-family:monospace;font-size:10.5px;color:${col};background:${bg};padding:2px 6px;border-radius:4px;margin-bottom:2px">${esc(f)}</span>`;
       let rentalLines = `RM ${clean(pr.roomFull)} room`;
       let formulaLines = chip(`RM ${clean(pr.roomFull)}/${pr.daysInMonth}×${pr.daysOccupied}`);
-      if(pr.sameCarpark){
+      let displayTotal = pr.roomShare;
+      // This panel is a per-TENANT, cross-property move summary — not a
+      // property-scoped revenue calc — so a carpark billed to a DIFFERENT
+      // property than the room should still show here. computeFirst/Last
+      // MonthProRate zeroes out carparkShare in that case (sameCarpark=
+      // false) specifically so the Income Report never attributes a
+      // cross-property carpark's income to the wrong property's revenue;
+      // that restriction doesn't apply to this overview, so the share is
+      // computed here from the always-populated carparkFull + ratio
+      // instead of relying on pr.carparkShare/pr.sameCarpark.
+      if(t.carpark && pr.carparkFull>0){
+        const share = pr.sameCarpark ? pr.carparkShare : Math.ceil(pr.carparkFull * pr.ratio);
         rentalLines += `<br>RM ${clean(pr.carparkFull)} carpark`;
         formulaLines += chip(`RM ${clean(pr.carparkFull)}/${pr.daysInMonth}×${pr.daysOccupied}`);
+        displayTotal += share;
       }
-      if(pr.sameCarpark2){
+      if(t.carpark2 && pr.carpark2Full>0){
+        const share2 = pr.sameCarpark2 ? pr.carpark2Share : Math.ceil(pr.carpark2Full * pr.ratio);
         rentalLines += `<br>RM ${clean(pr.carpark2Full)} carpark2`;
         formulaLines += chip(`RM ${clean(pr.carpark2Full)}/${pr.daysInMonth}×${pr.daysOccupied}`);
+        displayTotal += share2;
       }
       rentalCell=td(rentalLines,{right:true});
       formulaCell=td(formulaLines,{right:true});
-      proRateCell=td(`<b style="color:${col}">RM ${clean(pr.total)}</b>`,{right:true});
+      proRateCell=td(`<b style="color:${col}">RM ${clean(displayTotal)}</b>`,{right:true});
     }
     return `<tr>
       ${td(i+1,{muted:true})}
