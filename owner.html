@@ -1443,7 +1443,7 @@ function buildOwnerReportHTML(P, year, month, launchedRecord){
   const totRental  = lines.reduce((s,l) => s+l.rental,  0);
   const totAircond = lines.reduce((s,l) => s+l.aircond, 0);
 
-  const expRows = state.expenses.filter(e => { const d=new Date(e.date||''); return d.getFullYear()===year && d.getMonth()+1===month; }).map(e => ({desc:e.description||e.category||'—', amount:Number(e.amount||0)}));
+  const expRows = state.expenses.filter(e => e.year===year && e.month===month).map(e => ({desc:e.description||e.category||'—', amount:Number(e.amount||0)}));
   const totExp = expRows.reduce((s,x) => s+x.amount, 0);
 
   const extRows = state.extras.filter(e => e.year===year && e.month===month).map(e => ({desc:e.description||'—', amount:Number(e.amount||0)}));
@@ -1661,7 +1661,7 @@ function buildOwnerReportDesktopHTML(P,year,month,launchedRecord){
   const totRental=lines.reduce((s,l)=>s+l.rental,0);
   const totAircond=lines.reduce((s,l)=>s+l.aircond,0);
 
-  const expRows=state.expenses.filter(e=>{const d=new Date(e.date||'');return d.getFullYear()===year&&d.getMonth()+1===month;}).map(e=>({desc:e.description||e.category||'—',amount:Number(e.amount||0)}));
+  const expRows=state.expenses.filter(e=>e.year===year&&e.month===month).map(e=>({desc:e.description||e.category||'—',amount:Number(e.amount||0)}));
   const totExp=expRows.reduce((s,x)=>s+x.amount,0);
   const extRows=state.extras.filter(e=>e.year===year&&e.month===month).map(e=>({desc:e.description||'—',amount:Number(e.amount||0)}));
   const totExt=extRows.reduce((s,x)=>s+x.amount,0);
@@ -2040,7 +2040,7 @@ function renderYearlyContent(){
     const m=i+1;
     const income=state.payments.filter(p=>p.year===y&&p.month===m).reduce((s,p)=>s+Number(p.amount||0),0);
     const extras=state.extras.filter(e=>e.year===y&&e.month===m).reduce((s,e)=>s+Number(e.amount||0),0);
-    const exp=state.expenses.filter(e=>{const d=new Date(e.date||'');return d.getFullYear()===y&&d.getMonth()+1===m;}).reduce((s,e)=>s+Number(e.amount||0),0);
+    const exp=state.expenses.filter(e=>e.year===y&&e.month===m).reduce((s,e)=>s+Number(e.amount||0),0);
     const nett=income+extras-exp;
     return {mon:MONTHS[i],m,income,extras,exp,nett};
   });
@@ -2154,7 +2154,7 @@ function renderAirconContent(){
   const y=state.year;
   const monthly=MONTHS.map((_,i)=>{
     const m=i+1;
-    const airconTotal=state.aircon.filter(a=>{const d=new Date(a.date||'');return d.getFullYear()===y&&d.getMonth()+1===m;}).reduce((s,a)=>s+Number(a.amount||0),0);
+    const airconTotal=state.aircon.filter(a=>a.year===y&&a.month===m).reduce((s,a)=>s+Number(a.amount||0),0);
     const bill=state.elecBills.find(b=>b.year===y&&b.month===m);
     return {mon:MONTHS[i],m,airconTotal,elecBill:bill?.amount||0};
   });
@@ -2229,7 +2229,7 @@ function renderAirconContent(){
 
 function updateElecDiff(y,m){
   const val=Number($(`elec_${y}_${m}`)?.value||0);
-  const aircon=state.aircon.filter(a=>{const d=new Date(a.date||'');return d.getFullYear()===y&&d.getMonth()+1===m;}).reduce((s,a)=>s+Number(a.amount||0),0);
+  const aircon=state.aircon.filter(a=>a.year===y&&a.month===m).reduce((s,a)=>s+Number(a.amount||0),0);
   const ownerCost=Math.max(0,val-aircon);
   const el=$(`diff_${y}_${m}`); if(!el) return;
   if(val>0){
