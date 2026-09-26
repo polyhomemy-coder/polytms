@@ -15055,6 +15055,28 @@ document.addEventListener('keydown', (e)=>{
   }
 });
 
+// Esc closes whichever dialog is currently on top — the confirm dialog
+// (treated as Cancel, same as clicking outside it or its Cancel button)
+// takes priority since it can be stacked over the generic modal; otherwise
+// closes the generic modal (tenant profile view, edit forms, etc). Works
+// even while focus is inside a text field in the modal — Escape doesn't
+// collide with typing the way the arrow-key shortcuts above do, so it's
+// not restricted to non-input targets.
+document.addEventListener('keydown', (e)=>{
+  if(e.key !== 'Escape') return;
+  const confirmDlg = document.getElementById('confirmDlg');
+  if(confirmDlg && !confirmDlg.classList.contains('hidden')){
+    e.preventDefault();
+    document.getElementById('confirmDlgCancel')?.click();
+    return;
+  }
+  const modal = document.getElementById('modal');
+  if(modal && !modal.classList.contains('hidden')){
+    e.preventDefault();
+    closeModal();
+  }
+});
+
 // ============================================================
 //  RECEIPT UPLOAD & AUTO-EXTRACTION
 // ============================================================
