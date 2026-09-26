@@ -8139,9 +8139,18 @@ function recontractTenant(id){
   const oldRental    = Number(t.room_rental||0);
   const oldCarpark   = Number(t.carpark_rental||0);
   const hasCarpark   = !!(t.carpark || oldCarpark>0);
-  // The new period extends from the current agreement_end. If for some reason
-  // there's no end date on file, fall back to today so the math still works.
-  const fromDate = t.agreement_end || todayISODateLocal();
+  // The new term starts the day AFTER the current agreement_end (e.g. old
+  // end 30 Sep → new term starts 1 Oct) — NOT on the old end date itself.
+  // endFromTenure() expects to be handed the first day of the term; feeding
+  // it the raw old end date directly understated the auto-computed new end
+  // date by a day (a 4-month renewal from 30 Sep used to compute 29 Jan
+  // instead of the correct 31 Jan).
+  const oldEndParsed = t.agreement_end ? parseISODateLocal(t.agreement_end) : null;
+  const newTermStartDate = oldEndParsed
+    ? new Date(oldEndParsed.getFullYear(), oldEndParsed.getMonth(), oldEndParsed.getDate()+1)
+    : parseISODateLocal(todayISODateLocal());
+  const pad2 = n => String(n).padStart(2,'0');
+  const newTermStart = `${newTermStartDate.getFullYear()}-${pad2(newTermStartDate.getMonth()+1)}-${pad2(newTermStartDate.getDate())}`;
   // R2R + Own Unit = Polyhome's own subletted unit — there's no external
   // owner to charge a retention commission to, so the fee is forced to 0.
   // The expense row still gets posted (at RM 0) so the renewal is on record.
@@ -8151,7 +8160,7 @@ function recontractTenant(id){
   openModal('Recontract — '+t.name, `
     <div class="space-y-3">
       <div class="text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-3 py-2 leading-relaxed">
-        <b>Extend ${esc(t.name)}'s tenancy.</b> Optionally adjust the room/carpark price or override the end date. Posts a pro-rated Tenant Retention Fee for ${esc(MONTHS_FULL[state.month-1]+' '+state.year)} at <b>20% × (rental ÷ 12 × extension months)</b>.
+        <b>Extend ${esc(t.name)}'s tenancy.</b> Optionally adjust the room/carpark price or override the end date. Posts a pro-rated Tenant Retention Fee for ${esc(MONTHS_FULL[state.month-1]+' '+state.year)} at <b>20% × (rental ÷ 12 × extension months)</b>. The renewal's own start date is recorded so the Tenancy Agreement and tenure display for this term don't reflect the original move-in date.
       </div>
 
       <!-- Tenancy period -->
@@ -8160,10 +8169,13 @@ function recontractTenant(id){
         <div><label class="label">Current Agreement End</label>
           <input class="input" disabled value="${fmtDate(t.agreement_end)||'—'}">
         </div>
+        <div><label class="label">New Term Starts</label>
+          <input class="input" disabled value="${fmtDate(newTermStart)}">
+        </div>
         <div><label class="label">Extension (months) *</label>
           <input type="number" min="1" step="1" id="rc_months" class="input" value="12">
         </div>
-        <div class="md:col-span-2"><label class="label">New Agreement End <span class="help">(auto-calculated from extension — edit if you need a custom end date)</span></label>
+        <div><label class="label">New Agreement End <span class="help">(auto-calculated — edit for a custom end date)</span></label>
           <input type="date" id="rc_end" class="input">
         </div>
       </div>
@@ -8201,8 +8213,9 @@ function recontractTenant(id){
       // Unit — Polyhome doesn't charge itself a retention commission.
       const fee = isOwnR2R ? 0 : +((newRental / 12) * months * 0.2).toFixed(2);
 
-      // 1) Update the tenant — extend end + apply any price changes.
-      const tPatch = {agreement_end: newEnd, updated_at: new Date().toISOString()};
+      // 1) Update the tenant — extend end, record the new term's own start
+      //    date, + apply any price changes.
+      const tPatch = {agreement_end: newEnd, current_term_start: newTermStart, updated_at: new Date().toISOString()};
       if(newRental !== oldRental) tPatch.room_rental    = newRental;
       if(hasCarpark && newCp !== oldCarpark) tPatch.carpark_rental = newCp;
       const {error: tErr} = await sb.from('tenants').update(tPatch).eq('id', t.id);
@@ -8234,7 +8247,7 @@ function recontractTenant(id){
       const priceNote = (newRental!==oldRental||(hasCarpark&&newCp!==oldCarpark))
         ? ' · price updated'
         : '';
-      toast(`${t.name} recontracted +${months} mo · RM ${fmt(fee)} retention fee posted${priceNote}`);
+      toast(`${t.name} recontracted +${months} mo (${fmtDate(newTermStart)} – ${fmtDate(newEnd)}) · RM ${fmt(fee)} retention fee posted${priceNote}`);
     },
     'Recontract');
 
@@ -8272,7 +8285,7 @@ function recontractTenant(id){
     const syncEnd = ()=>{
       if(!endIsAuto) return; // user took control of the end date — don't overwrite
       const mo = Number(mEl?.value)||0;
-      if(eEl) eEl.value = mo>0 ? endFromTenure(fromDate, mo) : '';
+      if(eEl) eEl.value = mo>0 ? endFromTenure(newTermStart, mo) : '';
     };
     if(mEl){
       mEl.addEventListener('input', ()=>{ syncEnd(); renderPreview(); });
@@ -8691,6 +8704,13 @@ function openTenantView(id){
   const p = state.properties.find(x=>x.id===t.property_id);
   const mo = tenureMonths(t.agreement_start, t.agreement_end);
   const dte = daysToEnd(t);
+  // Set by recontractTenant() at renewal — the CURRENT term's own start
+  // date, distinct from agreement_start (which stays the ORIGINAL move-in
+  // date for the tenant's whole history). Shown as a separate note so a
+  // renewed tenancy doesn't read as one unbroken N-month contract when it's
+  // really an original term plus a later renewal.
+  const hasRenewal = t.current_term_start && t.current_term_start !== t.agreement_start;
+  const curTermMo = hasRenewal ? tenureMonths(t.current_term_start, t.agreement_end) : null;
   let statusBadge = '';
   if(t.active===false){
     statusBadge = `<span class="ml-2 px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-xs font-bold">📦 Moved Out${t.move_out_date?' · '+fmtDate(t.move_out_date):''}</span>`;
@@ -8839,6 +8859,10 @@ function openTenantView(id){
       row('Agreement End', fmtDate(t.agreement_end)),
       row('Tenure', mo!=null ? (mo+' months') : null)
     )}
+    ${hasRenewal ? `<div class="mt-1 mb-1 px-3 py-2 rounded-lg text-xs" style="background:#E8F8FA;color:var(--brand)">
+      🔄 <b>Current renewal term:</b> ${fmtDate(t.current_term_start)} – ${fmtDate(t.agreement_end)}${curTermMo!=null?' ('+curTermMo+' months)':''}
+      <span style="color:var(--muted)">· Original move-in ${fmtDate(t.agreement_start)}</span>
+    </div>` : ''}
 
     ${sec('Personal')}
     ${g3(
@@ -9108,7 +9132,15 @@ function _base64ToBinaryString(b64){
 function buildTAFields(tenant){
   const t = tenant || {};
   const p = state.properties.find(x=>x.id===t.property_id) || {};
-  const mo = tenureMonths(t.agreement_start, t.agreement_end);
+  // Once a tenant has been renewed (recontractTenant), current_term_start
+  // holds the CURRENT term's own commencement date — using it here instead
+  // of agreement_start (which never changes past the ORIGINAL move-in)
+  // means a renewed tenancy's TA shows the renewal's own start + duration
+  // (e.g. 1 Oct 2026, 4 months) instead of the full lifetime span since
+  // first move-in (e.g. 1 Apr 2026, 10 months). Falls back to
+  // agreement_start for a tenant who's never been renewed.
+  const termStart = t.current_term_start || t.agreement_start;
+  const mo = tenureMonths(termStart, t.agreement_end);
   const tenancyText = mo!=null ? (mo+' months') : '';
   const today = new Date();
   const dateStr = today.getDate()+' '+MONTHS_FULL[today.getMonth()]+' '+today.getFullYear();
@@ -9131,7 +9163,7 @@ function buildTAFields(tenant){
     address:                addr,
     room:                   t.room_code||'',
     tenancy:                tenancyText,
-    moveInDate:             t.agreement_start ? fmtDate(t.agreement_start) : '',
+    moveInDate:             termStart ? fmtDate(termStart) : '',
     moveOutDate:            t.agreement_end   ? fmtDate(t.agreement_end)   : '',
     roomRental:             fmtRM(t.room_rental),
     carparkRental:          fmtRM(t.carpark_rental),
