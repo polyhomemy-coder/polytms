@@ -8333,14 +8333,28 @@ function _unlockedMonthsBefore(propId, fromY, fromM, beforeY, beforeM){
 function openAddCarparkModal(id){
   const t = state.tenants.find(x=>x.id===id); if(!t) return;
   if(t.active===false) return toast('Reactivate the tenant first before adding a carpark','warn');
-  if(t.carpark && t.carpark!=='NA') return toast('This tenant already has a carpark — edit it from the regular Edit form','warn');
+  // Up to 2 carpark slots per tenant (carpark/carpark2 — the same fields
+  // the regular Edit Tenant form's "+ Add 2nd Carpark" uses). Fill
+  // whichever slot is free — a tenant who already has one carpark can
+  // still rent a second, they're not limited to a single lot for life.
+  const slot1Free = !t.carpark  || t.carpark==='NA';
+  const slot2Free = !t.carpark2 || t.carpark2==='NA';
+  if(!slot1Free && !slot2Free) return toast('This tenant already has 2 carparks (the max) — edit them from the regular Edit form','warn');
+  const slot = slot1Free ? 1 : 2;
+  const fCode = slot===1 ? 'carpark' : 'carpark2';
+  const fRent = slot===1 ? 'carpark_rental' : 'carpark2_rental';
+  const fDep  = slot===1 ? 'carpark_deposit' : 'carpark2_deposit';
   const today = todayISODateLocal();
+  const existingNote = !slot1Free
+    ? `<div class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 mb-1">Already has: <b>Carpark ${esc(t.carpark)}</b> · RM ${fmt(t.carpark_rental)}/mo</div>`
+    : '';
 
-  openModal(`Add Carpark — ${t.name}`, `
+  openModal(`Add ${slot===2?'2nd ':''}Carpark — ${t.name}`, `
     <div class="space-y-3">
       <div class="rounded-xl bg-[#E8F4FD] border border-[#BAD8F0] px-3 py-2 text-xs leading-relaxed text-slate-700">
-        For a carpark added <b>partway through</b> an existing tenancy. This posts the correct payment for the start month (pro-rated if it's not the 1st) and checks whether earlier months need locking first.
+        For a carpark added <b>partway through</b> an existing tenancy${slot===2?' — this will be their 2nd carpark':''}. This posts the correct payment for the start month (pro-rated if it's not the 1st) and checks whether earlier months need locking first.
       </div>
+      ${existingNote}
       <div class="grid md:grid-cols-2 gap-3">
         <div><label class="label">Carpark Lot *</label><input id="ac_lot" class="input" placeholder="e.g. P3-448"></div>
         <div><label class="label">Start Date *</label><input type="date" id="ac_start" class="input" value="${today}"></div>
@@ -8387,10 +8401,9 @@ function openAddCarparkModal(id){
       const amount       = isProRate ? Math.ceil(rental * daysOccupied / daysInMonth) : rental;
       const deposit      = (depositRaw==='' || depositRaw==null) ? rental : Number(depositRaw)||0;
 
-      const {error: tErr} = await sb.from('tenants').update({
-        carpark: lot, carpark_rental: rental, carpark_deposit: deposit,
-        updated_at: new Date().toISOString(),
-      }).eq('id', t.id);
+      const tPatch = { updated_at: new Date().toISOString() };
+      tPatch[fCode] = lot; tPatch[fRent] = rental; tPatch[fDep] = deposit;
+      const {error: tErr} = await sb.from('tenants').update(tPatch).eq('id', t.id);
       if(tErr) throw tErr;
 
       const remark = isProRate
@@ -8443,58 +8456,67 @@ function openChangeRoomModal(id){
   const t = state.tenants.find(x=>x.id===id); if(!t) return;
   if(t.active===false) return toast('Reactivate the tenant first before changing room','warn');
   if(!t.room_code) return toast('This tenant has no room on file','warn');
-  const p = state.properties.find(x=>x.id===t.property_id);
+  const oldProperty = state.properties.find(x=>x.id===t.property_id);
   const today = todayISODateLocal();
   const oldRental = Number(t.room_rental||0);
 
   openModal(`Change Room — ${t.name}`, `
     <div class="space-y-3">
       <div class="rounded-xl bg-[#E8F4FD] border border-[#BAD8F0] px-3 py-2 text-xs leading-relaxed text-slate-700">
-        Moving <b>${esc(t.name)}</b> from <b>Room ${esc(t.room_code)}</b> to a different room, keeping the same agreement dates. If the switch isn't on the 1st of the month, this posts a pro-rated split between the old and new room for that one month.
+        Moving <b>${esc(t.name)}</b> from <b>Room ${esc(t.room_code)}</b> to a different room — either within the same unit, or to a room at a completely different property/unit — keeping the same agreement dates. If the switch isn't on the 1st of the month, this posts a pro-rated split between the old and new room for that one month.
       </div>
-      <div class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">Current: <b>Room ${esc(t.room_code)}</b> · RM ${fmt(oldRental)}/mo</div>
+      <div class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">Current: <b>${oldProperty?esc(oldProperty.condo+' '+oldProperty.unit):'—'} · Room ${esc(t.room_code)}</b> · RM ${fmt(oldRental)}/mo</div>
+      <div><label class="label">New Property <span class="help">leave as current to stay in the same unit</span></label>${propPickerHTML(state.properties, t.property_id)}</div>
       <div class="grid md:grid-cols-2 gap-3">
         <div><label class="label">New Room Code *</label><input id="cr_room" class="input" placeholder="e.g. J" style="text-transform:uppercase"></div>
         <div><label class="label">Effective Date *</label><input type="date" id="cr_date" class="input" value="${today}"></div>
         <div><label class="label">New Room Rental (RM) *</label><input type="number" step="0.01" min="0" id="cr_rental" class="input" value="${oldRental}"></div>
         <div><label class="label">New Room Deposit (RM) <span class="help">leave blank to keep unchanged</span></label><input type="number" step="0.01" min="0" id="cr_deposit" class="input" placeholder="unchanged"></div>
       </div>
+      <div class="help">Moving to a different property leaves any existing carpark(s) attributed to the OLD property (they're not moved automatically) — use Add Carpark on the new unit separately if needed.</div>
       <div id="cr_preview" class="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs leading-relaxed hidden"></div>
     </div>`,
     async ()=>{
+      const newPropertyId = $('#f_prop').value;
       const newCode   = ($('#cr_room').value||'').trim().toUpperCase();
       const effDate   = $('#cr_date').value;
       const newRental = Number($('#cr_rental').value)||0;
       const depositRaw = $('#cr_deposit').value;
+      if(!newPropertyId) throw new Error('Select the property (defaults to the current one)');
       if(!newCode) throw new Error('Enter the new room code');
-      if(newCode === String(t.room_code||'').trim().toUpperCase()) throw new Error('New room code is the same as the current one');
+      const oldCode = String(t.room_code||'').trim().toUpperCase();
+      const propertyChanged = newPropertyId !== t.property_id;
+      if(!propertyChanged && newCode === oldCode) throw new Error('New room code is the same as the current one');
       if(!effDate) throw new Error('Enter the effective date');
       if(!(newRental>0)) throw new Error('Enter the new room rental');
       const [ey, em, ed] = effDate.split('-').map(Number);
-      requireReportEditable(t.property_id, ey, em);
+      const oldPropertyId = t.property_id;
+      requireReportEditable(newPropertyId, ey, em);
+      if(propertyChanged) requireReportEditable(oldPropertyId, ey, em);
 
-      // Refuse a room that's already occupied by someone else over the
-      // period this tenant would be moving into it.
+      // Refuse a room that's already occupied by someone else at the
+      // TARGET property over the period this tenant would be moving into it.
       const effEnd = t.agreement_end || '9999-12-31';
       const conflict = (state.tenants||[]).find(x=>
-        x.id!==t.id && x.property_id===t.property_id && x.active!==false &&
+        x.id!==t.id && x.property_id===newPropertyId && x.active!==false &&
         (x.room_code||'').trim().toUpperCase()===newCode &&
         !(x.agreement_end && x.agreement_end < effDate) &&
         !(x.agreement_start && x.agreement_start > effEnd)
       );
       if(conflict) throw new Error(`Room ${newCode} is already occupied by ${conflict.name} over that period`);
 
-      // Same earlier-unlocked-months warning as Add Carpark — those months
-      // will show a room mismatch on Rent Collection Status once the live
-      // room_code changes, since that tab has no per-room date history.
+      // Same earlier-unlocked-months warning as Add Carpark, scoped to the
+      // OLD property (that's whose historical Rent Collection Status will
+      // show a room/property mismatch once the live tenant record changes
+      // — that tab has no per-room-or-property date history).
       const tsStart = t.agreement_start ? parseISODateLocal(t.agreement_start) : null;
       if(tsStart){
-        const unlocked = _unlockedMonthsBefore(t.property_id, tsStart.getFullYear(), tsStart.getMonth()+1, ey, em);
+        const unlocked = _unlockedMonthsBefore(oldPropertyId, tsStart.getFullYear(), tsStart.getMonth()+1, ey, em);
         if(unlocked.length){
           const list = unlocked.map(u=>MONTHS[u.m-1]+' '+u.y).join(', ');
           const proceed = await confirmModal(
             `${unlocked.length} earlier month(s) for this tenancy aren't locked yet: ${list}.\n\n`+
-            `Once the room is changed, Rent Collection Status will show those months against Room ${newCode} (it has no way to know they were actually in Room ${t.room_code} back then). The recorded income for those months is unaffected — this is a display-only side effect.\n\n`+
+            `Once the room is changed, Rent Collection Status will show those months against the new room${propertyChanged?'/property':''} (it has no way to know they were actually in Room ${oldCode}${propertyChanged?' at '+esc(oldProperty?.condo+' '+oldProperty?.unit):''} back then). The recorded income for those months is unaffected — this is a display-only side effect.\n\n`+
             `Recommended: Cancel, lock those months first (Income Report → Admin Check + Manager Verify), then change the room. Or continue anyway if that's acceptable.`,
             {confirmText:'Continue Anyway', cancelText:'Cancel', danger:true}
           );
@@ -8502,13 +8524,13 @@ function openChangeRoomModal(id){
         }
       }
 
-      // Check for an existing old-room payment THIS effective month —
-      // gates whether it's safe to auto-post a pro-rated split (see header
-      // comment). Queried fresh from Supabase rather than state.payments,
-      // which is only scoped to whichever month is currently on-screen.
-      const oldCode = String(t.room_code||'').trim().toUpperCase();
+      // Check for an existing old-room payment THIS effective month — at
+      // the OLD property — gates whether it's safe to auto-post a
+      // pro-rated split (see header comment). Queried fresh from Supabase
+      // rather than state.payments, which is only scoped to whichever
+      // month is currently on-screen.
       const {data: monthRoomPay, error: exErr} = await sb.from('rental_payments')
-        .select('id,amount,room_code').eq('property_id', t.property_id).eq('year', ey).eq('month', em)
+        .select('id,amount,room_code').eq('property_id', oldPropertyId).eq('year', ey).eq('month', em)
         .eq('item_type','room');
       if(exErr) throw exErr;
       const existingOldPay = (monthRoomPay||[]).filter(x=>(x.room_code||'').trim().toUpperCase()===oldCode);
@@ -8516,7 +8538,6 @@ function openChangeRoomModal(id){
       const isMidMonth = ed !== 1;
       const daysInMonth = new Date(ey, em, 0).getDate();
       let splitNote = '';
-      let posted = false;
       if(isMidMonth && !(existingOldPay && existingOldPay.length)){
         const daysOld = ed - 1;
         const daysNew = daysInMonth - ed + 1;
@@ -8525,39 +8546,49 @@ function openChangeRoomModal(id){
         const rows = [];
         if(oldShare>0){
           rows.push({
-            property_id: t.property_id, year: ey, month: em,
+            property_id: oldPropertyId, year: ey, month: em,
             item_type: 'room', room_code: oldCode,
             amount: oldShare, paid_on: effDate,
             remark: `🔄 Room change: last ${daysOld} day(s) in Room ${oldCode}: RM ${oldRental}/${daysInMonth}×${daysOld} = RM ${oldShare}`,
           });
         }
         rows.push({
-          property_id: t.property_id, year: ey, month: em,
+          property_id: newPropertyId, year: ey, month: em,
           item_type: 'room', room_code: newCode,
           amount: newShare, paid_on: effDate,
           remark: `🔄 Room change: first ${daysNew} day(s) in Room ${newCode}: RM ${newRental}/${daysInMonth}×${daysNew} = RM ${newShare}`,
         });
         const {error: rErr} = await sb.from('rental_payments').insert(rows);
         if(rErr) throw rErr;
-        posted = true;
         splitNote = ` · posted RM ${fmt(oldShare)} (Room ${oldCode}) + RM ${fmt(newShare)} (Room ${newCode}) for ${MONTHS[em-1]} ${ey}`;
       } else if(isMidMonth){
         splitNote = ` · Room ${oldCode} already has a payment recorded for ${MONTHS[em-1]} ${ey} — review/adjust that month's entries yourself, nothing was auto-posted`;
       }
 
-      // Update the tenant — room + rate change only, agreement dates untouched.
+      // Update the tenant — room + rate (+ property, if changed) only;
+      // agreement dates untouched. If moving property, freeze any existing
+      // carpark's attribution to the OLD property explicitly — otherwise
+      // it would silently follow the room to the new property via the
+      // carpark_property_id||property_id fallback used everywhere else.
       const tPatch = { room_code: newCode, room_rental: newRental, updated_at: new Date().toISOString() };
       if(depositRaw!=='' && depositRaw!=null) tPatch.room_deposit = Number(depositRaw)||0;
+      if(propertyChanged){
+        tPatch.property_id = newPropertyId;
+        if(t.carpark  && !t.carpark_property_id)  tPatch.carpark_property_id  = oldPropertyId;
+        if(t.carpark2 && !t.carpark2_property_id) tPatch.carpark2_property_id = oldPropertyId;
+      }
       const {error: tErr} = await sb.from('tenants').update(tPatch).eq('id', t.id);
       if(tErr) throw tErr;
 
       await loadTenants();
-      if(ey===state.year && em===state.month){
+      if((ey===state.year && em===state.month)){
         await loadPayments();
         await syncDerivedExpenses(ey, em);
       }
       renderTab('tenants');
-      toast(`${t.name} moved from Room ${oldCode} to Room ${newCode}, effective ${fmtDate(effDate)}${splitNote}`);
+      const newProperty = state.properties.find(x=>x.id===newPropertyId);
+      const whereNote = propertyChanged ? ` at ${esc(newProperty?.condo+' '+newProperty?.unit)}` : '';
+      toast(`${t.name} moved from Room ${oldCode} to Room ${newCode}${whereNote}, effective ${fmtDate(effDate)}${splitNote}`);
     },
     'Change Room'
   );
@@ -9076,8 +9107,8 @@ function openTenantView(id){
   const moDetailsBtn = t.active===false
     ? `<button class="bg-[#FFF4E5] text-[#F4811F] px-4 py-2 rounded-xl text-sm font-bold ml-2" onclick="closeModal();openMoveOutDetails('${t.id}')">${iconBtn(ICON.edit,'Move-out details')}</button>`
     : '';
-  const addCarparkBtn = (t.active!==false && (!t.carpark || t.carpark==='NA'))
-    ? `<button class="bg-[#FFF7ED] text-[#BF8355] px-4 py-2 rounded-xl text-sm font-bold ml-2 border border-[#FCE3C8]" onclick="closeModal();openAddCarparkModal('${t.id}')" title="Add a carpark mid-tenancy without misdating past months">🅿️ Add Carpark</button>`
+  const addCarparkBtn = (t.active!==false && ((!t.carpark||t.carpark==='NA') || (!t.carpark2||t.carpark2==='NA')))
+    ? `<button class="bg-[#FFF7ED] text-[#BF8355] px-4 py-2 rounded-xl text-sm font-bold ml-2 border border-[#FCE3C8]" onclick="closeModal();openAddCarparkModal('${t.id}')" title="Add a carpark mid-tenancy without misdating past months — also works for a 2nd carpark">🅿️ Add Carpark</button>`
     : '';
   const changeRoomBtn = (t.active!==false && t.room_code)
     ? `<button class="bg-[#EEF7F8] text-[#1E5BB8] px-4 py-2 rounded-xl text-sm font-bold ml-2 border border-[#BAD8F0]" onclick="closeModal();openChangeRoomModal('${t.id}')" title="Move to a different room, keeping the same agreement dates">🔄 Change Room</button>`
