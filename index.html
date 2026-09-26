@@ -8418,6 +8418,182 @@ function openAddCarparkModal(id){
   );
 }
 
+// ============================================================
+//  CHANGE ROOM MID-TENANCY (e.g. "upgrade" from Room I to Room J)
+// ============================================================
+// Same underlying limitation as Add Carpark: room_code is a single field
+// with no date attached, so whatever it says applies to the tenant's whole
+// agreement_start–agreement_end span, past and future. Directly editing it
+// mid-month would make the system retroactively believe the tenant was
+// ALWAYS in the new room and NEVER in the old one — this month's
+// already-recorded old-room payment would stop matching the tenant, and
+// the new room's "expected" rent would assume a full month regardless of
+// which day the switch happened.
+//
+// This guided action: warns about unlocked earlier months (same as Add
+// Carpark), refuses a room that's already occupied by someone else, and —
+// only when it's unambiguous to do so safely — auto-posts the correct
+// pro-rated split for the switch month (old room's share for the days
+// before, new room's share for the days from the switch date on). If a
+// clean month-boundary switch (day 1) or an existing payment for the old
+// room this month is detected, nothing is auto-posted — there's nothing
+// special to compute for a plain full month, and auto-inserting on top of
+// an existing record risks double-counting income that's already there.
+function openChangeRoomModal(id){
+  const t = state.tenants.find(x=>x.id===id); if(!t) return;
+  if(t.active===false) return toast('Reactivate the tenant first before changing room','warn');
+  if(!t.room_code) return toast('This tenant has no room on file','warn');
+  const p = state.properties.find(x=>x.id===t.property_id);
+  const today = todayISODateLocal();
+  const oldRental = Number(t.room_rental||0);
+
+  openModal(`Change Room — ${t.name}`, `
+    <div class="space-y-3">
+      <div class="rounded-xl bg-[#E8F4FD] border border-[#BAD8F0] px-3 py-2 text-xs leading-relaxed text-slate-700">
+        Moving <b>${esc(t.name)}</b> from <b>Room ${esc(t.room_code)}</b> to a different room, keeping the same agreement dates. If the switch isn't on the 1st of the month, this posts a pro-rated split between the old and new room for that one month.
+      </div>
+      <div class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">Current: <b>Room ${esc(t.room_code)}</b> · RM ${fmt(oldRental)}/mo</div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div><label class="label">New Room Code *</label><input id="cr_room" class="input" placeholder="e.g. J" style="text-transform:uppercase"></div>
+        <div><label class="label">Effective Date *</label><input type="date" id="cr_date" class="input" value="${today}"></div>
+        <div><label class="label">New Room Rental (RM) *</label><input type="number" step="0.01" min="0" id="cr_rental" class="input" value="${oldRental}"></div>
+        <div><label class="label">New Room Deposit (RM) <span class="help">leave blank to keep unchanged</span></label><input type="number" step="0.01" min="0" id="cr_deposit" class="input" placeholder="unchanged"></div>
+      </div>
+      <div id="cr_preview" class="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs leading-relaxed hidden"></div>
+    </div>`,
+    async ()=>{
+      const newCode   = ($('#cr_room').value||'').trim().toUpperCase();
+      const effDate   = $('#cr_date').value;
+      const newRental = Number($('#cr_rental').value)||0;
+      const depositRaw = $('#cr_deposit').value;
+      if(!newCode) throw new Error('Enter the new room code');
+      if(newCode === String(t.room_code||'').trim().toUpperCase()) throw new Error('New room code is the same as the current one');
+      if(!effDate) throw new Error('Enter the effective date');
+      if(!(newRental>0)) throw new Error('Enter the new room rental');
+      const [ey, em, ed] = effDate.split('-').map(Number);
+      requireReportEditable(t.property_id, ey, em);
+
+      // Refuse a room that's already occupied by someone else over the
+      // period this tenant would be moving into it.
+      const effEnd = t.agreement_end || '9999-12-31';
+      const conflict = (state.tenants||[]).find(x=>
+        x.id!==t.id && x.property_id===t.property_id && x.active!==false &&
+        (x.room_code||'').trim().toUpperCase()===newCode &&
+        !(x.agreement_end && x.agreement_end < effDate) &&
+        !(x.agreement_start && x.agreement_start > effEnd)
+      );
+      if(conflict) throw new Error(`Room ${newCode} is already occupied by ${conflict.name} over that period`);
+
+      // Same earlier-unlocked-months warning as Add Carpark — those months
+      // will show a room mismatch on Rent Collection Status once the live
+      // room_code changes, since that tab has no per-room date history.
+      const tsStart = t.agreement_start ? parseISODateLocal(t.agreement_start) : null;
+      if(tsStart){
+        const unlocked = _unlockedMonthsBefore(t.property_id, tsStart.getFullYear(), tsStart.getMonth()+1, ey, em);
+        if(unlocked.length){
+          const list = unlocked.map(u=>MONTHS[u.m-1]+' '+u.y).join(', ');
+          const proceed = await confirmModal(
+            `${unlocked.length} earlier month(s) for this tenancy aren't locked yet: ${list}.\n\n`+
+            `Once the room is changed, Rent Collection Status will show those months against Room ${newCode} (it has no way to know they were actually in Room ${t.room_code} back then). The recorded income for those months is unaffected — this is a display-only side effect.\n\n`+
+            `Recommended: Cancel, lock those months first (Income Report → Admin Check + Manager Verify), then change the room. Or continue anyway if that's acceptable.`,
+            {confirmText:'Continue Anyway', cancelText:'Cancel', danger:true}
+          );
+          if(!proceed) return;
+        }
+      }
+
+      // Check for an existing old-room payment THIS effective month —
+      // gates whether it's safe to auto-post a pro-rated split (see header
+      // comment). Queried fresh from Supabase rather than state.payments,
+      // which is only scoped to whichever month is currently on-screen.
+      const oldCode = String(t.room_code||'').trim().toUpperCase();
+      const {data: monthRoomPay, error: exErr} = await sb.from('rental_payments')
+        .select('id,amount,room_code').eq('property_id', t.property_id).eq('year', ey).eq('month', em)
+        .eq('item_type','room');
+      if(exErr) throw exErr;
+      const existingOldPay = (monthRoomPay||[]).filter(x=>(x.room_code||'').trim().toUpperCase()===oldCode);
+
+      const isMidMonth = ed !== 1;
+      const daysInMonth = new Date(ey, em, 0).getDate();
+      let splitNote = '';
+      let posted = false;
+      if(isMidMonth && !(existingOldPay && existingOldPay.length)){
+        const daysOld = ed - 1;
+        const daysNew = daysInMonth - ed + 1;
+        const oldShare = daysOld>0 ? Math.ceil(oldRental * daysOld / daysInMonth) : 0;
+        const newShare = Math.ceil(newRental * daysNew / daysInMonth);
+        const rows = [];
+        if(oldShare>0){
+          rows.push({
+            property_id: t.property_id, year: ey, month: em,
+            item_type: 'room', room_code: oldCode,
+            amount: oldShare, paid_on: effDate,
+            remark: `🔄 Room change: last ${daysOld} day(s) in Room ${oldCode}: RM ${oldRental}/${daysInMonth}×${daysOld} = RM ${oldShare}`,
+          });
+        }
+        rows.push({
+          property_id: t.property_id, year: ey, month: em,
+          item_type: 'room', room_code: newCode,
+          amount: newShare, paid_on: effDate,
+          remark: `🔄 Room change: first ${daysNew} day(s) in Room ${newCode}: RM ${newRental}/${daysInMonth}×${daysNew} = RM ${newShare}`,
+        });
+        const {error: rErr} = await sb.from('rental_payments').insert(rows);
+        if(rErr) throw rErr;
+        posted = true;
+        splitNote = ` · posted RM ${fmt(oldShare)} (Room ${oldCode}) + RM ${fmt(newShare)} (Room ${newCode}) for ${MONTHS[em-1]} ${ey}`;
+      } else if(isMidMonth){
+        splitNote = ` · Room ${oldCode} already has a payment recorded for ${MONTHS[em-1]} ${ey} — review/adjust that month's entries yourself, nothing was auto-posted`;
+      }
+
+      // Update the tenant — room + rate change only, agreement dates untouched.
+      const tPatch = { room_code: newCode, room_rental: newRental, updated_at: new Date().toISOString() };
+      if(depositRaw!=='' && depositRaw!=null) tPatch.room_deposit = Number(depositRaw)||0;
+      const {error: tErr} = await sb.from('tenants').update(tPatch).eq('id', t.id);
+      if(tErr) throw tErr;
+
+      await loadTenants();
+      if(ey===state.year && em===state.month){
+        await loadPayments();
+        await syncDerivedExpenses(ey, em);
+      }
+      renderTab('tenants');
+      toast(`${t.name} moved from Room ${oldCode} to Room ${newCode}, effective ${fmtDate(effDate)}${splitNote}`);
+    },
+    'Change Room'
+  );
+
+  setTimeout(()=>{
+    const roomEl = $('#cr_room'), dateEl = $('#cr_date'), rentalEl = $('#cr_rental'), prev = $('#cr_preview');
+    const renderPreview = ()=>{
+      if(!prev) return;
+      const effDate = dateEl?.value;
+      if(!effDate){ prev.classList.add('hidden'); return; }
+      const [ey, em, ed] = effDate.split('-').map(Number);
+      if(ed === 1){
+        prev.classList.remove('hidden');
+        prev.innerHTML = `<div class="text-slate-600">Effective on the 1st — no split needed. Just record ${MONTHS_FULL[em-1]} ${ey}'s payment under the new room as usual.</div>`;
+        return;
+      }
+      const daysInMonth = new Date(ey, em, 0).getDate();
+      const daysOld = ed - 1, daysNew = daysInMonth - ed + 1;
+      const oldRentalNow = oldRental;
+      const newRentalNow = Math.max(0, Number(rentalEl?.value)||0);
+      const oldShare = daysOld>0 ? Math.ceil(oldRentalNow * daysOld / daysInMonth) : 0;
+      const newShare = Math.ceil(newRentalNow * daysNew / daysInMonth);
+      const newCodeNow = (roomEl?.value||'?').trim().toUpperCase()||'?';
+      prev.classList.remove('hidden');
+      prev.innerHTML = `
+        <div class="font-bold mb-1">Suggested split for ${MONTHS_FULL[em-1]} ${ey} (auto-posted if nothing's recorded yet for the old room this month)</div>
+        <div>Room ${esc(t.room_code)}: ${daysOld} day(s) = <b>RM ${fmt(oldShare)}</b> <span class="text-slate-500 text-[11px]">(RM ${fmt(oldRentalNow)}/${daysInMonth}×${daysOld})</span></div>
+        <div>Room ${esc(newCodeNow)}: ${daysNew} day(s) = <b>RM ${fmt(newShare)}</b> <span class="text-slate-500 text-[11px]">(RM ${fmt(newRentalNow)}/${daysInMonth}×${daysNew})</span></div>`;
+    };
+    if(roomEl) roomEl.addEventListener('input', renderPreview);
+    if(dateEl) dateEl.addEventListener('input', renderPreview);
+    if(rentalEl) rentalEl.addEventListener('input', renderPreview);
+    renderPreview();
+  }, 0);
+}
+
 async function moveOutTenant(id){
   const t = state.tenants.find(x=>x.id===id); if(!t) return;
   const today = todayISODateLocal();
@@ -8903,9 +9079,12 @@ function openTenantView(id){
   const addCarparkBtn = (t.active!==false && (!t.carpark || t.carpark==='NA'))
     ? `<button class="bg-[#FFF7ED] text-[#BF8355] px-4 py-2 rounded-xl text-sm font-bold ml-2 border border-[#FCE3C8]" onclick="closeModal();openAddCarparkModal('${t.id}')" title="Add a carpark mid-tenancy without misdating past months">🅿️ Add Carpark</button>`
     : '';
+  const changeRoomBtn = (t.active!==false && t.room_code)
+    ? `<button class="bg-[#EEF7F8] text-[#1E5BB8] px-4 py-2 rounded-xl text-sm font-bold ml-2 border border-[#BAD8F0]" onclick="closeModal();openChangeRoomModal('${t.id}')" title="Move to a different room, keeping the same agreement dates">🔄 Change Room</button>`
+    : '';
   $('#modalFoot').innerHTML = `
     <button class="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100" onclick="closeModal()">Close</button>
-    ${taBtn}${moDetailsBtn}${addCarparkBtn}${editBtn}`;
+    ${taBtn}${moDetailsBtn}${addCarparkBtn}${changeRoomBtn}${editBtn}`;
   $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex');
 }
 
@@ -12699,6 +12878,12 @@ function buildTenancySnapshot(propId, y, m){
     snap[String(t.id)] = {
       agreement_start: t.agreement_start || null,
       agreement_end:   t.agreement_end   || null,
+      // Start of the tenant's CURRENT (most recent) term as of lock time —
+      // see recontractTenant()/openTenantView's "Current renewal term"
+      // note. Freezing this the same way as the dates above means a report
+      // locked right after a renewal keeps showing that renewal's own
+      // start date/duration even if the tenant is renewed AGAIN later.
+      current_term_start: t.current_term_start || null,
       // Rental rates as of lock time — see frozenTenant() in
       // buildReportLineMap for why these matter beyond just the dates: a
       // rate edited at a later renewal must not leak into an already-locked
@@ -13253,17 +13438,27 @@ function renderReportHTML(ctx, opts){
     let frozen = tenancySnapshot && liveTenant?.id ? tenancySnapshot[String(liveTenant.id)] : null;
     if(!frozen && tenancySnapshot && legacyRoomCode) frozen = tenancySnapshot[String(legacyRoomCode).toUpperCase()];
     if(frozen && frozen.agreement_start && frozen.agreement_end) return frozen;
-    return { agreement_start: liveTenant?.agreement_start, agreement_end: liveTenant?.agreement_end };
+    return { agreement_start: liveTenant?.agreement_start, agreement_end: liveTenant?.agreement_end, current_term_start: liveTenant?.current_term_start };
   };
+  // current_term_start (set by recontractTenant() at renewal, frozen into
+  // the snapshot the same way as the dates above) holds the CURRENT term's
+  // own start date — using it instead of agreement_start means a renewed
+  // tenancy's report shows the renewal's own start + duration (e.g. 1 Oct
+  // 2026, 4 months) instead of the full lifetime span since original
+  // move-in (e.g. 1 Apr 2026, 10 months). Falls back to agreement_start for
+  // a tenant who's never been renewed.
+  const termStartOf = d => d && (d.current_term_start || d.agreement_start);
+  const isRenewedTerm = d => !!(d && d.current_term_start && d.current_term_start !== d.agreement_start);
   const tenancyEntries = [];
   const assignedRooms = new Set();
   roomTenancies.forEach(t=>{
     const d = displayDates(t, t.room_code);
-    const mo = tenureMonths(d.agreement_start, d.agreement_end);
+    const start = termStartOf(d);
+    const mo = tenureMonths(start, d.agreement_end);
     assignedRooms.add(String(t.room_code||'').trim().toUpperCase());
     tenancyEntries.push({
       label: 'Room '+(t.room_code||'?'),
-      start: d.agreement_start, end: d.agreement_end, mo
+      start, end: d.agreement_end, mo, renewed: isRenewedTerm(d)
     });
   });
   // Vacant rooms — configured on the property but no active tenant this month
@@ -13291,10 +13486,11 @@ function renderReportHTML(ctx, opts){
     assignedCpLots.add(lot);
     // Snapshot is keyed by this tenant's own id — not room_code/lot code.
     const d = displayDates(cpTenant);
-    const mo = tenureMonths(d.agreement_start, d.agreement_end);
+    const start = termStartOf(d);
+    const mo = tenureMonths(start, d.agreement_end);
     tenancyEntries.push({
       label: 'Carpark '+lot,
-      start: d.agreement_start, end: d.agreement_end, mo
+      start, end: d.agreement_end, mo, renewed: isRenewedTerm(d)
     });
   });
   // Vacant carpark lots — configured on the property but no tenant assigned yet
@@ -13305,7 +13501,7 @@ function renderReportHTML(ctx, opts){
   });
   const tenancyRows = tenancyEntries.map((e,i)=>`
     <div class="tbl-row grid-tenancy ${i%2?'alt':''}">
-      <span class="tbl-cell"${e.vacant?' style="color:#94A3B8"':''}>${esc(e.label)}${e.vacant?' <span style="font-size:10px;font-weight:600;background:#F1F5F9;color:#94A3B8;border-radius:4px;padding:1px 5px;margin-left:4px">Vacant</span>':''}</span>
+      <span class="tbl-cell"${e.vacant?' style="color:#94A3B8"':''}>${esc(e.label)}${e.vacant?' <span style="font-size:10px;font-weight:600;background:#F1F5F9;color:#94A3B8;border-radius:4px;padding:1px 5px;margin-left:4px">Vacant</span>':''}${e.renewed?' <span style="font-size:10px;font-weight:700;color:#F4811F">↻ renewed</span>':''}</span>
       <span class="tbl-cell muted">${fmtDate(e.start)||'—'}</span>
       <span class="tbl-cell muted">${fmtDate(e.end)||'—'}</span>
       <span class="tbl-cell" style="text-align:center;font-weight:700;color:${e.vacant?'#94A3B8':'#F4811F'}">${e.mo!=null?e.mo+' mo':'—'}</span>
@@ -13600,10 +13796,23 @@ function renderReportDesktopHTML(ctx, opts){
   const fmtNum = n => Number(n||0).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
   const issue = new Date(issueDate);
   const issueText = `${issue.getDate()} ${MONTHS[issue.getMonth()]} ${issue.getFullYear()}`;
-  const shortTenancy = t => t && t.agreement_start && t.agreement_end
-    ? `${fmtDate(t.agreement_start)} – ${fmtDate(t.agreement_end)}` : '—';
+  // current_term_start (set by recontractTenant() at renewal, frozen into
+  // the snapshot the same way as the dates below) holds the CURRENT term's
+  // own start date — using it instead of agreement_start means a renewed
+  // tenancy's report shows the renewal's own start + duration (e.g. 1 Oct
+  // 2026, 4 months) instead of the full lifetime span since original
+  // move-in (e.g. 1 Apr 2026, 10 months). Falls back to agreement_start
+  // for a tenant who's never been renewed.
+  const termStartOf = t => t && (t.current_term_start || t.agreement_start);
+  const isRenewedTerm = t => !!(t && t.current_term_start && t.current_term_start !== t.agreement_start);
+  const shortTenancy = t => {
+    const start = termStartOf(t);
+    if(!t || !start || !t.agreement_end) return '—';
+    const txt = `${fmtDate(start)} – ${fmtDate(t.agreement_end)}`;
+    return isRenewedTerm(t) ? `↻ ${txt}` : txt;
+  };
   const tenureStr = t => {
-    const mo = t ? tenureMonths(t.agreement_start, t.agreement_end) : null;
+    const mo = t ? tenureMonths(termStartOf(t), t.agreement_end) : null;
     return mo!=null ? mo+' mo' : '—';
   };
   // Display-only: once a report is locked, its Tenancy/Tenure columns show
