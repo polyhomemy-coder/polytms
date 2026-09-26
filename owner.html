@@ -2161,13 +2161,13 @@ function renderAirconContent(){
   const totalAircon=monthly.reduce((s,x)=>s+x.airconTotal,0);
   const totalElec=monthly.reduce((s,x)=>s+x.elecBill,0);
   // Owner cost = electricity bill minus tenant aircon top-up
-  const totalOwnerCost=monthly.reduce((s,x)=>s+Math.max(0,x.elecBill-x.airconTotal),0);
+  const totalOwnerCost=monthly.reduce((s,x)=>s+(x.elecBill-x.airconTotal),0);
 
   el.innerHTML=`
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-label">Total Electricity ${y}</div><div class="stat-val orange">RM ${fmt(totalElec)}</div></div>
       <div class="stat-card"><div class="stat-label">Tenant Aircon Top-up ${y}</div><div class="stat-val">RM ${fmt(totalAircon)}</div></div>
-      <div class="stat-card"><div class="stat-label">Owner Cost ${y}</div><div class="stat-val" style="color:#C85900">RM ${fmt(totalOwnerCost)}</div></div>
+      <div class="stat-card"><div class="stat-label">Owner Cost ${y}</div><div class="stat-val" style="color:${totalOwnerCost<0?'#DC2626':'#C85900'}">${totalOwnerCost<0?'-':''}RM ${fmt(Math.abs(totalOwnerCost))}</div></div>
     </div>
 
     <div class="card">
@@ -2177,7 +2177,8 @@ function renderAirconContent(){
       </p>
       <div class="elec-grid">
         ${monthly.map(x=>{
-          const ownerCost=Math.max(0,x.elecBill-x.airconTotal);
+          const ownerCost=x.elecBill-x.airconTotal;
+          const showCost=x.elecBill>0||x.airconTotal>0;
           return `<div class="elec-card">
             <div class="elec-month">${x.mon} ${y}</div>
             <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Electricity Bill (RM)</div>
@@ -2185,8 +2186,8 @@ function renderAirconContent(){
               id="elec_${y}_${x.m}" value="${x.elecBill||''}" placeholder="0.00"
               oninput="updateElecDiff(${y},${x.m})">
             <div class="elec-aircon">❄️ Tenant Top-up: <b>RM ${fmt(x.airconTotal)}</b></div>
-            <div class="elec-diff" id="diff_${y}_${x.m}" style="color:${x.elecBill>0?'#C85900':'var(--muted)'}">
-              ${x.elecBill>0?`🏠 Owner Cost: <b>RM ${fmt(ownerCost)}</b>`:''}
+            <div class="elec-diff" id="diff_${y}_${x.m}" style="color:${showCost?(ownerCost<0?'#DC2626':'#C85900'):'var(--muted)'}">
+              ${showCost?`🏠 Owner Cost: <b>${ownerCost<0?'-':''}RM ${fmt(Math.abs(ownerCost))}</b>`:''}
             </div>
           </div>`;
         }).join('')}
@@ -2206,13 +2207,13 @@ function renderAirconContent(){
           </tr></thead>
           <tbody>
             ${monthly.map(x=>{
-              const ownerCost=Math.max(0,x.elecBill-x.airconTotal);
+              const ownerCost=x.elecBill-x.airconTotal;
               const hasData=x.airconTotal>0||x.elecBill>0;
               return `<tr style="${!hasData?'opacity:.35':''}">
                 <td><b>${x.mon} ${y}</b></td>
                 <td class="num">RM ${fmt(x.elecBill)}</td>
                 <td class="num" style="color:var(--brand)">RM ${fmt(x.airconTotal)}</td>
-                <td class="num"><b style="color:#C85900">RM ${fmt(ownerCost)}</b></td>
+                <td class="num"><b style="color:${ownerCost<0?'#DC2626':'#C85900'}">${ownerCost<0?'-':''}RM ${fmt(Math.abs(ownerCost))}</b></td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -2220,7 +2221,7 @@ function renderAirconContent(){
             <td style="padding:10px 12px;font-weight:800">Total ${y}</td>
             <td class="num" style="padding:10px 12px;font-weight:800">RM ${fmt(totalElec)}</td>
             <td class="num" style="padding:10px 12px;font-weight:800;color:var(--brand)">RM ${fmt(totalAircon)}</td>
-            <td class="num" style="padding:10px 12px;font-weight:800;color:#C85900">RM ${fmt(totalOwnerCost)}</td>
+            <td class="num" style="padding:10px 12px;font-weight:800;color:${totalOwnerCost<0?'#DC2626':'#C85900'}">${totalOwnerCost<0?'-':''}RM ${fmt(Math.abs(totalOwnerCost))}</td>
           </tr></tfoot>
         </table>
       </div>
@@ -2230,11 +2231,11 @@ function renderAirconContent(){
 function updateElecDiff(y,m){
   const val=Number($(`elec_${y}_${m}`)?.value||0);
   const aircon=state.aircon.filter(a=>a.year===y&&a.month===m).reduce((s,a)=>s+Number(a.amount||0),0);
-  const ownerCost=Math.max(0,val-aircon);
+  const ownerCost=val-aircon;
   const el=$(`diff_${y}_${m}`); if(!el) return;
-  if(val>0){
-    el.style.color='#C85900';
-    el.innerHTML=`🏠 Owner Cost: <b>RM ${fmt(ownerCost)}</b>`;
+  if(val>0||aircon>0){
+    el.style.color=ownerCost<0?'#DC2626':'#C85900';
+    el.innerHTML=`🏠 Owner Cost: <b>${ownerCost<0?'-':''}RM ${fmt(Math.abs(ownerCost))}</b>`;
   } else { el.innerHTML=''; }
 }
 
