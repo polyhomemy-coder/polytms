@@ -9099,23 +9099,30 @@ function openTenantView(id){
     <div class="text-[10px] text-slate-400 mt-3">Last modified: ${t.updated_at ? new Date(t.updated_at).toLocaleString('en-MY',{dateStyle:'medium',timeStyle:'short'}) : '—'}</div>
     ${secondarySection}
     ${moveOutSection}`;
+  // Every footer button shares one base style — nowrap so a button's own
+  // label never breaks mid-word (that jagged mismatched-height look), plus
+  // a fixed comfortable size — while the wrapper below handles overflow by
+  // moving whole buttons onto a second row instead of squeezing them.
+  const btnBase = 'padding:9px 14px;border-radius:12px;font-size:13px;font-weight:700;white-space:nowrap;line-height:1.2;display:inline-flex;align-items:center;gap:6px';
   const editBtn = t.active===false
-    ? `<button class="bg-[#DCFCE7] text-[#065F46] px-4 py-2 rounded-xl text-sm font-bold ml-2" onclick="closeModal();reactivateTenant('${t.id}')">${iconBtn(ICON.undo,'Reactivate')}</button>`
-    : `<button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold ml-2" onclick="closeModal();openTenantModal('${t.id}')">${iconBtn(ICON.edit,'Edit')}</button>`;
+    ? `<button style="${btnBase};background:#DCFCE7;color:#065F46" onclick="closeModal();reactivateTenant('${t.id}')">${iconBtn(ICON.undo,'Reactivate')}</button>`
+    : `<button class="btn-brand" style="${btnBase}" onclick="closeModal();openTenantModal('${t.id}')">${iconBtn(ICON.edit,'Edit')}</button>`;
   const taBtn = t.active===false ? '' :
-    `<button class="bg-[#E8F4FD] text-[#1E5BB8] px-4 py-2 rounded-xl text-sm font-bold ml-2" onclick="closeModal();openGenerateTAModal('${t.id}')">${iconBtn(ICON.doc,'Generate TA')}</button>`;
+    `<button style="${btnBase};background:#E8F4FD;color:#1E5BB8" onclick="closeModal();openGenerateTAModal('${t.id}')">${iconBtn(ICON.doc,'Generate TA')}</button>`;
   const moDetailsBtn = t.active===false
-    ? `<button class="bg-[#FFF4E5] text-[#F4811F] px-4 py-2 rounded-xl text-sm font-bold ml-2" onclick="closeModal();openMoveOutDetails('${t.id}')">${iconBtn(ICON.edit,'Move-out details')}</button>`
+    ? `<button style="${btnBase};background:#FFF4E5;color:#F4811F" onclick="closeModal();openMoveOutDetails('${t.id}')">${iconBtn(ICON.edit,'Move-out details')}</button>`
     : '';
   const addCarparkBtn = (t.active!==false && ((!t.carpark||t.carpark==='NA') || (!t.carpark2||t.carpark2==='NA')))
-    ? `<button class="bg-[#FFF7ED] text-[#BF8355] px-4 py-2 rounded-xl text-sm font-bold ml-2 border border-[#FCE3C8]" onclick="closeModal();openAddCarparkModal('${t.id}')" title="Add a carpark mid-tenancy without misdating past months — also works for a 2nd carpark">🅿️ Add Carpark</button>`
+    ? `<button style="${btnBase};background:#FFF7ED;color:#BF8355;border:1px solid #FCE3C8" onclick="closeModal();openAddCarparkModal('${t.id}')" title="Add a carpark mid-tenancy without misdating past months — also works for a 2nd carpark"><span>🅿️</span> Add Carpark</button>`
     : '';
   const changeRoomBtn = (t.active!==false && t.room_code)
-    ? `<button class="bg-[#EEF7F8] text-[#1E5BB8] px-4 py-2 rounded-xl text-sm font-bold ml-2 border border-[#BAD8F0]" onclick="closeModal();openChangeRoomModal('${t.id}')" title="Move to a different room, keeping the same agreement dates">🔄 Change Room</button>`
+    ? `<button style="${btnBase};background:#EEF7F8;color:#1E5BB8;border:1px solid #BAD8F0" onclick="closeModal();openChangeRoomModal('${t.id}')" title="Move to a different room, keeping the same agreement dates"><span>🔄</span> Change Room</button>`
     : '';
   $('#modalFoot').innerHTML = `
-    <button class="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100" onclick="closeModal()">Close</button>
-    ${taBtn}${moDetailsBtn}${addCarparkBtn}${changeRoomBtn}${editBtn}`;
+    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;width:100%">
+      <button style="${btnBase};background:var(--th-bg,#F1F5F9);color:var(--ink,#1E293B)" onclick="closeModal()">Close</button>
+      ${taBtn}${moDetailsBtn}${addCarparkBtn}${changeRoomBtn}${editBtn}
+    </div>`;
   $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex');
 }
 
