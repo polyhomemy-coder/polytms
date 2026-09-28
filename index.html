@@ -7333,13 +7333,12 @@ function updateDashProfitNet(){
 }
 
 // ============================================================
-//  MANAGER › INCOME REPORT + MANAGE FEE — two per-unit listing sub-tabs
-//  built from the same per-property numbers (Help Manage units only —
-//  Own Unit properties don't pay a management fee, so they're excluded).
-//    • Income Report: Rental / Air-Cond / Extra / Expenses / Nett,
-//      no management-fee columns.
-//    • Manage Fee:    the same listing plus each unit's fee % and the
-//      management fee actually recorded for the month.
+//  MANAGER › INCOME REPORT + MANAGE FEE — two per-unit listing sub-tabs.
+//    • Income Report: EVERY unit (Help Manage + Own Unit) with Occupancy /
+//      Rental / Air-Cond / Extra / Expenses / Nett — no fee columns.
+//    • Manage Fee:    Help Manage units only (Own Unit properties don't pay
+//      a management fee) — just owner, fee % and the management fee
+//      actually recorded for the month.
 //  Both are numbered 1. 2. 3. down the left.
 // ============================================================
 function _renderMgrUnitListing(mode){
@@ -7348,8 +7347,9 @@ function _renderMgrUnitListing(mode){
   const lblEl   = $(withFee ? '#dashMonthLbl' : '#dashIncomeMonthLbl');
   if(!tableEl) return;
   const props = state.properties.filter(p=>{
-    const isH2M = p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M';
-    return isH2M && _propPassesGlobalFilter(p) && _propExistedByMonth(p, state.year, state.month);
+    if(!(_propPassesGlobalFilter(p) && _propExistedByMonth(p, state.year, state.month))) return false;
+    if(!withFee) return true;
+    return p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M';
   });
   const propIds = new Set(props.map(p=>p.id));
   const tenants  = state.tenants.filter(t=>propIds.has(t.property_id) && t.active!==false);
@@ -7364,8 +7364,7 @@ function _renderMgrUnitListing(mode){
     const ac     = aircon.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
     const ex     = expenses.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
     // Management fee actually recorded for this unit this month — same
-    // source as the Dashboard's "Management Fee" tile (category rows),
-    // and already included inside `ex` above.
+    // source as the Dashboard's "Management Fee" tile (category rows).
     const mf     = expenses.filter(x=>x.property_id===p.id && x.category==='management_fee').reduce((s,x)=>s+Number(x.amount||0),0);
     const ext    = extras.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
     return { p, income, ac, ex, mf, ext, nett: income+ac+ext-ex };
@@ -7373,6 +7372,17 @@ function _renderMgrUnitListing(mode){
 
   if(lblEl) lblEl.textContent = '('+monthName+')';
   const rows = propStats.map(({p, income, ac, ex, mf, ext, nett}, i)=>{
+    const numCell = `<td class="text-slate-400 text-xs">${i+1}.</td>`;
+    if(withFee){
+      return `<tr class="anim-row" style="animation-delay:${Math.min(i,12)*30}ms">
+      ${numCell}
+      <td>${esc(p.condo)}</td>
+      <td class="font-semibold">${esc(p.unit)}</td>
+      <td>${esc(p.owner_name||'')}</td>
+      <td class="num">${Number(p.service_percent||0)}%</td>
+      <td class="num font-bold" style="color:var(--brand)">${fmt(mf)}</td>
+    </tr>`;
+    }
     const rms = parseRoomCodes(p.room_codes);
     const lts = parseCarparkLots(p.carpark_lots);
     const tList = tenants.filter(t=>t.property_id===p.id);
@@ -7383,7 +7393,7 @@ function _renderMgrUnitListing(mode){
         + (lts.length ? '<span class="text-slate-300 mx-1">·</span>'+cOcc+'/'+lts.length+' cp' : '')
       : '<span class="text-slate-300">—</span>';
     return `<tr class="anim-row" style="animation-delay:${Math.min(i,12)*30}ms">
-      <td class="text-slate-400 text-xs">${i+1}.</td>
+      ${numCell}
       <td>${esc(p.condo)}</td>
       <td class="font-semibold">${esc(p.unit)}</td>
       <td>${esc(p.owner_name||'')}</td>
@@ -7391,26 +7401,31 @@ function _renderMgrUnitListing(mode){
       <td class="num">${fmt(income)}</td>
       <td class="num">${fmt(ac)}</td>
       <td class="num">${fmt(ext)}</td>
-      ${withFee ? `<td class="num">${Number(p.service_percent||0)}%</td>
-      <td class="num font-bold" style="color:var(--brand)">${fmt(mf)}</td>` : ''}
       <td class="num">${fmt(ex)}</td>
       <td class="num" style="color:${nett>=0?'#0F7A3E':'#B3261E'}">${fmt(nett)}</td>
     </tr>`;
   }).join('');
   const sum = k => propStats.reduce((s,x)=>s+x[k],0);
-  const totalRow = propStats.length ? `<tr style="background:#E8F8FA">
+  const totalRow = !propStats.length ? '' : withFee
+    ? `<tr style="background:#E8F8FA">
+      <td colspan="5" class="text-right font-bold">TOTAL</td>
+      <td class="num font-extrabold" style="color:var(--brand)">${fmt(sum('mf'))}</td>
+    </tr>`
+    : `<tr style="background:#E8F8FA">
       <td colspan="5" class="text-right font-bold">TOTAL</td>
       <td class="num font-extrabold">${fmt(sum('income'))}</td>
       <td class="num font-extrabold">${fmt(sum('ac'))}</td>
       <td class="num font-extrabold">${fmt(sum('ext'))}</td>
-      ${withFee ? `<td></td><td class="num font-extrabold" style="color:var(--brand)">${fmt(sum('mf'))}</td>` : ''}
       <td class="num font-extrabold">${fmt(sum('ex'))}</td>
       <td class="num font-extrabold">${fmt(sum('nett'))}</td>
-    </tr>` : '';
-  const cols = withFee ? 12 : 10;
+    </tr>`;
+  const head = withFee
+    ? '<th>#</th><th>Condo</th><th>Unit</th><th>Owner</th><th class="num">Fee %</th><th class="num">Mgmt Fee</th>'
+    : '<th>#</th><th>Condo</th><th>Unit</th><th>Owner</th><th>Occupancy</th><th class="num">Rental</th><th class="num">Air-Cond</th><th class="num">Extra</th><th class="num">Expenses</th><th class="num">Nett</th>';
+  const emptyMsg = withFee ? 'No Help Manage properties yet.' : 'No properties match the current filters.';
   tableEl.innerHTML = `<table class="data">
-    <thead><tr><th>#</th><th>Condo</th><th>Unit</th><th>Owner</th><th>Occupancy</th><th class="num">Rental</th><th class="num">Air-Cond</th><th class="num">Extra</th>${withFee?'<th class="num">Fee %</th><th class="num">Mgmt Fee</th>':''}<th class="num">Expenses</th><th class="num">Nett</th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="${cols}" class="text-center text-slate-400 py-10">No Help Manage properties yet.</td></tr>`}${totalRow}</tbody></table>`;
+    <thead><tr>${head}</tr></thead>
+    <tbody>${rows || `<tr><td colspan="${withFee?6:10}" class="text-center text-slate-400 py-10">${emptyMsg}</td></tr>`}${totalRow}</tbody></table>`;
 }
 function renderManagementFeeUnitListing(){ _renderMgrUnitListing('fee'); }
 function renderIncomeReportListing(){ _renderMgrUnitListing('income'); }
