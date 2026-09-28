@@ -1736,7 +1736,8 @@
     <!-- Manager sub-tabs -->
     <div id="mgrSubTabs" class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1 mb-3 w-fit flex-wrap">
       <span class="subtab-btn active" data-mgrsub="dashboard">📊 Dashboard</span>
-      <span class="subtab-btn" data-mgrsub="feelist">🧾 Management Fee Unit Listing</span>
+      <span class="subtab-btn" data-mgrsub="incomerpt">📄 Income Report</span>
+      <span class="subtab-btn" data-mgrsub="feelist">🧾 Manage Fee</span>
       <span class="subtab-btn" data-mgrsub="ownunit">🏠 Own Unit</span>
       <span class="subtab-btn" data-mgrsub="assign">🏢 Property Assignment</span>
       <span class="subtab-btn" data-mgrsub="export">🧮 Export to Accountant</span>
@@ -1883,10 +1884,21 @@
     <!-- MANAGEMENT FEE UNIT LISTING — per-unit breakdown          -->
     <!-- (Help Manage units only — Own Unit doesn't pay mgmt fee)  -->
     <!-- ====================================================== -->
+    <div id="dashIncomeRptView" class="hidden-force">
+      <div class="card">
+        <div class="flex items-center justify-between">
+          <div class="section-title">Income Report</div>
+          <div class="help" id="dashIncomeMonthLbl"></div>
+        </div>
+        <div class="divider"></div>
+        <div id="dashIncomeTable"></div>
+      </div>
+    </div>
+
     <div id="dashFeeListView" class="hidden-force">
       <div class="card">
         <div class="flex items-center justify-between">
-          <div class="section-title">Management Fee Unit Listing</div>
+          <div class="section-title">Manage Fee</div>
           <div class="help" id="dashMonthLbl"></div>
         </div>
         <div class="divider"></div>
@@ -2489,7 +2501,7 @@ let state = {
   rentStatusFilter: 'all',    // 'all' | 'paid' | 'unmatch' | 'unpaid'
   tenantQuery: '',            // free-text search on tenants tab
   expenseCat: 'all',          // 'all' | 'management_fee' | 'rent_commission' | 'cleaning' | 'maintenance' | 'other'
-  mgrSub: 'dashboard',        // 'dashboard' | 'feelist' | 'ownunit' | 'assign' — Manager tab sub-tab
+  mgrSub: 'dashboard',        // 'dashboard' | 'incomerpt' | 'feelist' | 'ownunit' | 'assign' — Manager tab sub-tab
   r2rYear: null,              // year shown in the R2R yearly matrix; null = follow state.year
   propSub: 'all',             // 'all' | 'vacancies' — Properties parent sub-pane
   propCityFilter: [],         // selected city values — empty = show all cities
@@ -5477,17 +5489,20 @@ function renderDashboard(){
   const sub = state.mgrSub || 'dashboard';
   // Toggle which view the user sees
   const overviewView = $('#dashOverviewView');
+  const incomeRptView = $('#dashIncomeRptView');
   const feeListView  = $('#dashFeeListView');
   const r2rView      = $('#dashR2RView');
   const assignView   = $('#dashAssignView');
   const exportView   = $('#dashExportView');
   if(overviewView) overviewView.classList.toggle('hidden-force', sub!=='dashboard');
+  if(incomeRptView) incomeRptView.classList.toggle('hidden-force', sub!=='incomerpt');
   if(feeListView)  feeListView.classList.toggle('hidden-force',  sub!=='feelist');
   if(r2rView)      r2rView.classList.toggle('hidden-force',      sub!=='ownunit');
   if(assignView)   assignView.classList.toggle('hidden-force',   sub!=='assign');
   if(exportView)   exportView.classList.toggle('hidden-force',   sub!=='export');
 
   if(sub === 'ownunit') return renderOwnUnitDashboard();
+  if(sub === 'incomerpt') return renderIncomeReportListing();
   if(sub === 'feelist')  return renderManagementFeeUnitListing();
   if(sub === 'assign'){
     if(state.role === 'manager'){
@@ -7318,11 +7333,20 @@ function updateDashProfitNet(){
 }
 
 // ============================================================
-//  MANAGEMENT FEE UNIT LISTING — per-unit breakdown table.
-//  Help Manage units only (Own Unit properties don't pay a
-//  management fee, so they're excluded from this listing).
+//  MANAGER › INCOME REPORT + MANAGE FEE — two per-unit listing sub-tabs
+//  built from the same per-property numbers (Help Manage units only —
+//  Own Unit properties don't pay a management fee, so they're excluded).
+//    • Income Report: Rental / Air-Cond / Extra / Expenses / Nett,
+//      no management-fee columns.
+//    • Manage Fee:    the same listing plus each unit's fee % and the
+//      management fee actually recorded for the month.
+//  Both are numbered 1. 2. 3. down the left.
 // ============================================================
-function renderManagementFeeUnitListing(){
+function _renderMgrUnitListing(mode){
+  const withFee = mode==='fee';
+  const tableEl = $(withFee ? '#dashTable' : '#dashIncomeTable');
+  const lblEl   = $(withFee ? '#dashMonthLbl' : '#dashIncomeMonthLbl');
+  if(!tableEl) return;
   const props = state.properties.filter(p=>{
     const isH2M = p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M';
     return isH2M && _propPassesGlobalFilter(p) && _propExistedByMonth(p, state.year, state.month);
@@ -7335,19 +7359,20 @@ function renderManagementFeeUnitListing(){
   const extras   = state.extras.filter(p=>propIds.has(p.property_id));
   const monthName = MONTHS[state.month-1] + ' ' + state.year;
 
-  // Per-property stats (drives the table below).
   const propStats = props.map(p=>{
     const income = payments.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
     const ac     = aircon.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
     const ex     = expenses.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
+    // Management fee actually recorded for this unit this month — same
+    // source as the Dashboard's "Management Fee" tile (category rows),
+    // and already included inside `ex` above.
+    const mf     = expenses.filter(x=>x.property_id===p.id && x.category==='management_fee').reduce((s,x)=>s+Number(x.amount||0),0);
     const ext    = extras.filter(x=>x.property_id===p.id).reduce((s,x)=>s+Number(x.amount||0),0);
-    return { p, income, ac, ex, ext, nett: income+ac+ext-ex,
-             label: (p.condo||'')+' · '+(p.unit||'') };
+    return { p, income, ac, ex, mf, ext, nett: income+ac+ext-ex };
   });
 
-  // Per-property breakdown table
-  if($('#dashMonthLbl')) $('#dashMonthLbl').textContent = monthName;
-  const rows = propStats.map(({p, income, ac, ex, ext, nett}, i)=>{
+  if(lblEl) lblEl.textContent = '('+monthName+')';
+  const rows = propStats.map(({p, income, ac, ex, mf, ext, nett}, i)=>{
     const rms = parseRoomCodes(p.room_codes);
     const lts = parseCarparkLots(p.carpark_lots);
     const tList = tenants.filter(t=>t.property_id===p.id);
@@ -7358,6 +7383,7 @@ function renderManagementFeeUnitListing(){
         + (lts.length ? '<span class="text-slate-300 mx-1">·</span>'+cOcc+'/'+lts.length+' cp' : '')
       : '<span class="text-slate-300">—</span>';
     return `<tr class="anim-row" style="animation-delay:${Math.min(i,12)*30}ms">
+      <td class="text-slate-400 text-xs">${i+1}.</td>
       <td>${esc(p.condo)}</td>
       <td class="font-semibold">${esc(p.unit)}</td>
       <td>${esc(p.owner_name||'')}</td>
@@ -7365,14 +7391,29 @@ function renderManagementFeeUnitListing(){
       <td class="num">${fmt(income)}</td>
       <td class="num">${fmt(ac)}</td>
       <td class="num">${fmt(ext)}</td>
+      ${withFee ? `<td class="num">${Number(p.service_percent||0)}%</td>
+      <td class="num font-bold" style="color:var(--brand)">${fmt(mf)}</td>` : ''}
       <td class="num">${fmt(ex)}</td>
       <td class="num" style="color:${nett>=0?'#0F7A3E':'#B3261E'}">${fmt(nett)}</td>
     </tr>`;
   }).join('');
-  $('#dashTable').innerHTML = `<table class="data">
-    <thead><tr><th>Condo</th><th>Unit</th><th>Owner</th><th>Occupancy</th><th class="num">Rental</th><th class="num">Air-Cond</th><th class="num">Extra</th><th class="num">Expenses</th><th class="num">Nett</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="9" class="text-center text-slate-400 py-10">No Help Manage properties yet.</td></tr>'}</tbody></table>`;
+  const sum = k => propStats.reduce((s,x)=>s+x[k],0);
+  const totalRow = propStats.length ? `<tr style="background:#E8F8FA">
+      <td colspan="5" class="text-right font-bold">TOTAL</td>
+      <td class="num font-extrabold">${fmt(sum('income'))}</td>
+      <td class="num font-extrabold">${fmt(sum('ac'))}</td>
+      <td class="num font-extrabold">${fmt(sum('ext'))}</td>
+      ${withFee ? `<td></td><td class="num font-extrabold" style="color:var(--brand)">${fmt(sum('mf'))}</td>` : ''}
+      <td class="num font-extrabold">${fmt(sum('ex'))}</td>
+      <td class="num font-extrabold">${fmt(sum('nett'))}</td>
+    </tr>` : '';
+  const cols = withFee ? 12 : 10;
+  tableEl.innerHTML = `<table class="data">
+    <thead><tr><th>#</th><th>Condo</th><th>Unit</th><th>Owner</th><th>Occupancy</th><th class="num">Rental</th><th class="num">Air-Cond</th><th class="num">Extra</th>${withFee?'<th class="num">Fee %</th><th class="num">Mgmt Fee</th>':''}<th class="num">Expenses</th><th class="num">Nett</th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="${cols}" class="text-center text-slate-400 py-10">No Help Manage properties yet.</td></tr>`}${totalRow}</tbody></table>`;
 }
+function renderManagementFeeUnitListing(){ _renderMgrUnitListing('fee'); }
+function renderIncomeReportListing(){ _renderMgrUnitListing('income'); }
 
 // ============================================================
 //  OWN UNIT (R2R) DASHBOARD — yearly matrix view
