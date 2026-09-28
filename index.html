@@ -7336,9 +7336,9 @@ function updateDashProfitNet(){
 //  MANAGER › INCOME REPORT + MANAGE FEE — two per-unit listing sub-tabs.
 //    • Income Report: EVERY unit (Help Manage + Own Unit) with Occupancy /
 //      Rental / Air-Cond / Extra / Expenses / Nett — no fee columns.
-//    • Manage Fee:    Help Manage units only (Own Unit properties don't pay
-//      a management fee) — just owner, fee % and the management fee
-//      actually recorded for the month.
+//    • Manage Fee:    every unit that has a management fee (Help Manage or
+//      R2R — R2R ones are tagged) — just owner, fee % and the management
+//      fee actually recorded for the month; total matches the Dashboard tile.
 //  Both are numbered 1. 2. 3. down the left.
 // ============================================================
 function _renderMgrUnitListing(mode){
@@ -7346,10 +7346,18 @@ function _renderMgrUnitListing(mode){
   const tableEl = $(withFee ? '#dashTable' : '#dashIncomeTable');
   const lblEl   = $(withFee ? '#dashMonthLbl' : '#dashIncomeMonthLbl');
   if(!tableEl) return;
+  const isH2Mp = p => p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M';
+  // Manage Fee: a management-fee row is generated for ANY active unit with a
+  // service % (ensureManagementFeeExpensesFor doesn't look at model), and
+  // the Dashboard's Management Fee tile sums those rows across every unit —
+  // so this list can't be H2M-only or its total drifts from that tile.
+  // Includes every active unit that has a fee % or a recorded fee.
+  const feeRowsAll = state.expenses.filter(x=>x.category==='management_fee');
   const props = state.properties.filter(p=>{
+    if(p.active===false) return false;
     if(!(_propPassesGlobalFilter(p) && _propExistedByMonth(p, state.year, state.month))) return false;
     if(!withFee) return true;
-    return p.model ? p.model === 'H2M' : String(p.property_type||'H2M').toUpperCase() === 'H2M';
+    return Number(p.service_percent||0)>0 || feeRowsAll.some(x=>x.property_id===p.id && Number(x.amount||0)>0);
   });
   const propIds = new Set(props.map(p=>p.id));
   const tenants  = state.tenants.filter(t=>propIds.has(t.property_id) && t.active!==false);
@@ -7377,7 +7385,7 @@ function _renderMgrUnitListing(mode){
       return `<tr class="anim-row" style="animation-delay:${Math.min(i,12)*30}ms">
       ${numCell}
       <td>${esc(p.condo)}</td>
-      <td class="font-semibold">${esc(p.unit)}</td>
+      <td class="font-semibold">${esc(p.unit)}${isH2Mp(p)?'':' <span class="ml-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-bold">R2R</span>'}</td>
       <td>${esc(p.owner_name||'')}</td>
       <td class="num">${Number(p.service_percent||0)}%</td>
       <td class="num font-bold" style="color:var(--brand)">${fmt(mf)}</td>
@@ -7422,7 +7430,7 @@ function _renderMgrUnitListing(mode){
   const head = withFee
     ? '<th>#</th><th>Condo</th><th>Unit</th><th>Owner</th><th class="num">Fee %</th><th class="num">Mgmt Fee</th>'
     : '<th>#</th><th>Condo</th><th>Unit</th><th>Owner</th><th>Occupancy</th><th class="num">Rental</th><th class="num">Air-Cond</th><th class="num">Extra</th><th class="num">Expenses</th><th class="num">Nett</th>';
-  const emptyMsg = withFee ? 'No Help Manage properties yet.' : 'No properties match the current filters.';
+  const emptyMsg = withFee ? 'No units with a management fee for this month.' : 'No properties match the current filters.';
   tableEl.innerHTML = `<table class="data">
     <thead><tr>${head}</tr></thead>
     <tbody>${rows || `<tr><td colspan="${withFee?6:10}" class="text-center text-slate-400 py-10">${emptyMsg}</td></tr>`}${totalRow}</tbody></table>`;
