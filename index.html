@@ -6094,7 +6094,7 @@ async function renderTenantTrackRecord(container){
   const payMap = new Map(); // `${property_id}|${room_code}|${y}|${m}` -> earliest paid_on
   (data||[]).forEach(r=>{
     if(!monthKeys.has(r.year+'-'+r.month) || !r.paid_on) return;
-    const key = r.property_id+'|'+String(r.room_code||'').toUpperCase()+'|'+r.year+'|'+r.month;
+    const key = r.property_id+'|'+String(r.room_code||'').trim().toUpperCase()+'|'+r.year+'|'+r.month;
     const existing = payMap.get(key);
     if(!existing || r.paid_on < existing) payMap.set(key, r.paid_on);
   });
@@ -6138,7 +6138,7 @@ function _paintTenantTrack(container){
       const inTenancy = (!s || s<=monthEnd) && (!mo || mo>=monthStart) && (mo || !e || e>=monthStart);
       if(!inTenancy) return `<td style="padding:3px;text-align:center;color:var(--line)">·</td>`;
       tracked++;
-      const key = t.property_id+'|'+String(t.room_code||'').toUpperCase()+'|'+y+'|'+m;
+      const key = t.property_id+'|'+String(t.room_code||'').trim().toUpperCase()+'|'+y+'|'+m;
       const paidOn = payMap.get(key);
       if(!paidOn){
         unpaid++;
@@ -10331,7 +10331,7 @@ function renderPayments(){
     // room+carpark expected total — gives the user instant visual feedback.
     const t = state.tenants.find(x=>
       x.property_id===r.property_id &&
-      (x.room_code||'').toUpperCase()===(r.room_code||'').toUpperCase()
+      (x.room_code||'').trim().toUpperCase()===(r.room_code||'').trim().toUpperCase()
     );
     let splitChip = '';
     // Pro-rate / advance-covered chips take precedence over the regular
@@ -10450,7 +10450,7 @@ function _paymentLedgerExportRows(){
 function _tenantForPaymentRow(r){
   return state.tenants.find(x=>
     x.property_id===r.property_id &&
-    (x.room_code||'').toUpperCase()===(r.room_code||'').toUpperCase()
+    (x.room_code||'').trim().toUpperCase()===(r.room_code||'').trim().toUpperCase()
   );
 }
 
@@ -10562,7 +10562,7 @@ async function commitInlinePayment(tr){
     let kind = null, finalRem = rem;
     const tenant = state.tenants.find(x=>
       x.property_id===pid &&
-      (x.room_code||'').toUpperCase()===code &&
+      (x.room_code||'').trim().toUpperCase()===code &&
       x.active!==false
     );
     let amtToRecord = amt;
@@ -15670,13 +15670,13 @@ async function saveAllReceipts(){
   const rows = [];
   for(const r of ready){
     const amt      = Number(r.amount)||0;
-    const code     = (r.room||'').toUpperCase();
+    const code     = (r.room||'').trim().toUpperCase();
     let kind       = null;
     let remark     = `Imported from ${r.filename}`;
     if(r.item_type !== 'carpark'){
       const tenant = state.tenants.find(x=>
         x.property_id===r.property_id &&
-        (x.room_code||'').toUpperCase()===code &&
+        (x.room_code||'').trim().toUpperCase()===code &&
         x.active!==false
       );
       if(tenant){
