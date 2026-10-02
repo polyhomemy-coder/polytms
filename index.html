@@ -6131,10 +6131,6 @@ function _paintTenantTrack(container){
     return true;
   });
 
-  // On-time / late thresholds — day-of-month the rent was recorded as paid.
-  const dayStatus = day => day<=7 ? {label:'on-time',color:'#059669',bg:'#DCFCE7'}
-    : day<=15 ? {label:'late',color:'#B45309',bg:'#FEF3C7'}
-    : {label:'very late',color:'#B91C1C',bg:'#FEE2E2'};
 
   const rows = tenants.map(t=>{
     const p = state.properties.find(x=>x.id===t.property_id);
@@ -6155,9 +6151,16 @@ function _paintTenantTrack(container){
         return `<td style="padding:3px;text-align:center"><span title="${MONTHS[m-1]} ${y} — unpaid" style="display:inline-block;min-width:26px;padding:2px 4px;border-radius:6px;background:#FEE2E2;color:#B91C1C;font-size:10px;font-weight:800">—</span></td>`;
       }
       const day = Number(paidOn.slice(8,10));
-      const st = dayStatus(day);
+      // Compare the actual paid date to the due month's 1st, not just the
+      // day-of-month digit — a tenant paying Sep rent on 28 Aug must count
+      // as early/on-time, not as "day 28" (which would read as very late).
+      const paidOnDate = new Date(Number(paidOn.slice(0,4)), Number(paidOn.slice(5,7))-1, day);
+      const daysFromDue = Math.round((paidOnDate - monthStart) / 86400000);
+      const st = daysFromDue<=6 ? {label:'on-time',color:'#059669',bg:'#DCFCE7'}
+        : daysFromDue<=14 ? {label:'late',color:'#B45309',bg:'#FEF3C7'}
+        : {label:'very late',color:'#B91C1C',bg:'#FEE2E2'};
       if(st.label==='on-time') onTime++; else if(st.label==='late') late++; else veryLate++;
-      return `<td style="padding:3px;text-align:center"><span title="${MONTHS[m-1]} ${y} — paid on day ${day}" style="display:inline-block;min-width:26px;padding:2px 4px;border-radius:6px;background:${st.bg};color:${st.color};font-size:10px;font-weight:800">${day}</span></td>`;
+      return `<td style="padding:3px;text-align:center"><span title="${MONTHS[m-1]} ${y} rent — paid ${paidOn}" style="display:inline-block;min-width:26px;padding:2px 4px;border-radius:6px;background:${st.bg};color:${st.color};font-size:10px;font-weight:800">${day}</span></td>`;
     }).join('');
     const reliabilityPct = tracked ? Math.round((onTime/tracked)*100) : null;
     return { t, p, cells, onTime, late, veryLate, unpaid, tracked, reliabilityPct };
