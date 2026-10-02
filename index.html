@@ -6083,12 +6083,22 @@ async function renderTenantTrackRecord(container){
     for(let i=0;i<12;i++){ months.unshift({y,m}); m--; if(m<1){ m=12; y--; } } }
   const minY = months[0].y;
 
-  const { data, error } = await sb.from('rental_payments')
-    .select('property_id,room_code,year,month,paid_on')
-    .in('property_id', propIds)
-    .eq('item_type','room')
-    .gte('year', minY);
-  if(error){ toast(error.message,'bad'); container.innerHTML = '<div class="card" style="padding:20px;color:#B91C1C;font-size:13px">Failed to load payment history.</div>'; return; }
+  // Supabase/PostgREST caps a single select at ~1000 rows by default, so a
+  // large payments table silently truncates here unless we page through it.
+  const data = [];
+  { const PAGE = 1000;
+    for(let from=0; ; from+=PAGE){
+      const { data: page, error } = await sb.from('rental_payments')
+        .select('property_id,room_code,year,month,paid_on')
+        .in('property_id', propIds)
+        .eq('item_type','room')
+        .gte('year', minY)
+        .range(from, from+PAGE-1);
+      if(error){ toast(error.message,'bad'); container.innerHTML = '<div class="card" style="padding:20px;color:#B91C1C;font-size:13px">Failed to load payment history.</div>'; return; }
+      data.push(...(page||[]));
+      if(!page || page.length < PAGE) break;
+    }
+  }
 
   const monthKeys = new Set(months.map(mo=>mo.y+'-'+mo.m));
   const payMap = new Map(); // `${property_id}|${room_code}|${y}|${m}` -> earliest paid_on
