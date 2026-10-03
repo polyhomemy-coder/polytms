@@ -1821,7 +1821,16 @@ function renderTenants(){
   const active=state.tenants.filter(t=>t.active!==false);
   const rooms=(prop.room_codes||'').split(',').map(r=>r.trim()).filter(Boolean);
   const vacantCount=rooms.filter(r=>!active.some(t=>(t.room_code||'').toUpperCase()===r.toUpperCase())).length;
-  const totalRental=active.reduce((s,t)=>s+(Number(t.rental||0)+Number(t.carpark_rental||0)),0);
+  // A tenant can rent 2 carparks, each independently assigned to its own
+  // property (defaulting to the tenant's own room property when unset) —
+  // only count a carpark's rental here if it belongs to THIS property.
+  const cpRentalFor=t=>{
+    let s=0;
+    if(t.carpark && (t.carpark_property_id||t.property_id)===prop.id) s+=Number(t.carpark_rental||0);
+    if(t.carpark2 && (t.carpark2_property_id||t.property_id)===prop.id) s+=Number(t.carpark2_rental||0);
+    return s;
+  };
+  const totalRental=active.reduce((s,t)=>s+(Number(t.rental||0)+cpRentalFor(t)),0);
   const occupancyPct=rooms.length?Math.round((active.length/rooms.length)*100):0;
 
   // Lease expiry alert banner
@@ -1860,7 +1869,7 @@ function renderTenants(){
         :days<0?`<span class="badge badge-red" style="font-size:10px">Expired</span>`
         :days<=30?`<span class="badge badge-yellow" style="font-size:10px">⏰ ${days}d left</span>`
         :`<span class="badge badge-green" style="font-size:10px">Active</span>`;
-      const rental=Number(tenant.rental||0)+Number(tenant.carpark_rental||0);
+      const rental=Number(tenant.rental||0)+cpRentalFor(tenant);
       return `<div class="room-card" onclick="openTenantDetail('${tenant.id}')">
         <div class="room-badge">${esc(r)}</div>
         <div class="room-info">
@@ -1916,7 +1925,12 @@ function openTenantDetail(tenantId){
   };
   const section=title=>`<div style="font-size:10px;font-weight:800;letter-spacing:1.5px;color:var(--brand);text-transform:uppercase;padding:14px 0 6px;border-bottom:2px solid var(--brand);margin-bottom:4px;margin-top:8px">${title}</div>`;
 
-  const totalRental=Number(t.rental||t.room_rental||0)+Number(t.carpark_rental||0);
+  // Only count a carpark here if it belongs to THIS property — a tenant's
+  // 2nd carpark can be assigned to a different property entirely.
+  const cp1Owned = t.carpark  && (t.carpark_property_id  || t.property_id)===prop?.id;
+  const cp2Owned = t.carpark2 && (t.carpark2_property_id || t.property_id)===prop?.id;
+  const cpRental = (cp1Owned?Number(t.carpark_rental||0):0) + (cp2Owned?Number(t.carpark2_rental||0):0);
+  const totalRental=Number(t.rental||t.room_rental||0)+cpRental;
   const mo=(t.agreement_start&&t.agreement_end)?Math.round((new Date(t.agreement_end)-new Date(t.agreement_start))/(1000*60*60*24*30.44)):null;
 
   $('tenantDetailBody').innerHTML=`
@@ -1938,7 +1952,7 @@ function openTenantDetail(tenantId){
       <div>
         <div style="font-size:10px;font-weight:700;opacity:.75;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Monthly Total</div>
         <div style="font-size:28px;font-weight:900;line-height:1">RM ${fmt(totalRental)}</div>
-        ${Number(t.carpark_rental||0)>0?`<div style="font-size:11px;opacity:.8;margin-top:3px">Room RM ${fmt(t.rental||t.room_rental||0)} + Carpark RM ${fmt(t.carpark_rental)}</div>`:''}
+        ${cpRental>0?`<div style="font-size:11px;opacity:.8;margin-top:3px">Room RM ${fmt(t.rental||t.room_rental||0)}${cp1Owned?' + Carpark RM '+fmt(t.carpark_rental):''}${cp2Owned?' + Carpark 2 RM '+fmt(t.carpark2_rental):''}</div>`:''}
       </div>
       ${mo!=null?`<div style="text-align:right"><div style="font-size:10px;font-weight:700;opacity:.75;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Tenure</div><div style="font-size:22px;font-weight:900">${mo}<span style="font-size:12px;font-weight:600;margin-left:3px">mo</span></div></div>`:''}
     </div>
@@ -1971,8 +1985,10 @@ function openTenantDetail(tenantId){
     ${section('Room & Tenancy')}
     ${row('Room Code', t.room_code)}
     ${row('Carpark Lot', t.carpark)}
+    ${row('Carpark 2 Lot', t.carpark2)}
     ${row('Room Rental', (t.rental||t.room_rental) ? 'RM '+fmt(t.rental||t.room_rental) : null)}
     ${row('Carpark Rental', Number(t.carpark_rental||0)>0 ? 'RM '+fmt(t.carpark_rental) : null)}
+    ${row('Carpark 2 Rental', Number(t.carpark2_rental||0)>0 ? 'RM '+fmt(t.carpark2_rental) : null)}
     ${row('Agreement Start', fmtD(t.agreement_start||t.start_date))}
     ${row('Agreement End', fmtD(t.agreement_end||t.end_date))}
     ${row('Move-in Date', fmtD(t.move_in_date))}

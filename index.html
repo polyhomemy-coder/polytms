@@ -2526,6 +2526,29 @@ function keyCardDepositAmount(property, keyCardCount){
   return isKL ? Number(keyCardCount||0) * KEY_CARD_DEPOSIT_RATE : 0;
 }
 
+// Portion of a tenant's monthly rent attributable to property `propId` —
+// the room rental if propId is the tenant's own property, plus EITHER
+// carpark's rental if that carpark's effective property (carpark_property_id
+// / carpark2_property_id, defaulting to the tenant's own property when
+// unset) is propId. A tenant can have 2 carparks, each independently
+// assigned to a different property than the room — this is the single
+// source of truth for "how much of this tenant's rent belongs to this
+// property", used everywhere income/expected-rent/deposit totals are
+// computed, so a 2nd carpark is never silently dropped from the sum.
+function tenantRentForProperty(t, propId){
+  let total = 0;
+  if(t.property_id === propId) total += Number(t.room_rental||0);
+  if(t.carpark){
+    const cp1Prop = t.carpark_property_id || t.property_id;
+    if(cp1Prop === propId) total += Number(t.carpark_rental||0);
+  }
+  if(t.carpark2){
+    const cp2Prop = t.carpark2_property_id || t.property_id;
+    if(cp2Prop === propId) total += Number(t.carpark2_rental||0);
+  }
+  return total;
+}
+
 // Human-readable labels for expense categories
 const EXP_CAT_LABELS = {
   management_fee:  'Management Fee',
@@ -4519,9 +4542,7 @@ async function computeMonthNett(P, year, month){
         (x.room_code||'').toUpperCase()===(p.room_code||'').toUpperCase()
       );
       if(t){
-        const cpProp = t.carpark_property_id || t.property_id;
-        const sameCp = !!t.carpark && Number(t.carpark_rental||0)>0 && cpProp===P.id;
-        return s + Number(t.room_rental||0) + (sameCp?Number(t.carpark_rental||0):0);
+        return s + tenantRentForProperty(t, P.id);
       }
     }
     return s + Number(p.amount||0);
@@ -4782,14 +4803,20 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
       // with a remark so the user knows it was auto-inserted on tenant
       // creation (not from a real receipt yet).
       const roomFull = Number(t.room_rental||0);
-      const cpFull   = Number(t.carpark_rental||0);
-      const cpProp   = t.carpark_property_id || t.property_id;
-      const sameCp   = !!t.carpark && cpFull>0 && cpProp===propId;
-      const total    = roomFull + (sameCp?cpFull:0);
+      const cp1Prop  = t.carpark  ? (t.carpark_property_id  || t.property_id) : null;
+      const cp2Prop  = t.carpark2 ? (t.carpark2_property_id || t.property_id) : null;
+      const sameCp   = cp1Prop===propId && Number(t.carpark_rental||0)>0;
+      const sameCp2  = cp2Prop===propId && Number(t.carpark2_rental||0)>0;
+      const cpFull   = sameCp  ? Number(t.carpark_rental||0)  : 0;
+      const cp2Full  = sameCp2 ? Number(t.carpark2_rental||0) : 0;
+      const total    = roomFull + cpFull + cp2Full;
       if(total<=0) continue;
       const monStr = MONTHS[m-1];
-      const remark = sameCp
-        ? `🆕 New move-in (full ${monStr}): RM ${roomFull} room + RM ${cpFull} carpark = RM ${total}`
+      const cpParts = [];
+      if(sameCp)  cpParts.push(`RM ${cpFull} carpark`);
+      if(sameCp2) cpParts.push(`RM ${cp2Full} carpark 2`);
+      const remark = cpParts.length
+        ? `🆕 New move-in (full ${monStr}): RM ${roomFull} room + ${cpParts.join(' + ')} = RM ${total}`
         : `🆕 New move-in (full ${monStr}): RM ${roomFull}`;
       const {error} = await sb.from('rental_payments').insert({
         property_id: t.property_id,
@@ -5566,14 +5593,24 @@ function renderAdminDashboard(){
     });
   });
 
-  // Carpark assignments
-  const carparkList=allActive
-    .filter(t=>t.carpark&&t.carpark.trim())
-    .map(t=>({t,prop:props.find(p=>p.id===t.property_id)}))
-    .sort((a,b)=>{
-      const ka=a.prop?a.prop.condo+a.prop.unit:'zzz', kb=b.prop?b.prop.condo+b.prop.unit:'zzz';
-      return ka.localeCompare(kb);
-    });
+  // Carpark assignments — a tenant can rent up to 2 carparks, each
+  // independently assigned to its own property (defaulting to the tenant's
+  // own property when unset), so both must appear as their own row here.
+  const carparkList=[];
+  allActive.forEach(t=>{
+    if(t.carpark && t.carpark.trim()){
+      const propId = t.carpark_property_id || t.property_id;
+      carparkList.push({t, prop:state.properties.find(p=>p.id===propId), lot:t.carpark, rental:t.carpark_rental});
+    }
+    if(t.carpark2 && t.carpark2.trim()){
+      const propId2 = t.carpark2_property_id || t.property_id;
+      carparkList.push({t, prop:state.properties.find(p=>p.id===propId2), lot:t.carpark2, rental:t.carpark2_rental});
+    }
+  });
+  carparkList.sort((a,b)=>{
+    const ka=a.prop?a.prop.condo+a.prop.unit:'zzz', kb=b.prop?b.prop.condo+b.prop.unit:'zzz';
+    return ka.localeCompare(kb);
+  });
 
   // Move-ins and move-outs this month
   // Move-ins: active tenants whose agreement_start is this month
@@ -5892,12 +5929,12 @@ function renderAdminDashboard(){
     ${secHead('🚗','Carpark Assignments',carparkList.length)}
     ${carparkList.length===0 ? emptyMsg('No carpark assignments found') : tbl(
       miniTh({label:'#'},{label:'Tenant'},{label:'Property'},{label:'Lot'},{label:'Rental/mo',right:true},{label:'',right:true}),
-      carparkList.map(({t,prop},i)=>`<tr>
+      carparkList.map(({t,prop,lot,rental},i)=>`<tr>
         ${td(i+1,{muted:true})}
         ${td(esc(t.name||'—'),{bold:true})}
         ${td(prop?esc(prop.condo+' '+prop.unit):'—',{muted:true})}
-        ${td(`<span style="font-weight:800;color:var(--brand)">${esc(t.carpark)}</span>`)}
-        ${td(t.carpark_rental?'RM '+fmt(t.carpark_rental):'—',{right:true})}
+        ${td(`<span style="font-weight:800;color:var(--brand)">${esc(lot)}</span>`)}
+        ${td(rental?'RM '+fmt(rental):'—',{right:true})}
         ${td(viewBtn(t.id),{right:true})}
       </tr>`).join('')
     )}`);
@@ -6599,7 +6636,7 @@ function _acctAddPropertySheet(wb){
 
 async function _acctAddTenantSheet(wb){
   await loadTenants({includeMovedOut:true});
-  const header = ['name','ic','gender','contact','email','nationality','race','marital status','emergency contact name','emergency contact number','company','occupation','no. of staying','condo','unit','room','room rental','carpark','carpark rental','agreement start date','agreement end date','tenancy period (mo)','room deposit','carpark deposit','key card set'];
+  const header = ['name','ic','gender','contact','email','nationality','race','marital status','emergency contact name','emergency contact number','company','occupation','no. of staying','condo','unit','room','room rental','carpark','carpark rental','carpark 2','carpark 2 rental','agreement start date','agreement end date','tenancy period (mo)','room deposit','carpark deposit','carpark 2 deposit','key card set'];
   const propOf = id => (state.properties||[]).find(p=>p.id===id) || {};
   const rowFor = t => {
     const p = propOf(t.property_id);
@@ -6610,10 +6647,12 @@ async function _acctAddTenantSheet(wb){
       t.company||'', t.occupation||'', t.no_of_staying||'',
       p.condo||'', p.unit||'', t.room_code||'', Number(t.room_rental||0),
       t.carpark||'', Number(t.carpark_rental||0),
+      t.carpark2||'', Number(t.carpark2_rental||0),
       t.agreement_start||'', t.agreement_end||'',
       tenureMonths(t.agreement_start, t.agreement_end)||'',
       t.room_deposit==null?'':Number(t.room_deposit),
       t.carpark_deposit==null?'':Number(t.carpark_deposit),
+      t.carpark2_deposit==null?'':Number(t.carpark2_deposit),
       t.key_card_set==null?'':t.key_card_set,
     ];
   };
@@ -7252,9 +7291,12 @@ function renderDashboardMetrics(){
     roomDepositHeld += (t.room_deposit==null||t.room_deposit==='')
       ? Number(t.room_rental||0)
       : Number(t.room_deposit||0);
-    carparkDepositHeld += (t.carpark_deposit==null||t.carpark_deposit==='')
+    if(t.carpark) carparkDepositHeld += (t.carpark_deposit==null||t.carpark_deposit==='')
       ? Number(t.carpark_rental||0)
       : Number(t.carpark_deposit||0);
+    if(t.carpark2) carparkDepositHeld += (t.carpark2_deposit==null||t.carpark2_deposit==='')
+      ? Number(t.carpark2_rental||0)
+      : Number(t.carpark2_deposit||0);
     keyCardDepositHeld += keyCardDepositAmount(propByIdForDeposit.get(t.property_id), t.key_card_set);
   });
   const totalDeposit = roomDepositHeld + carparkDepositHeld + keyCardDepositHeld;
@@ -7287,9 +7329,7 @@ function renderDashboardMetrics(){
           (tt.room_code||'').toUpperCase()===(x.room_code||'').toUpperCase()
         );
         if(t){
-          const cpProp = t.carpark_property_id || t.property_id;
-          const sameCp = !!t.carpark && Number(t.carpark_rental||0)>0 && cpProp===p.id;
-          return s + Number(t.room_rental||0) + (sameCp?Number(t.carpark_rental||0):0);
+          return s + tenantRentForProperty(t, p.id);
         }
       }
       return s + Number(x.amount||0);
@@ -7745,7 +7785,7 @@ function renderTenants(){
     tenants = tenants.filter(t=>{
       const p = state.properties.find(x=>x.id===t.property_id);
       const hay = [
-        t.name, t.ic, t.contact, t.email, t.room_code, t.carpark,
+        t.name, t.ic, t.contact, t.email, t.room_code, t.carpark, t.carpark2,
         t.occupation, t.company, t.nationality,
         p && (p.condo+' '+p.unit)
       ].filter(Boolean).join(' ').toLowerCase();
@@ -7784,7 +7824,7 @@ function renderTenants(){
         <td class="font-semibold whitespace-nowrap">${p ? esc(p.unit) : ''}</td>
         <td class="text-center font-bold">${esc(t.room_code||'')}</td>
         <td class="num">${fmt(t.room_rental)}</td>
-        <td>${esc(t.carpark||'')}</td>
+        <td>${[t.carpark,t.carpark2].filter(Boolean).map(c=>esc(c)).join('<br>')}</td>
         <td>${fmtDate(t.agreement_start)}<br>${fmtDate(t.agreement_end)}</td>
         <td class="text-center font-bold text-[#991B1B]">${moDate}</td>
         <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" class="font-semibold">${esc(t.name)}</td>
@@ -7803,8 +7843,8 @@ function renderTenants(){
       <td class="font-semibold whitespace-nowrap">${p ? esc(p.unit) : ''}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
       <td class="num">${fmt(t.room_rental)}</td>
-      <td style="line-height:1.4">${(t.carpark||'').split(/[\n,]/).map(c=>c.trim()).filter(Boolean).map(c=>esc(c)).join('<br>') || '—'}</td>
-      <td class="num">${fmt(t.carpark_rental)}</td>
+      <td style="line-height:1.4">${[t.carpark,t.carpark2].filter(Boolean).flatMap(c=>c.split(/[\n,]/)).map(c=>c.trim()).filter(Boolean).map(c=>esc(c)).join('<br>') || '—'}</td>
+      <td class="num" style="line-height:1.4">${[t.carpark?fmt(t.carpark_rental):null, t.carpark2?fmt(t.carpark2_rental):null].filter(v=>v!=null).join('<br>') || fmt(0)}</td>
       <td class="whitespace-nowrap">${fmtDate(t.agreement_start)}<br>${fmtDate(t.agreement_end)}</td>
       <td class="text-center font-semibold whitespace-nowrap">${mo!=null ? (mo+' mo') : '<span class="text-slate-400">—</span>'}</td>
       <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" class="font-semibold">${esc(t.name)}</td>
@@ -8216,6 +8256,8 @@ function recontractTenant(id){
   const oldRental    = Number(t.room_rental||0);
   const oldCarpark   = Number(t.carpark_rental||0);
   const hasCarpark   = !!(t.carpark || oldCarpark>0);
+  const oldCarpark2  = Number(t.carpark2_rental||0);
+  const hasCarpark2  = !!(t.carpark2 || oldCarpark2>0);
   // The new term starts the day AFTER the current agreement_end (e.g. old
   // end 30 Sep → new term starts 1 Oct) — NOT on the old end date itself.
   // endFromTenure() expects to be handed the first day of the term; feeding
@@ -8269,6 +8311,11 @@ function recontractTenant(id){
           <input type="number" step="0.01" min="0" id="rc_carpark" class="input" value="${oldCarpark}" ${hasCarpark?'':'disabled'}>
           <p class="help mt-1">${hasCarpark?'Was: RM '+fmt(oldCarpark):'No carpark on contract'}</p>
         </div>
+        ${hasCarpark2 ? `<div>
+          <label class="label">Carpark ${esc(t.carpark2||'')} (2nd) Rental (RM)</label>
+          <input type="number" step="0.01" min="0" id="rc_carpark2" class="input" value="${oldCarpark2}">
+          <p class="help mt-1">Was: RM ${fmt(oldCarpark2)}</p>
+        </div>` : ''}
       </div>
 
       <!-- Live preview -->
@@ -8279,6 +8326,7 @@ function recontractTenant(id){
       const newEnd    = $('#rc_end').value;
       const newRental = Math.max(0, Number($('#rc_rental').value)||0);
       const newCp     = Math.max(0, Number($('#rc_carpark').value)||0);
+      const newCp2    = hasCarpark2 ? Math.max(0, Number($('#rc_carpark2').value)||0) : oldCarpark2;
       if(!(months>=1)) throw new Error('Enter an extension of at least 1 month');
       if(!newEnd)      throw new Error('New Agreement End date is required');
       // Refuse if the report for this month is locked — the auto-posted
@@ -8295,6 +8343,7 @@ function recontractTenant(id){
       const tPatch = {agreement_end: newEnd, current_term_start: newTermStart, updated_at: new Date().toISOString()};
       if(newRental !== oldRental) tPatch.room_rental    = newRental;
       if(hasCarpark && newCp !== oldCarpark) tPatch.carpark_rental = newCp;
+      if(hasCarpark2 && newCp2 !== oldCarpark2) tPatch.carpark2_rental = newCp2;
       const {error: tErr} = await sb.from('tenants').update(tPatch).eq('id', t.id);
       if(tErr) throw tErr;
 
@@ -8321,7 +8370,7 @@ function recontractTenant(id){
       // back to the full rental) alongside its usual management-fee/BF sync.
       await syncDerivedExpenses(state.year, state.month);
       renderTab('tenants');
-      const priceNote = (newRental!==oldRental||(hasCarpark&&newCp!==oldCarpark))
+      const priceNote = (newRental!==oldRental||(hasCarpark&&newCp!==oldCarpark)||(hasCarpark2&&newCp2!==oldCarpark2))
         ? ' · price updated'
         : '';
       toast(`${t.name} recontracted +${months} mo (${fmtDate(newTermStart)} – ${fmtDate(newEnd)}) · RM ${fmt(fee)} retention fee posted${priceNote}`);
@@ -8335,19 +8384,21 @@ function recontractTenant(id){
     const eEl   = $('#rc_end');
     const rEl   = $('#rc_rental');
     const cpEl  = $('#rc_carpark');
+    const cp2El = $('#rc_carpark2');
     const prev  = $('#rc_preview');
     let endIsAuto = true; // becomes false the moment user manually edits the end-date
     const renderPreview = ()=>{
       if(!prev) return;
-      const r  = Math.max(0, Number(rEl?.value)||0);
-      const cp = Math.max(0, Number(cpEl?.value)||0);
+      const r   = Math.max(0, Number(rEl?.value)||0);
+      const cp  = Math.max(0, Number(cpEl?.value)||0);
+      const cp2 = hasCarpark2 ? Math.max(0, Number(cp2El?.value)||0) : oldCarpark2;
       const mo = Math.max(0, Number(mEl?.value)||0);
       // Pro-rated: (rental / 12) × months × 20%. Forced to 0 for R2R Own
       // Unit — Polyhome doesn't charge itself a retention commission.
       const fee = isOwnR2R ? 0 : +((r/12) * mo * 0.2).toFixed(2);
-      const priceChanged = (r!==oldRental) || (hasCarpark && cp!==oldCarpark);
+      const priceChanged = (r!==oldRental) || (hasCarpark && cp!==oldCarpark) || (hasCarpark2 && cp2!==oldCarpark2);
       const priceLines = priceChanged
-        ? `<div class="mt-1 text-emerald-700"><b>Price change:</b> Room RM ${fmt(oldRental)} → <b>RM ${fmt(r)}</b>${hasCarpark?' · Carpark RM '+fmt(oldCarpark)+' → <b>RM '+fmt(cp)+'</b>':''}</div>`
+        ? `<div class="mt-1 text-emerald-700"><b>Price change:</b> Room RM ${fmt(oldRental)} → <b>RM ${fmt(r)}</b>${hasCarpark?' · Carpark RM '+fmt(oldCarpark)+' → <b>RM '+fmt(cp)+'</b>':''}${hasCarpark2?' · Carpark 2 RM '+fmt(oldCarpark2)+' → <b>RM '+fmt(cp2)+'</b>':''}</div>`
         : '<div class="mt-1 text-slate-500">No price change.</div>';
       const feeLine = isOwnR2R
         ? `<div class="text-slate-500 text-[11px] mt-0.5">R2R Own Unit — no retention fee charged to yourself.</div>`
@@ -8373,6 +8424,7 @@ function recontractTenant(id){
     }
     if(rEl){ rEl.addEventListener('input', renderPreview); }
     if(cpEl){ cpEl.addEventListener('input', renderPreview); }
+    if(cp2El){ cp2El.addEventListener('input', renderPreview); }
     syncEnd();
     renderPreview();
   }, 0);
@@ -9131,11 +9183,16 @@ function openTenantView(id){
       row('Room Deposit', t.room_deposit!=null ? 'RM '+fmt(t.room_deposit) : null),
       row('')
     )}
-    ${g3(
-      row('Carpark', t.carpark),
+    ${t.carpark ? g3(
+      row('Carpark', (()=>{ const cpP = t.carpark_property_id && t.carpark_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark_property_id) : null; return t.carpark + (cpP ? ' ('+cpP.condo+' · '+cpP.unit+')' : ''); })()),
       row('Carpark Rental', t.carpark_rental!=null ? 'RM '+fmt(t.carpark_rental) : null),
       row('Carpark Deposit', t.carpark_deposit!=null ? 'RM '+fmt(t.carpark_deposit) : null)
-    )}
+    ) : ''}
+    ${t.carpark2 ? g3(
+      row('Carpark 2', (()=>{ const cp2P = t.carpark2_property_id && t.carpark2_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark2_property_id) : null; return t.carpark2 + (cp2P ? ' ('+cp2P.condo+' · '+cp2P.unit+')' : ''); })()),
+      row('Carpark 2 Rental', t.carpark2_rental!=null ? 'RM '+fmt(t.carpark2_rental) : null),
+      row('Carpark 2 Deposit', t.carpark2_deposit!=null ? 'RM '+fmt(t.carpark2_deposit) : null)
+    ) : ''}
 
     ${sec('Tenancy')}
     ${g3(
@@ -10108,7 +10165,7 @@ function waPersonalize(tpl, t){
   const p = state.properties.find(x=>x.id===t.property_id) || {};
   const monthName = new Date(state.year, state.month-1, 1)
     .toLocaleString('en-US', { month:'long', year:'numeric' });
-  const amount = Number(t.room_rental||0) + Number(t.carpark_rental||0);
+  const amount = tenantRentForProperty(t, t.property_id);
   return String(tpl||'')
     .replaceAll('{name}',     t.name||'')
     .replaceAll('{room}',     t.room_code||'')
@@ -10358,12 +10415,23 @@ function renderPayments(){
       splitChip = `<span class="ml-2 chip" style="background:#FFE4E6;color:#9F1239;font-size:10px">🚪 Move-out pro-rate</span>`;
     } else if(r.payment_kind==='advance_covered_full'){
       splitChip = `<span class="ml-2 chip" style="background:#E8F4FD;color:#1E5BB8;font-size:10px">🔄 Advance-covered (full month)</span>`;
-    } else if(t && t.carpark && Number(t.carpark_rental||0)>0){
-      const expected = Number(t.room_rental||0) + Number(t.carpark_rental||0);
-      const matches  = Math.abs(Number(r.amount||0) - expected) < 0.01;
-      splitChip = matches
-        ? `<span class="ml-2 chip" style="background:#DCFCE7;color:#065F46;font-size:10px">↔ Splits ${fmt(t.room_rental)} + ${fmt(t.carpark_rental)}</span>`
-        : `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">≠ Expected ${fmt(expected)}</span>`;
+    } else if(t && (t.carpark || t.carpark2)){
+      // Only count a carpark here if ITS OWN effective property (which may
+      // differ from the room's — a 2nd carpark can sit at another property
+      // entirely) matches this payment row's property. Otherwise that
+      // carpark's rent is billed separately under its own property's ledger.
+      const cp1Prop = t.carpark ? (t.carpark_property_id || t.property_id) : null;
+      const cp2Prop = t.carpark2 ? (t.carpark2_property_id || t.property_id) : null;
+      const labelParts = [fmt(t.room_rental)];
+      let expected = Number(t.room_rental||0);
+      if(cp1Prop===r.property_id && Number(t.carpark_rental||0)>0){ expected += Number(t.carpark_rental||0); labelParts.push(fmt(t.carpark_rental)); }
+      if(cp2Prop===r.property_id && Number(t.carpark2_rental||0)>0){ expected += Number(t.carpark2_rental||0); labelParts.push(fmt(t.carpark2_rental)); }
+      if(labelParts.length > 1){
+        const matches = Math.abs(Number(r.amount||0) - expected) < 0.01;
+        splitChip = matches
+          ? `<span class="ml-2 chip" style="background:#DCFCE7;color:#065F46;font-size:10px">↔ Splits ${labelParts.join(' + ')}</span>`
+          : `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">≠ Expected ${fmt(expected)}</span>`;
+      }
     }
     return `<tr class="${grpCls}">
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
@@ -10590,9 +10658,7 @@ async function commitInlinePayment(tr){
           (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
           (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
         if(isSecondMonth && Math.abs(amt - pr.total) < 0.5){
-          const cpPropAC = tenant.carpark_property_id || tenant.property_id;
-          const sameCpAC = !!tenant.carpark && Number(tenant.carpark_rental||0)>0 && cpPropAC===pid;
-          const fullMonAC = Number(tenant.room_rental||0) + (sameCpAC ? Number(tenant.carpark_rental||0) : 0);
+          const fullMonAC = tenantRentForProperty(tenant, pid);
           if(await confirmModal(
             `RM ${fmt(amt)} matches ${tenant.name}'s 1st-month pro-rate (RM ${pr.total}).\n\n`+
             `Treat as ADVANCE-COVERED — income report will show full RM ${fullMonAC} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
@@ -10614,7 +10680,7 @@ async function commitInlinePayment(tr){
       if(!kind){
         const lp = computeLastMonthProRate(tenant);
         if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month){
-          const fullMonth = Number(tenant.room_rental||0) + (lp.sameCarpark?Number(tenant.carpark_rental||0):0);
+          const fullMonth = tenantRentForProperty(tenant, pid);
           const isProRate = Math.abs(amt - lp.total)   < 0.5;
           const isFull    = Math.abs(amt - fullMonth) < 0.5 && fullMonth>lp.total;
           if(isProRate || isFull){
@@ -10688,10 +10754,15 @@ function computeRentStatus(pid){
     const cpPaid = t.carpark ? state.payments
       .filter(p=> p.property_id===t.property_id && p.item_type==='carpark' && (p.room_code||'').toUpperCase()===(t.carpark||'').toUpperCase())
       .reduce((s,p)=>s+Number(p.amount||0),0) : 0;
+    const cp2Paid = t.carpark2 ? state.payments
+      .filter(p=> p.property_id===t.property_id && p.item_type==='carpark' && (p.room_code||'').toUpperCase()===(t.carpark2||'').toUpperCase())
+      .reduce((s,p)=>s+Number(p.amount||0),0) : 0;
     const expectedRoomFull = Number(t.room_rental||0);
     const expectedCpFull   = Number(t.carpark_rental||0);
+    const expectedCp2Full  = Number(t.carpark2_rental||0);
     let expectedRoom = expectedRoomFull;
     let expectedCp   = expectedCpFull;
+    let expectedCp2  = expectedCp2Full;
     let proKind = null;          // surfaced for chip rendering
     // ----- Pro-rate awareness -----
     // 1st month: expected = first-month pro-rate amount
@@ -10702,29 +10773,36 @@ function computeRentStatus(pid){
     const lp = computeLastMonthProRate(t);
     if(fp && fp.moveInYear===y && fp.moveInMonth===m){
       expectedRoom = fp.roomShare;
-      expectedCp   = fp.sameCarpark ? fp.carparkShare : expectedCpFull;
+      expectedCp   = fp.sameCarpark  ? fp.carparkShare  : expectedCpFull;
+      expectedCp2  = fp.sameCarpark2 ? fp.carpark2Share : expectedCp2Full;
       proKind = 'first';
     } else if(fp){
       const nextY = fp.moveInMonth===12 ? fp.moveInYear+1 : fp.moveInYear;
       const nextM = fp.moveInMonth===12 ? 1 : fp.moveInMonth+1;
       if(nextY===y && nextM===m){
         expectedRoom = fp.roomShare;
-        expectedCp   = fp.sameCarpark ? fp.carparkShare : expectedCpFull;
+        expectedCp   = fp.sameCarpark  ? fp.carparkShare  : expectedCpFull;
+        expectedCp2  = fp.sameCarpark2 ? fp.carpark2Share : expectedCp2Full;
         proKind = 'second';
       }
     }
     if(lp && lp.moveOutYear===y && lp.moveOutMonth===m){
       expectedRoom = lp.roomShare;
-      expectedCp   = lp.sameCarpark ? lp.carparkShare : expectedCpFull;
+      expectedCp   = lp.sameCarpark  ? lp.carparkShare  : expectedCpFull;
+      expectedCp2  = lp.sameCarpark2 ? lp.carpark2Share : expectedCp2Full;
       proKind = 'last';
     }
+    // expectedCp/cpPaid below fold BOTH carpark slots into one combined
+    // total — the Collection Status table shows a single "Carpark" column.
+    expectedCp = expectedCp + expectedCp2;
+    const cpPaidTotal = cpPaid + cp2Paid;
     const expected = expectedRoom + expectedCp;
-    const paid = roomPaid + cpPaid;
+    const paid = roomPaid + cpPaidTotal;
     let status;
     if(paid===0) status='unpaid';
     else if(Math.abs(paid-expected) <= 0.5) status='paid';      // pro-rate tolerance
     else status='unmatch';
-    return {tenant:t, prop, expectedRoom, expectedCp, expected, roomPaid, cpPaid, paid, status, proKind};
+    return {tenant:t, prop, expectedRoom, expectedCp, expected, roomPaid, cpPaid: cpPaidTotal, paid, status, proKind};
   });
 }
 
@@ -10811,7 +10889,7 @@ function renderRentStatus(pid){
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
       <td class="font-semibold"><button class="text-left hover:underline hover:text-[color:var(--brand)] transition-colors" onclick="openTenantView('${t.id}')" title="View tenant profile">${esc(t.name||'')}</button>${proChips}</td>
       <td class="num">${fmt(r.expectedRoom)}</td>
-      <td>${esc(t.carpark||'—')}</td>
+      <td>${[t.carpark,t.carpark2].filter(Boolean).map(c=>esc(c)).join(', ')||'—'}</td>
       <td class="num">${fmt(r.expectedCp)}</td>
       <td>${t.agreement_start? fmtDate(t.agreement_start) : '—'}</td>
       <td class="num">${fmt(r.expected)}</td>
@@ -13489,6 +13567,18 @@ function renderReportHTML(ctx, opts){
             if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
           }
         }
+        // 2nd carpark commission — same rule, independent property binding
+        const cp2Full = Number(t.carpark2_rental||0);
+        const cp2Prop = t.carpark2_property_id || t.property_id;
+        if(t.carpark2 && cp2Full>0 && cp2Prop===P.id){
+          const cp2Lot = String(t.carpark2).trim();
+          const hasCp2RC = expenses.some(e=>e.category==='rent_commission'
+            && (e.description||'').includes('Carpark '+cp2Lot+')'));
+          if(!hasCp2RC){
+            const amt2 = +(cp2Full * ratio).toFixed(2);
+            if(amt2>0) expRows.push({desc:'Rent Commission (Carpark '+cp2Lot+')'+moTxt, amount:amt2, cat:'rent_commission', _auto:true});
+          }
+        }
       }
     });
     // Standalone carpark lots (declared on property, not tied to a tenant) —
@@ -15703,9 +15793,7 @@ async function saveAllReceipts(){
             (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
             (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
           if(isSecondMonth && Math.abs(amt - pr.total) < 0.5){
-            const cpPropAC  = tenant.carpark_property_id || tenant.property_id;
-            const sameCpAC  = !!tenant.carpark && Number(tenant.carpark_rental||0)>0 && cpPropAC===r.property_id;
-            const fullMonAC = Number(tenant.room_rental||0) + (sameCpAC ? Number(tenant.carpark_rental||0) : 0);
+            const fullMonAC = tenantRentForProperty(tenant, r.property_id);
             if(await confirmModal(
               `RM ${fmt(amt)} matches ${tenant.name}'s 1st-month pro-rate (RM ${pr.total}).\n\n`+
               `Treat as ADVANCE-COVERED — income report will show full RM ${fullMonAC} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
@@ -15721,7 +15809,7 @@ async function saveAllReceipts(){
         if(!kind){
           const lp = computeLastMonthProRate(tenant);
           if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month){
-            const fullMonth = Number(tenant.room_rental||0) + (lp.sameCarpark?Number(tenant.carpark_rental||0):0);
+            const fullMonth = tenantRentForProperty(tenant, r.property_id);
             const isProRate = Math.abs(amt - lp.total) < 0.5;
             const isFull    = Math.abs(amt - fullMonth) < 0.5 && fullMonth > lp.total;
             if(isProRate || isFull){
