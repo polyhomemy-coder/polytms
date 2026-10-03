@@ -9491,6 +9491,8 @@ function buildTAFields(tenant){
     secondaryMaritalStatus: t.secondary_marital_status||'',
     secondaryOccupation:    t.secondary_occupation||'',
     secondaryCompany:       t.secondary_company||'',
+    secondaryEmergencyName:     t.secondary_emergency_name||'',
+    secondaryEmergencyContact:  t.secondary_emergency_contact||'',
   };
 }
 
@@ -9511,6 +9513,7 @@ const TA_FIELD_LABELS = {
   secondaryGender:'2nd Person Gender', secondaryNationality:'2nd Person Nationality',
   secondaryRace:'2nd Person Race', secondaryMaritalStatus:'2nd Person Marital Status',
   secondaryOccupation:'2nd Person Occupation', secondaryCompany:'2nd Person Company',
+  secondaryEmergencyName:'2nd Person Emergency Name', secondaryEmergencyContact:'2nd Person Emergency Contact',
 };
 
 async function openGenerateTAModal(tenantId){
