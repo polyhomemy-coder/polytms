@@ -8209,7 +8209,52 @@ async function _autoCreateLastMonthProRate(t){
 // on edit; that's reserved for the tenant-creation flow).
 async function _syncFirstMonthProRate(t){
   const pr = computeFirstMonthProRate(t);
-  if(!pr || pr.total<=0) return;
+  if(!pr || pr.total<=0){
+    // Not a pro-rated move-in (computeFirstMonthProRate returns null for a
+    // day-1 start). A day-1 move-in still gets an auto-created "full month"
+    // placeholder row (see _autoCreateFirstMonthProRate) which otherwise
+    // never tracks later edits — e.g. a carpark added via the regular Edit
+    // form (not the guided "Add Carpark" action, which posts its own
+    // payment) would silently leave the original room-only amount stale.
+    // Only ever touch a row we can be sure is our own untagged placeholder,
+    // identified by its remark prefix — never a real receipt or anything
+    // carrying a deliberate payment_kind.
+    if(!t.agreement_start) return;
+    const s = parseISODateLocal(t.agreement_start);
+    if(isNaN(s) || s.getDate()!==1) return;
+    const sy = s.getFullYear(), sm = s.getMonth()+1;
+    const existingFull = (state.payments||[]).find(p=>
+      !p.payment_kind &&
+      p.item_type==='room' &&
+      p.property_id===t.property_id &&
+      p.year===sy && p.month===sm &&
+      (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase() &&
+      String(p.remark||'').startsWith('🆕 New move-in (full')
+    );
+    if(!existingFull) return;
+    if(isReportLocked(existingFull.property_id, existingFull.year, existingFull.month)) return;
+    const roomFull = Number(t.room_rental||0);
+    const cp1Prop  = t.carpark  ? (t.carpark_property_id  || t.property_id) : null;
+    const cp2Prop  = t.carpark2 ? (t.carpark2_property_id || t.property_id) : null;
+    const sameCp   = cp1Prop===t.property_id && Number(t.carpark_rental||0)>0;
+    const sameCp2  = cp2Prop===t.property_id && Number(t.carpark2_rental||0)>0;
+    const cpFull   = sameCp  ? Number(t.carpark_rental||0)  : 0;
+    const cp2Full  = sameCp2 ? Number(t.carpark2_rental||0) : 0;
+    const total    = roomFull + cpFull + cp2Full;
+    if(total<=0) return;
+    const monStr = MONTHS[sm-1];
+    const cpParts = [];
+    if(sameCp)  cpParts.push(`RM ${cpFull} carpark`);
+    if(sameCp2) cpParts.push(`RM ${cp2Full} carpark 2`);
+    const remark = cpParts.length
+      ? `🆕 New move-in (full ${monStr}): RM ${roomFull} room + ${cpParts.join(' + ')} = RM ${total}`
+      : `🆕 New move-in (full ${monStr}): RM ${roomFull}`;
+    if(Math.abs(Number(existingFull.amount||0) - total) < 0.005 && existingFull.remark===remark) return;
+    const {error} = await sb.from('rental_payments').update({ amount: total, remark }).eq('id', existingFull.id);
+    if(error){ toast('Move-in payment sync failed: '+error.message,'bad'); return; }
+    toast(`Move-in payment updated → RM ${fmt(total)}`);
+    return;
+  }
   const existing = (state.payments||[]).find(p=>
     p.payment_kind==='first_month_prorate' &&
     p.item_type==='room' &&
