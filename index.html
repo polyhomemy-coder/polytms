@@ -10803,8 +10803,16 @@ function computeRentStatus(pid){
       .filter(p=> p.property_id===t.property_id && p.item_type==='carpark' && (p.room_code||'').toUpperCase()===(t.carpark2||'').toUpperCase())
       .reduce((s,p)=>s+Number(p.amount||0),0) : 0;
     const expectedRoomFull = Number(t.room_rental||0);
-    const expectedCpFull   = Number(t.carpark_rental||0);
-    const expectedCp2Full  = Number(t.carpark2_rental||0);
+    // A carpark only belongs to the Expected total of the property it's
+    // actually assigned to — carpark_property_id/carpark2_property_id,
+    // defaulting to the tenant's own room property when unset. Previously
+    // this always counted the full carpark rental here regardless of
+    // binding, so a carpark explicitly assigned to a DIFFERENT unit still
+    // inflated this property's "Contract RM", producing a false "Unmatch".
+    const cp1SameProp = !!t.carpark  && (t.carpark_property_id  || t.property_id) === t.property_id;
+    const cp2SameProp = !!t.carpark2 && (t.carpark2_property_id || t.property_id) === t.property_id;
+    const expectedCpFull   = cp1SameProp ? Number(t.carpark_rental||0)  : 0;
+    const expectedCp2Full  = cp2SameProp ? Number(t.carpark2_rental||0) : 0;
     let expectedRoom = expectedRoomFull;
     let expectedCp   = expectedCpFull;
     let expectedCp2  = expectedCp2Full;
