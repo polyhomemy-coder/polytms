@@ -10901,23 +10901,24 @@ function computeRentStatus(pid){
     const roomPaid = state.payments
       .filter(p=> p.property_id===t.property_id && p.item_type==='room' && (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase())
       .reduce((s,p)=>s+Number(p.amount||0),0);
+    // Rent Collection Status tracks what the TENANT owes and pays in total
+    // — not which property's income statement the money ends up booked
+    // under. A carpark's cash is looked up under its OWN property
+    // (carpark_property_id/carpark2_property_id may differ from the room's
+    // property for a cross-property carpark), while the Expected total
+    // always counts the full carpark rental regardless of that binding,
+    // since the tenant owes it either way.
+    const cp1Prop = t.carpark  ? (t.carpark_property_id  || t.property_id) : null;
+    const cp2Prop = t.carpark2 ? (t.carpark2_property_id || t.property_id) : null;
     const cpPaid = t.carpark ? state.payments
-      .filter(p=> p.property_id===t.property_id && p.item_type==='carpark' && (p.room_code||'').toUpperCase()===(t.carpark||'').toUpperCase())
+      .filter(p=> p.property_id===cp1Prop && p.item_type==='carpark' && (p.room_code||'').toUpperCase()===(t.carpark||'').toUpperCase())
       .reduce((s,p)=>s+Number(p.amount||0),0) : 0;
     const cp2Paid = t.carpark2 ? state.payments
-      .filter(p=> p.property_id===t.property_id && p.item_type==='carpark' && (p.room_code||'').toUpperCase()===(t.carpark2||'').toUpperCase())
+      .filter(p=> p.property_id===cp2Prop && p.item_type==='carpark' && (p.room_code||'').toUpperCase()===(t.carpark2||'').toUpperCase())
       .reduce((s,p)=>s+Number(p.amount||0),0) : 0;
     const expectedRoomFull = Number(t.room_rental||0);
-    // A carpark only belongs to the Expected total of the property it's
-    // actually assigned to — carpark_property_id/carpark2_property_id,
-    // defaulting to the tenant's own room property when unset. Previously
-    // this always counted the full carpark rental here regardless of
-    // binding, so a carpark explicitly assigned to a DIFFERENT unit still
-    // inflated this property's "Contract RM", producing a false "Unmatch".
-    const cp1SameProp = !!t.carpark  && (t.carpark_property_id  || t.property_id) === t.property_id;
-    const cp2SameProp = !!t.carpark2 && (t.carpark2_property_id || t.property_id) === t.property_id;
-    const expectedCpFull   = cp1SameProp ? Number(t.carpark_rental||0)  : 0;
-    const expectedCp2Full  = cp2SameProp ? Number(t.carpark2_rental||0) : 0;
+    const expectedCpFull   = Number(t.carpark_rental||0);
+    const expectedCp2Full  = Number(t.carpark2_rental||0);
     let expectedRoom = expectedRoomFull;
     let expectedCp   = expectedCpFull;
     let expectedCp2  = expectedCp2Full;
@@ -10929,25 +10930,31 @@ function computeRentStatus(pid){
     // month — advance covers the full month income).
     const fp = computeFirstMonthProRate(t);
     const lp = computeLastMonthProRate(t);
+    // computeFirstMonthProRate/computeLastMonthProRate only pro-rate a
+    // carpark's share when it's same-property (that's correct for THEIR
+    // own property-income consumers) — here, for the tenant-centric
+    // Expected total, a cross-property carpark still gets pro-rated by the
+    // same ratio, since the tenant owes a partial month's carpark rent
+    // either way, just booked under a different property's ledger.
     if(fp && fp.moveInYear===y && fp.moveInMonth===m){
       expectedRoom = fp.roomShare;
-      expectedCp   = fp.sameCarpark  ? fp.carparkShare  : expectedCpFull;
-      expectedCp2  = fp.sameCarpark2 ? fp.carpark2Share : expectedCp2Full;
+      expectedCp   = fp.sameCarpark  ? fp.carparkShare  : Math.ceil(expectedCpFull  * fp.ratio);
+      expectedCp2  = fp.sameCarpark2 ? fp.carpark2Share : Math.ceil(expectedCp2Full * fp.ratio);
       proKind = 'first';
     } else if(fp){
       const nextY = fp.moveInMonth===12 ? fp.moveInYear+1 : fp.moveInYear;
       const nextM = fp.moveInMonth===12 ? 1 : fp.moveInMonth+1;
       if(nextY===y && nextM===m){
         expectedRoom = fp.roomShare;
-        expectedCp   = fp.sameCarpark  ? fp.carparkShare  : expectedCpFull;
-        expectedCp2  = fp.sameCarpark2 ? fp.carpark2Share : expectedCp2Full;
+        expectedCp   = fp.sameCarpark  ? fp.carparkShare  : Math.ceil(expectedCpFull  * fp.ratio);
+        expectedCp2  = fp.sameCarpark2 ? fp.carpark2Share : Math.ceil(expectedCp2Full * fp.ratio);
         proKind = 'second';
       }
     }
     if(lp && lp.moveOutYear===y && lp.moveOutMonth===m){
       expectedRoom = lp.roomShare;
-      expectedCp   = lp.sameCarpark  ? lp.carparkShare  : expectedCpFull;
-      expectedCp2  = lp.sameCarpark2 ? lp.carpark2Share : expectedCp2Full;
+      expectedCp   = lp.sameCarpark  ? lp.carparkShare  : Math.ceil(expectedCpFull  * lp.ratio);
+      expectedCp2  = lp.sameCarpark2 ? lp.carpark2Share : Math.ceil(expectedCp2Full * lp.ratio);
       proKind = 'last';
     }
     // expectedCp/cpPaid below fold BOTH carpark slots into one combined
