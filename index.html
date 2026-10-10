@@ -5555,6 +5555,13 @@ function renderDashboard(){
 function renderAdminDashboard(){
   const el = document.getElementById('adminDashView');
   if(!el) return;
+  // Capture whether the carpark search box had focus BEFORE the re-render
+  // wipes it out — this function re-renders the whole dashboard on every
+  // keystroke (no lighter-weight repaint path), so without this check the
+  // post-render wiring below would steal focus into the search box even on
+  // unrelated re-renders (month change, sidebar filter, tab switch).
+  const carpSearchHadFocus = document.activeElement && document.activeElement.id==='carpSearchInput';
+  const carpSearchCursorPos = carpSearchHadFocus ? document.activeElement.selectionStart : null;
   const y=state.year, m=state.month;
   const mStr=`${y}-${String(m).padStart(2,'0')}`;
   // Ensure moved-out tenants are loaded once (for move-out pro-rate in Movements)
@@ -5610,6 +5617,11 @@ function renderAdminDashboard(){
   carparkList.sort((a,b)=>{
     const ka=a.prop?a.prop.condo+a.prop.unit:'zzz', kb=b.prop?b.prop.condo+b.prop.unit:'zzz';
     return ka.localeCompare(kb);
+  });
+  const carpSearchTxt = (state.carpSearch||'').trim().toLowerCase();
+  const carparkListFiltered = !carpSearchTxt ? carparkList : carparkList.filter(({t,prop,lot})=>{
+    const hay = [t.name, prop?prop.condo+' '+prop.unit:'', lot].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(carpSearchTxt);
   });
 
   // Move-ins and move-outs this month
@@ -5926,10 +5938,16 @@ function renderAdminDashboard(){
     )}`);
 
   const paneCarpark = panel(`
-    ${secHead('🚗','Carpark Assignments',carparkList.length)}
-    ${carparkList.length===0 ? emptyMsg('No carpark assignments found') : tbl(
+    <div class="flex items-center justify-between gap-3 mb-2 flex-wrap">
+      ${secHead('🚗','Carpark Assignments',carparkList.length)}
+      <div class="relative" style="min-width:220px">
+        <input id="carpSearchInput" class="input !pl-8 !text-xs !w-full" placeholder="Search tenant / property / lot…" value="${esc(state.carpSearch||'')}" />
+        <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px">🔍</span>
+      </div>
+    </div>
+    ${carparkListFiltered.length===0 ? emptyMsg(carpSearchTxt ? 'No carpark assignments match your search' : 'No carpark assignments found') : tbl(
       miniTh({label:'#'},{label:'Tenant'},{label:'Property'},{label:'Lot'},{label:'Rental/mo',right:true},{label:'',right:true}),
-      carparkList.map(({t,prop,lot,rental},i)=>`<tr>
+      carparkListFiltered.map(({t,prop,lot,rental},i)=>`<tr>
         ${td(i+1,{muted:true})}
         ${td(esc(t.name||'—'),{bold:true})}
         ${td(prop?esc(prop.condo+' '+prop.unit):'—',{muted:true})}
@@ -6087,6 +6105,25 @@ function renderAdminDashboard(){
   if(sub === 'utilities'){
     const p = document.getElementById('utilitiesPanel');
     if(p) renderUtilitiesPanel(p);
+  }
+  if(sub === 'carpark'){
+    // The whole dashboard re-renders on every keystroke (this function has
+    // no lighter-weight repaint path), which would normally yank focus and
+    // cursor position out of the search box — restore both after each
+    // debounced re-render so typing feels uninterrupted.
+    const searchEl = document.getElementById('carpSearchInput');
+    if(searchEl){
+      if(carpSearchHadFocus){
+        searchEl.focus();
+        const pos = carpSearchCursorPos!=null ? carpSearchCursorPos : searchEl.value.length;
+        searchEl.setSelectionRange(pos, pos);
+      }
+      searchEl.addEventListener('input', ()=>{
+        state.carpSearch = searchEl.value;
+        clearTimeout(window._carpSearchTimer);
+        window._carpSearchTimer = setTimeout(()=>renderAdminDashboard(), 200);
+      });
+    }
   }
 }
 
