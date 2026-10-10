@@ -8954,7 +8954,9 @@ async function moveOutTenant(id){
                      ? Number(t.room_rental||0) : Number(t.room_deposit||0);
   const carparkDep = (t.carpark_deposit==null||t.carpark_deposit==='')
                      ? Number(t.carpark_rental||0) : Number(t.carpark_deposit||0);
-  const totalDep   = +(roomDep + carparkDep).toFixed(2);
+  const carpark2Dep = (t.carpark2_deposit==null||t.carpark2_deposit==='')
+                     ? Number(t.carpark2_rental||0) : Number(t.carpark2_deposit||0);
+  const totalDep   = +(roomDep + (t.carpark?carparkDep:0) + (t.carpark2?carpark2Dep:0)).toFixed(2);
   const p = state.properties.find(x=>x.id===t.property_id);
   const where = p ? (p.condo+' · '+p.unit) : '';
 
@@ -8963,7 +8965,7 @@ async function moveOutTenant(id){
       <div class="rounded-xl bg-[#FFF4E5] border border-[#FCD9A6] px-3 py-2 text-sm">
         <div class="font-bold text-[#92400E]">${esc(t.name)}</div>
         <div class="text-slate-700">${esc(where)} · Room <b>${esc(t.room_code||'?')}</b>${t.carpark?' · Carpark '+esc(t.carpark):''}</div>
-        <div class="text-xs text-slate-500 mt-1">Deposit on file: <b>RM ${fmt(totalDep)}</b> (Room ${fmt(roomDep)}${carparkDep?' + Carpark '+fmt(carparkDep):''})</div>
+        <div class="text-xs text-slate-500 mt-1">Deposit on file: <b>RM ${fmt(totalDep)}</b> (Room ${fmt(roomDep)}${t.carpark?' + Carpark '+fmt(carparkDep):''}${t.carpark2?' + Carpark 2 '+fmt(carpark2Dep):''})</div>
       </div>
 
       <div>
@@ -9039,26 +9041,45 @@ async function moveOutTenant(id){
     await _autoCreateLastMonthProRate({...t, ...tPayload});
     await loadPayments();
 
-    // 2) If forfeited, log it as Extra Income for the move-out month — but
-    //    only if that month's report isn't locked. If locked, we let the
-    //    move-out itself succeed (so the tenant can leave) and surface a
-    //    warning so the user can unlock + post the forfeit manually.
+    // 2) If forfeited, log it as Extra Income for the move-out month — split
+    //    across properties when a carpark is assigned to a DIFFERENT unit
+    //    than the room (carpark_property_id/carpark2_property_id), so that
+    //    property's own books get credited with its share of the forfeit
+    //    instead of it all landing on the room's property. Each property's
+    //    share is posted only if that property+month isn't locked — a
+    //    locked one is skipped with a warning so the user can unlock + post
+    //    it manually; the others still go through.
     if(forfeit && totalDep > 0){
       const d  = new Date(dateStr);
       const yy = d.getFullYear(), mm = d.getMonth()+1;
-      if(isReportLocked(t.property_id, yy, mm)){
-        toast('🔒 '+MONTHS_FULL[mm-1]+' '+yy+' is locked — RM '+fmt(totalDep)+' deposit was NOT posted as Extra Income. Unlock the report first, then add it manually.', 'warn');
-      } else {
-        const desc = `Deposit Forfeited — Move Out (Room ${t.room_code||'?'}) — ${t.name}`;
+      const cp1Prop = t.carpark  ? (t.carpark_property_id  || t.property_id) : null;
+      const cp2Prop = t.carpark2 ? (t.carpark2_property_id || t.property_id) : null;
+      const shares = new Map(); // property_id -> {amount, parts:[label]}
+      const addShare = (propId, amount, label) => {
+        if(!propId || amount<=0) return;
+        const cur = shares.get(propId) || {amount:0, parts:[]};
+        cur.amount += amount; cur.parts.push(label);
+        shares.set(propId, cur);
+      };
+      addShare(t.property_id, roomDep, `Room ${t.room_code||'?'}`);
+      if(t.carpark)  addShare(cp1Prop, carparkDep,  `Carpark ${t.carpark}`);
+      if(t.carpark2) addShare(cp2Prop, carpark2Dep, `Carpark ${t.carpark2}`);
+      for(const [propId, share] of shares){
+        if(isReportLocked(propId, yy, mm)){
+          const propLabel = state.properties.find(x=>x.id===propId);
+          toast('🔒 '+MONTHS_FULL[mm-1]+' '+yy+' is locked for '+(propLabel?propLabel.condo+' '+propLabel.unit:'a property')+' — RM '+fmt(share.amount)+' deposit was NOT posted as Extra Income. Unlock the report first, then add it manually.', 'warn');
+          continue;
+        }
+        const desc = `Deposit Forfeited — Move Out (${share.parts.join(' + ')}) — ${t.name}`;
         const {error: eErr} = await sb.from('extra_incomes').insert({
-          property_id: t.property_id,
+          property_id: propId,
           year: yy, month: mm,
           description: desc,
-          amount: totalDep,
+          amount: +share.amount.toFixed(2),
         });
         if(eErr) throw eErr;
-        if(yy===state.year && mm===state.month) await loadExtras();
       }
+      await loadExtras();
     }
 
     await loadTenants();
@@ -9149,14 +9170,16 @@ async function openMoveOutDetails(id){
                      ? Number(t.room_rental||0) : Number(t.room_deposit||0);
   const carparkDep = (t.carpark_deposit==null||t.carpark_deposit==='')
                      ? Number(t.carpark_rental||0) : Number(t.carpark_deposit||0);
-  const totalDep   = +(roomDep + carparkDep).toFixed(2);
+  const carpark2Dep = (t.carpark2_deposit==null||t.carpark2_deposit==='')
+                     ? Number(t.carpark2_rental||0) : Number(t.carpark2_deposit||0);
+  const totalDep   = +(roomDep + (t.carpark?carparkDep:0) + (t.carpark2?carpark2Dep:0)).toFixed(2);
   const wasForfeit = Number(t.deposit_forfeit_amount||0) > 0;
 
   openModal(`Move-out details — ${t.name}`, `
     <div class="space-y-3">
       <div class="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
         <div class="text-xs text-slate-500">Deposit on file</div>
-        <div class="font-bold tabular-nums">RM ${fmt(totalDep)} (Room ${fmt(roomDep)}${carparkDep?' + Carpark '+fmt(carparkDep):''})</div>
+        <div class="font-bold tabular-nums">RM ${fmt(totalDep)} (Room ${fmt(roomDep)}${t.carpark?' + Carpark '+fmt(carparkDep):''}${t.carpark2?' + Carpark 2 '+fmt(carpark2Dep):''})</div>
       </div>
 
       <div>
@@ -16012,6 +16035,45 @@ async function saveAllReceipts(){
     if(blockedSames)  return toast(`All receipts are duplicates of existing payments — nothing to save`,'warn');
     return toast('Nothing to save — fix property/room/amount first','warn');
   }
+  // ----- BATCH advance-covered detection -----
+  // Pre-scan the whole batch for 2nd-month advance-covered candidates (cash
+  // received matches the tenant's own 1st-month pro-rate amount) so a bulk
+  // upload asks ONCE for the whole batch instead of once per matching
+  // receipt. The amount-match is still just a coincidence-prone signal, not
+  // proof an advance was actually collected at move-in — a human still
+  // confirms it, just as a single batch decision instead of N near-identical
+  // dialogs in a row.
+  const acCandidates = [];
+  for(const r of ready){
+    if(r.item_type==='carpark') continue;
+    const code = (r.room||'').trim().toUpperCase();
+    const tenant = state.tenants.find(x=>
+      x.property_id===r.property_id &&
+      (x.room_code||'').trim().toUpperCase()===code &&
+      x.active!==false
+    );
+    if(!tenant) continue;
+    const pr = computeFirstMonthProRate(tenant);
+    if(!pr) continue;
+    const isSecondMonth =
+      (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
+      (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
+    if(isSecondMonth && Math.abs((Number(r.amount)||0) - pr.total) < 0.5){
+      acCandidates.push({r, tenant});
+    }
+  }
+  let acBatchDecision = false;
+  if(acCandidates.length){
+    const list = acCandidates.map(c=>`• ${c.tenant.name} — RM ${fmt(c.r.amount)}`).join('\n');
+    acBatchDecision = await confirmModal(
+      `${acCandidates.length} receipt(s) match a tenant's 1st-month pro-rate amount (likely advance-covered 2nd-month payments):\n\n${list}\n\n`+
+      `Treat ALL of these as ADVANCE-COVERED — the income report will show each tenant's full month rental, even though the cash received is their pro-rate amount.\n\n`+
+      `OK to apply to all? Cancel = save all as plain payments (you can still re-tag any of them individually afterward from the Edit Payment form).`,
+      {confirmText:`Advance-Covered (${acCandidates.length})`, cancelText:'Plain Payment (all)', danger:false}
+    );
+  }
+  const acRowSet = new Set(acCandidates.map(c=>c.r));
+
   // Receipts are always filed under the currently-selected month/year so that
   // an early payment (e.g. paid 19 Mar for April rent) still goes into the
   // month the user has open. The receipt's paid_on date is preserved as-is
@@ -16029,24 +16091,11 @@ async function saveAllReceipts(){
         x.active!==false
       );
       if(tenant){
-        // 2nd-month advance-covered detection (same logic as commitInlinePayment)
-        const pr = computeFirstMonthProRate(tenant);
-        if(pr){
-          const isSecondMonth =
-            (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
-            (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
-          if(isSecondMonth && Math.abs(amt - pr.total) < 0.5){
-            const fullMonAC = tenantRentForProperty(tenant, r.property_id);
-            if(await confirmModal(
-              `RM ${fmt(amt)} matches ${tenant.name}'s 1st-month pro-rate (RM ${pr.total}).\n\n`+
-              `Treat as ADVANCE-COVERED — income report will show full RM ${fullMonAC} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
-              `OK to record as advance-covered? Cancel = save as plain RM ${fmt(amt)} payment.`,
-              {confirmText:'Advance-Covered',cancelText:'Plain Payment',danger:false}
-            )){
-              kind = 'advance_covered_full';
-              remark = `Imported from ${r.filename} · 🔄 Advance-covered: cash RM ${fmt(amt)} = 1st-month pro-rate. Full RM ${fullMonAC} income recognized.`;
-            }
-          }
+        // 2nd-month advance-covered — decided once for the whole batch above.
+        if(acRowSet.has(r) && acBatchDecision){
+          const fullMonAC = tenantRentForProperty(tenant, r.property_id);
+          kind = 'advance_covered_full';
+          remark = `Imported from ${r.filename} · 🔄 Advance-covered: cash RM ${fmt(amt)} = 1st-month pro-rate. Full RM ${fullMonAC} income recognized.`;
         }
         // Last-month move-out pro-rate detection (same logic as commitInlinePayment)
         if(!kind){
