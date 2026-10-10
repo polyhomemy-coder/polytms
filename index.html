@@ -10817,6 +10817,71 @@ async function exportPaymentsPdf(){
 // Always recorded as item_type='room' — the income report auto-splits the
 // amount into room rental + carpark rental when the tenant has a carpark
 // and the paid amount equals (room_rental + carpark_rental).
+// Shared by every place a ROOM payment amount gets entered or edited
+// (inline quick-add row, the Add/Edit Payment modal) — detects whether the
+// amount matches a 2nd-month advance-covered pattern (cash = 1st-month
+// pro-rate, so the income report should recognize the full month) or a
+// move-out pro-rate pattern, confirms with the user, and returns the
+// payment_kind + amount + remark to actually save. Returns null fields
+// (kind:null, amount:amt, remark:rem) when neither pattern applies or the
+// user declines the prompt — i.e. save as a plain payment.
+async function _detectRoomPaymentKind(tenant, pid, amt, rem){
+  let kind = null, finalRem = rem, amtToRecord = amt;
+  if(!tenant) return {kind, amtToRecord, finalRem};
+  // ----- 2nd-month advance-covered detection -----
+  const pr = computeFirstMonthProRate(tenant);
+  if(pr){
+    const isSecondMonth =
+      (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
+      (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
+    if(isSecondMonth && Math.abs(amt - pr.total) < 0.5){
+      const fullMonAC = tenantRentForProperty(tenant, pid);
+      if(await confirmModal(
+        `RM ${fmt(amt)} matches ${tenant.name}'s 1st-month pro-rate (RM ${pr.total}).\n\n`+
+        `Treat as ADVANCE-COVERED — income report will show full RM ${fullMonAC} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
+        `OK to record as advance-covered? Cancel = save as plain RM ${fmt(amt)} payment.`,
+        {confirmText:'Advance-Covered',cancelText:'Plain Payment',danger:false}
+      )){
+        kind = 'advance_covered_full';
+        const note = `🔄 Advance-covered: cash RM ${fmt(amt)} = 1st-month pro-rate. Full RM ${fullMonAC} income recognized.`;
+        finalRem = rem ? (rem+' · '+note) : note;
+      }
+    }
+  }
+  // ----- LAST-MONTH (move-out) pro-rate detection -----
+  // Two scenarios both mean we should record the pro-rated income:
+  //   A. Receipt amount = pro-rate amount (tenant paid only what's due).
+  //   B. Receipt amount = full month rental (tenant overpaid; excess
+  //      can be refunded from deposit / next refund cycle).
+  // In BOTH cases the income recorded = pro-rate; remark notes scenario.
+  if(!kind){
+    const lp = computeLastMonthProRate(tenant);
+    if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month){
+      const fullMonth = tenantRentForProperty(tenant, pid);
+      const isProRate = Math.abs(amt - lp.total)   < 0.5;
+      const isFull    = Math.abs(amt - fullMonth) < 0.5 && fullMonth>lp.total;
+      if(isProRate || isFull){
+        const scenarioLabel = isProRate
+          ? `Scenario A — receipt RM ${fmt(amt)} matches the move-out pro-rate (RM ${lp.total}).`
+          : `Scenario B — receipt RM ${fmt(amt)} is the full month (RM ${fullMonth}); only the pro-rate (RM ${lp.total}) is the actual income, the excess RM ${fullMonth-lp.total} should be refunded to ${tenant.name}.`;
+        if(await confirmModal(
+          `${tenant.name} is moving out this month.\n\n${scenarioLabel}\n\n`+
+          `Record income as pro-rate RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days?`,
+          {confirmText:'Record Pro-Rate',cancelText:'Cancel',danger:false}
+        )){
+          kind = 'last_month_prorate';
+          amtToRecord = lp.total;
+          const note = isFull
+            ? `🚪 Move-out pro-rate (Scenario B — full month received): cash RM ${fmt(amt)}, income RM ${lp.total}, refund RM ${fullMonth-lp.total} to tenant.`
+            : `🚪 Move-out pro-rate (Scenario A): RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days.`;
+          finalRem = rem ? (rem+' · '+note) : note;
+        }
+      }
+    }
+  }
+  return {kind, amtToRecord, finalRem};
+}
+
 async function commitInlinePayment(tr){
   const pid   = tr.querySelector('.pay-add-prop').value;
   const code  = (tr.querySelector('.pay-add-code').value||'').trim().toUpperCase();
@@ -10828,71 +10893,12 @@ async function commitInlinePayment(tr){
   if(!(amt>0)){ toast('Enter an amount','bad'); tr.querySelector('.pay-add-amt').focus(); return; }
   try{
     requireReportEditable(pid, state.year, state.month);
-    // ----- 2nd-month pro-rate detection -----
-    // If this payment's amount matches the tenant's prior month pro-rate
-    // amount (within RM 0.50), it's the advance-covered scenario — auto-tag
-    // as 'advance_covered_full' so the income report recognizes FULL month
-    // rental even though only the pro-rate cash was received.
-    let kind = null, finalRem = rem;
     const tenant = state.tenants.find(x=>
       x.property_id===pid &&
       (x.room_code||'').trim().toUpperCase()===code &&
       x.active!==false
     );
-    let amtToRecord = amt;
-    if(tenant){
-      // ----- 2nd-month advance-covered detection -----
-      const pr = computeFirstMonthProRate(tenant);
-      if(pr){
-        const isSecondMonth =
-          (state.year === pr.moveInYear && state.month === pr.moveInMonth + 1) ||
-          (state.year === pr.moveInYear+1 && pr.moveInMonth===12 && state.month===1);
-        if(isSecondMonth && Math.abs(amt - pr.total) < 0.5){
-          const fullMonAC = tenantRentForProperty(tenant, pid);
-          if(await confirmModal(
-            `RM ${fmt(amt)} matches ${tenant.name}'s 1st-month pro-rate (RM ${pr.total}).\n\n`+
-            `Treat as ADVANCE-COVERED — income report will show full RM ${fullMonAC} for ${MONTHS[state.month-1]} (advance from move-in covers this month).\n\n`+
-            `OK to record as advance-covered? Cancel = save as plain RM ${fmt(amt)} payment.`,
-            {confirmText:'Advance-Covered',cancelText:'Plain Payment',danger:false}
-          )){
-            kind = 'advance_covered_full';
-            const note = `🔄 Advance-covered: cash RM ${fmt(amt)} = 1st-month pro-rate. Full RM ${fullMonAC} income recognized.`;
-            finalRem = rem ? (rem+' · '+note) : note;
-          }
-        }
-      }
-      // ----- LAST-MONTH (move-out) pro-rate detection -----
-      // Two scenarios both mean we should record the pro-rated income:
-      //   A. Receipt amount = pro-rate amount (tenant paid only what's due).
-      //   B. Receipt amount = full month rental (tenant overpaid; excess
-      //      can be refunded from deposit / next refund cycle).
-      // In BOTH cases the income recorded = pro-rate; remark notes scenario.
-      if(!kind){
-        const lp = computeLastMonthProRate(tenant);
-        if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month){
-          const fullMonth = tenantRentForProperty(tenant, pid);
-          const isProRate = Math.abs(amt - lp.total)   < 0.5;
-          const isFull    = Math.abs(amt - fullMonth) < 0.5 && fullMonth>lp.total;
-          if(isProRate || isFull){
-            const scenarioLabel = isProRate
-              ? `Scenario A — receipt RM ${fmt(amt)} matches the move-out pro-rate (RM ${lp.total}).`
-              : `Scenario B — receipt RM ${fmt(amt)} is the full month (RM ${fullMonth}); only the pro-rate (RM ${lp.total}) is the actual income, the excess RM ${fullMonth-lp.total} should be refunded to ${tenant.name}.`;
-            if(await confirmModal(
-              `${tenant.name} is moving out this month.\n\n${scenarioLabel}\n\n`+
-              `Record income as pro-rate RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days?`,
-              {confirmText:'Record Pro-Rate',cancelText:'Cancel',danger:false}
-            )){
-              kind = 'last_month_prorate';
-              amtToRecord = lp.total;
-              const note = isFull
-                ? `🚪 Move-out pro-rate (Scenario B — full month received): cash RM ${fmt(amt)}, income RM ${lp.total}, refund RM ${fullMonth-lp.total} to tenant.`
-                : `🚪 Move-out pro-rate (Scenario A): RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days.`;
-              finalRem = rem ? (rem+' · '+note) : note;
-            }
-          }
-        }
-      }
-    }
+    const {kind, amtToRecord, finalRem} = await _detectRoomPaymentKind(tenant, pid, amt, rem);
     const { error } = await sb.from('rental_payments').insert({
       property_id: pid, year: state.year, month: state.month,
       item_type: 'room', room_code: code, amount: amtToRecord,
@@ -12915,6 +12921,27 @@ function openPaymentModal(id){
       };
       if(!payload.property_id||!payload.room_code) throw new Error('Property and Room code are required');
       requireReportEditable(payload.property_id, payload.year, payload.month);
+      // Same advance-covered / move-out pro-rate detection as the inline
+      // quick-add row — this modal previously skipped it entirely, so a
+      // payment entered or edited here never got the income-recognition
+      // tag even when the amount clearly matched the pattern. Skipped when
+      // editing a row that's ALREADY tagged with a deliberate payment_kind
+      // (first/last-month pro-rate, advance-covered) — re-running detection
+      // on every save of an already-correct row would just re-prompt the
+      // same confirm dialog pointlessly. payment_kind is left out of the
+      // payload in that case so the UPDATE doesn't touch the existing tag.
+      const alreadyTagged = id && r.payment_kind;
+      if(payload.item_type==='room' && !alreadyTagged){
+        const tenant = state.tenants.find(x=>
+          x.property_id===payload.property_id &&
+          (x.room_code||'').trim().toUpperCase()===payload.room_code &&
+          x.active!==false
+        );
+        const {kind, amtToRecord, finalRem} = await _detectRoomPaymentKind(tenant, payload.property_id, payload.amount, payload.remark);
+        payload.amount = amtToRecord;
+        payload.remark = finalRem;
+        payload.payment_kind = kind;
+      }
       const q = id ? sb.from('rental_payments').update(payload).eq('id',id) : sb.from('rental_payments').insert(payload);
       const {error}=await q; if(error) throw error;
       await loadPayments();
