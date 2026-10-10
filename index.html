@@ -8128,45 +8128,61 @@ function _firstMonthProRateRemark(pr){
 
 // A tenant's carpark can be assigned to a DIFFERENT property than their
 // room (carpark_property_id/carpark2_property_id). Previously that carpark's
-// first-month income only ever got created lazily, as a side effect of
+// move-in/move-out income only ever got created lazily, as a side effect of
 // someone opening/building the OTHER property's own Income Report
-// (ensureFirstMonthProRateExpensesFor's cross-property scan) — if nobody
-// ever did that, the carpark's rent was never recorded anywhere at all,
-// even though in practice the agent collects room+carpark together at
-// move-in. This inserts that carpark's own payment row directly, at the
-// moment the tenant is saved, instead of waiting on that lazy trigger.
-// Queries Supabase directly (not state.payments/state.tenants) so it's
-// correct even when called before a reload has refreshed local state.
-async function _ensureCrossPropertyCarparkPayment(t, carparkField, propField, rentalField){
+// (ensureFirstMonthProRateExpensesFor/ensureLastMonthProRateExpensesFor's
+// cross-property scans) — if nobody ever did that, the carpark's rent was
+// never recorded anywhere at all, even though in practice the agent
+// collects room+carpark together. This inserts that carpark's own payment
+// row directly, at the moment the tenant is saved/moved out, instead of
+// waiting on that lazy trigger. Queries Supabase directly (not
+// state.payments/state.tenants) so it's correct even when called before a
+// reload has refreshed local state. Pass isMoveOut:true to pro-rate against
+// move_out_date/agreement_end (days 1..moveOutDay) instead of
+// agreement_start (days startDay..daysInMonth).
+async function _ensureCrossPropertyCarparkPayment(t, carparkField, propField, rentalField, isMoveOut){
   const lot = t[carparkField];
   const rental = Number(t[rentalField]||0);
   if(!lot || rental<=0) return;
   const cpProp = t[propField] || t.property_id;
   if(cpProp === t.property_id) return; // same-property — handled by the room row
-  if(!t.agreement_start) return;
-  const s = parseISODateLocal(t.agreement_start);
-  if(isNaN(s)) return;
-  const sy = s.getFullYear(), sm = s.getMonth()+1, sd = s.getDate();
-  if(isReportLocked(cpProp, sy, sm)) return;
+  const dateStr = isMoveOut ? (t.move_out_date || t.agreement_end) : t.agreement_start;
+  if(!dateStr) return;
+  const d = parseISODateLocal(dateStr);
+  if(isNaN(d)) return;
+  const dy = d.getFullYear(), dm = d.getMonth()+1, dd = d.getDate();
+  if(isReportLocked(cpProp, dy, dm)) return;
   const normLot = normCarpark(lot);
   const { data: existingRows } = await sb.from('rental_payments').select('id')
-    .eq('property_id', cpProp).eq('year', sy).eq('month', sm)
+    .eq('property_id', cpProp).eq('year', dy).eq('month', dm)
     .eq('item_type', 'carpark');
   const alreadyExists = (existingRows||[]).some(p=> normCarpark(p.room_code||'') === normLot);
   if(alreadyExists) return;
-  const dim = new Date(sy, sm, 0).getDate();
-  const days = dim - sd + 1;
-  const isProRate = sd !== 1;
-  const amount = isProRate ? Math.ceil(rental * days / dim) : rental;
-  const monStr = MONTHS[sm-1];
-  const remark = isProRate
-    ? `🆕 New move-in pro-rate ${sd}–${dim} ${monStr} (${t.name}'s carpark): RM ${rental}/${dim}×${days} = RM ${amount}`
-    : `🆕 New move-in (full ${monStr}): Carpark RM ${rental} (${t.name}, carpark on a different unit)`;
+  const dim = new Date(dy, dm, 0).getDate();
+  const monStr = MONTHS[dm-1];
+  let days, isProRate, amount, remark, paymentKind;
+  if(isMoveOut){
+    days = dd; // occupied days 1..moveOutDay (inclusive)
+    isProRate = dd < dim;
+    amount = isProRate ? Math.ceil(rental * days / dim) : rental;
+    remark = isProRate
+      ? `🚪 Move-out pro-rate 1–${dd} ${monStr} (${t.name}'s carpark): RM ${rental}/${dim}×${days} = RM ${amount}`
+      : `🚪 Move-out (full ${monStr}): Carpark RM ${rental} (${t.name}, carpark on a different unit)`;
+    paymentKind = isProRate ? 'last_month_prorate' : null;
+  } else {
+    days = dim - dd + 1; // occupied days startDay..daysInMonth (inclusive)
+    isProRate = dd !== 1;
+    amount = isProRate ? Math.ceil(rental * days / dim) : rental;
+    remark = isProRate
+      ? `🆕 New move-in pro-rate ${dd}–${dim} ${monStr} (${t.name}'s carpark): RM ${rental}/${dim}×${days} = RM ${amount}`
+      : `🆕 New move-in (full ${monStr}): Carpark RM ${rental} (${t.name}, carpark on a different unit)`;
+    paymentKind = isProRate ? 'first_month_prorate' : null;
+  }
   const { error } = await sb.from('rental_payments').insert({
-    property_id: cpProp, year: sy, month: sm,
+    property_id: cpProp, year: dy, month: dm,
     item_type: 'carpark', room_code: normLot,
-    amount, paid_on: t.agreement_start, remark,
-    payment_kind: isProRate ? 'first_month_prorate' : null,
+    amount, paid_on: dateStr, remark,
+    payment_kind: paymentKind,
   });
   if(error){ toast('Cross-property carpark payment failed: '+error.message, 'bad'); return; }
   toast(`Carpark ${lot} (cross-property) RM ${fmt(amount)} auto-recorded for ${monStr}`);
@@ -8301,6 +8317,10 @@ async function _autoCreateLastMonthProRate(t){
         await sb.from('rental_payments').insert(cpRows[0]);
       }
     }
+    // Either carpark may be assigned to a DIFFERENT property than the
+    // room — _proRateInsertRows only covers same-property carparks.
+    await _ensureCrossPropertyCarparkPayment(t, 'carpark',  'carpark_property_id',  'carpark_rental',  true);
+    await _ensureCrossPropertyCarparkPayment(t, 'carpark2', 'carpark2_property_id', 'carpark2_rental', true);
     return;
   }
 
@@ -8309,6 +8329,12 @@ async function _autoCreateLastMonthProRate(t){
   const {error} = await sb.from('rental_payments').insert(rows);
   if(error){ toast('Move-out pro-rate auto-payment failed: '+error.message,'bad'); return; }
   toast(`🚪 Move-out pro-rate RM ${fmt(pr.total)} auto-recorded for ${monStr} (${pr.daysOccupied}/${pr.daysInMonth} days)`);
+  // Either carpark may be assigned to a DIFFERENT property than the room —
+  // that portion is never included in the rows above, so record it under
+  // its own property directly, instead of relying on someone eventually
+  // opening that other property's own Income Report.
+  await _ensureCrossPropertyCarparkPayment(t, 'carpark',  'carpark_property_id',  'carpark_rental',  true);
+  await _ensureCrossPropertyCarparkPayment(t, 'carpark2', 'carpark2_property_id', 'carpark2_rental', true);
 }
 
 // Re-sync the first-month pro-rate row when the tenant is edited — keeps
