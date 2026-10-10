@@ -373,6 +373,7 @@
   .sf-pill{padding:6px 12px;border-radius:8px;font-weight:700;font-size:11.5px;color:#486870;cursor:pointer;white-space:nowrap;user-select:none}
   .sf-pill.active{background:#fff;color:var(--brand);box-shadow:0 2px 8px rgba(0,123,138,.12)}
   .sf-pill[data-sf="paid"].active{color:#0F7A3E}
+  .sf-pill[data-sf="paid_more"].active{color:#1E40AF}
   .sf-pill[data-sf="unmatch"].active{color:#B05311}
   .sf-pill[data-sf="unpaid"].active{color:#B3261E}
   .city-chip{display:inline-flex;align-items:center;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:700;background:#EEF7F8;color:#486870;border:1px solid #DCEEF1;cursor:pointer;user-select:none;transition:background .15s,color .15s}
@@ -2084,6 +2085,7 @@
           <div id="colStatusFilter" class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1">
             <span class="sf-pill active" data-sf="all">All</span>
             <span class="sf-pill" data-sf="paid">✓ Paid</span>
+            <span class="sf-pill" data-sf="paid_more">✓ Paid &amp; More</span>
             <span class="sf-pill" data-sf="unmatch">⚠ Unmatch</span>
             <span class="sf-pill" data-sf="unpaid">✕ Unpaid</span>
           </div>
@@ -5420,14 +5422,26 @@ function renderGlobalCharts(){
   const allTenantsForMonth = state.tenants.filter(t=>allPropIds.has(t.property_id));
 
   // Payment Rate — all properties
-  const allPayments = state.payments.filter(p=>allPropIds.has(p.property_id));
   const monthName = MONTHS[state.month-1] + ' ' + state.year;
   if($('#dashPayDonutCaption')) $('#dashPayDonutCaption').textContent = monthName;
   if($('#dashPayDonut')){
+    // Uses the same per-tenant expected-vs-paid engine as the Income tab's
+    // Rent Collection Status (_tenantMonthRentStatus), so a tenant counts
+    // as "Paid" here only when they actually paid at least their full
+    // contract amount — 'paid' (exact match) or 'paid_more' (overpaid,
+    // e.g. a late-payment penalty on top) both count; 'unmatch'
+    // (underpaid) and 'unpaid' don't. Previously this just checked whether
+    // ANY room payment row existed, regardless of amount, which could
+    // never move in step with the Income tab's own verdict for the same
+    // tenant. Built from allTenantsForMonth (not computeRentStatus
+    // directly) because this tile must also count a moved-out tenant whose
+    // tenancy still overlapped the month — computeRentStatus itself only
+    // looks at currently-active tenants.
     const monthTenants = tenancyForMonth(allTenantsForMonth, state.year, state.month).filter(t=>t.room_code);
-    const paidKeys = new Set(allPayments.filter(p=>p.item_type==='room'&&p.room_code)
-      .map(p=>p.property_id+'|'+String(p.room_code).toUpperCase()));
-    const paidCount = monthTenants.filter(t=>paidKeys.has(t.property_id+'|'+String(t.room_code).toUpperCase())).length;
+    const paidCount = monthTenants.filter(t=>{
+      const st = _tenantMonthRentStatus(t, state.year, state.month).status;
+      return st==='paid' || st==='paid_more';
+    }).length;
     const dueCount = monthTenants.length;
     const payPct = dueCount ? Math.round((paidCount/dueCount)*100) : 0;
     if(dueCount){
@@ -10878,25 +10892,13 @@ async function commitInlinePayment(tr){
 //   paid === 0            → "Unpaid"   (no receipt yet)
 //   |paid − expected|≤0.01 → "Rental Paid"
 //   otherwise             → "Payment Unmatch"
-function computeRentStatus(pid){
-  const y=state.year, m=state.month;
-  const first=new Date(y, m-1, 1), last=new Date(y, m, 0);
-  let tenants = state.tenants.filter(t=>t.active!==false);
-  if(pid) tenants = tenants.filter(t=>t.property_id===pid);
-  // Apply global sidebar filter when showing all properties
-  if(!pid) tenants = tenants.filter(t=>{
-    const p = state.properties.find(x=>x.id===t.property_id);
-    return _propPassesGlobalFilter(p);
-  });
-  // only tenants whose agreement overlaps this month
-  tenants = tenants.filter(t=>{
-    const s = t.agreement_start ? new Date(t.agreement_start) : null;
-    const e = t.agreement_end   ? new Date(t.agreement_end)   : null;
-    if(s && s>last) return false;
-    if(e && e<first) return false;
-    return true;
-  });
-  return tenants.map(t=>{
+// Per-tenant expected-vs-paid for one month — the shared engine behind
+// both computeRentStatus (Income tab's Rent Collection Status, active
+// tenants only) and the Manager Dashboard's Payment Rate donut (which
+// additionally needs to count a moved-out tenant whose tenancy still
+// overlapped the month, so it can't simply reuse computeRentStatus's own
+// active-only tenant list).
+function _tenantMonthRentStatus(t, y, m){
     const prop = state.properties.find(x=>x.id===t.property_id);
     const roomPaid = state.payments
       .filter(p=> p.property_id===t.property_id && p.item_type==='room' && (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase())
@@ -10966,9 +10968,30 @@ function computeRentStatus(pid){
     let status;
     if(paid===0) status='unpaid';
     else if(Math.abs(paid-expected) <= 0.5) status='paid';      // pro-rate tolerance
-    else status='unmatch';
+    else if(paid > expected) status='paid_more';   // overpaid — e.g. late-payment penalty added on top
+    else status='unmatch';                          // underpaid
     return {tenant:t, prop, expectedRoom, expectedCp, expected, roomPaid, cpPaid: cpPaidTotal, paid, status, proKind};
+}
+
+function computeRentStatus(pid){
+  const y=state.year, m=state.month;
+  const first=new Date(y, m-1, 1), last=new Date(y, m, 0);
+  let tenants = state.tenants.filter(t=>t.active!==false);
+  if(pid) tenants = tenants.filter(t=>t.property_id===pid);
+  // Apply global sidebar filter when showing all properties
+  if(!pid) tenants = tenants.filter(t=>{
+    const p = state.properties.find(x=>x.id===t.property_id);
+    return _propPassesGlobalFilter(p);
   });
+  // only tenants whose agreement overlaps this month
+  tenants = tenants.filter(t=>{
+    const s = t.agreement_start ? new Date(t.agreement_start) : null;
+    const e = t.agreement_end   ? new Date(t.agreement_end)   : null;
+    if(s && s>last) return false;
+    if(e && e<first) return false;
+    return true;
+  });
+  return tenants.map(t=>_tenantMonthRentStatus(t, y, m));
 }
 
 // Collection tab renderer (owns the property select on that tab)
@@ -10990,8 +11013,9 @@ function renderRentStatus(pid){
   const filter = state.rentStatusFilter || 'all';
   const rows = filter==='all' ? allRows : allRows.filter(r=>r.status===filter);
   const badge = s=>{
-    if(s==='paid')    return '<span class="chip badge-ok">Paid</span>';
-    if(s==='unmatch') return '<span class="chip badge-warn">⚠ Unmatch</span>';
+    if(s==='paid')      return '<span class="chip badge-ok">Paid</span>';
+    if(s==='paid_more') return '<span class="chip" style="background:#DBEAFE;color:#1E40AF">✓ Paid &amp; More</span>';
+    if(s==='unmatch')   return '<span class="chip badge-warn">⚠ Unmatch</span>';
     return '<span class="chip badge-bad">Unpaid</span>';
   };
   const counts = allRows.reduce((a,r)=>{a[r.status]=(a[r.status]||0)+1;return a;},{});
@@ -11005,6 +11029,7 @@ function renderRentStatus(pid){
   if(sumEl) sumEl.innerHTML = allRows.length
     ? `<div class="flex items-center gap-2 flex-wrap justify-end">
          <span class="chip badge-ok">✓ ${counts.paid||0} paid</span>
+         <span class="chip" style="background:#DBEAFE;color:#1E40AF">✓ ${counts.paid_more||0} paid & more</span>
          <span class="chip badge-warn">⚠ ${counts.unmatch||0} unmatch</span>
          <span class="chip badge-bad">✕ ${counts.unpaid||0} unpaid</span>
          ${filter!=='all' ? `<span class="chip" style="background:#FFF0E6;color:#F4811F">Filter: ${filter}</span>` : ''}
