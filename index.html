@@ -8661,9 +8661,10 @@ function openAddCarparkModal(id){
   const slot2Free = !t.carpark2 || t.carpark2==='NA';
   if(!slot1Free && !slot2Free) return toast('This tenant already has 2 carparks (the max) — edit them from the regular Edit form','warn');
   const slot = slot1Free ? 1 : 2;
-  const fCode = slot===1 ? 'carpark' : 'carpark2';
-  const fRent = slot===1 ? 'carpark_rental' : 'carpark2_rental';
-  const fDep  = slot===1 ? 'carpark_deposit' : 'carpark2_deposit';
+  const fCode  = slot===1 ? 'carpark' : 'carpark2';
+  const fRent  = slot===1 ? 'carpark_rental' : 'carpark2_rental';
+  const fDep   = slot===1 ? 'carpark_deposit' : 'carpark2_deposit';
+  const fStart = slot===1 ? 'carpark_start_date' : 'carpark2_start_date';
   const today = todayISODateLocal();
   const existingNote = !slot1Free
     ? `<div class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 mb-1">Already has: <b>Carpark ${esc(t.carpark)}</b> · RM ${fmt(t.carpark_rental)}/mo</div>`
@@ -8672,7 +8673,7 @@ function openAddCarparkModal(id){
   openModal(`Add ${slot===2?'2nd ':''}Carpark — ${t.name}`, `
     <div class="space-y-3">
       <div class="rounded-xl bg-[#E8F4FD] border border-[#BAD8F0] px-3 py-2 text-xs leading-relaxed text-slate-700">
-        For a carpark added <b>partway through</b> an existing tenancy${slot===2?' — this will be their 2nd carpark':''}. This posts the correct payment for the start month (pro-rated if it's not the 1st) and checks whether earlier months need locking first.
+        For a carpark added <b>partway through</b> an existing tenancy${slot===2?' — this will be their 2nd carpark':''}. This posts the correct payment for the start month (pro-rated if it's not the 1st) and records the start date, so Rent Collection Status only expects this carpark from that month onward — earlier months are unaffected.
       </div>
       ${existingNote}
       <div class="grid md:grid-cols-2 gap-3">
@@ -8694,35 +8695,18 @@ function openAddCarparkModal(id){
       const [sy, sm, sd] = start.split('-').map(Number);
       requireReportEditable(t.property_id, sy, sm);
 
-      // Warn about earlier unlocked months for this tenancy — they're the
-      // ones that will start showing "Unmatch" on Rent Collection Status
-      // the moment carpark_rental is saved onto the tenant, since that tab
-      // has no way to know the carpark wasn't owed back then. The
-      // underlying income figures for those months are NOT changed by
-      // this — this is a heads-up about a display-only side effect.
-      const tsStart = t.agreement_start ? parseISODateLocal(t.agreement_start) : null;
-      if(tsStart){
-        const unlocked = _unlockedMonthsBefore(t.property_id, tsStart.getFullYear(), tsStart.getMonth()+1, sy, sm);
-        if(unlocked.length){
-          const list = unlocked.map(u=>MONTHS[u.m-1]+' '+u.y).join(', ');
-          const proceed = await confirmModal(
-            `${unlocked.length} earlier month(s) for this tenancy aren't locked yet: ${list}.\n\n`+
-            `Once this carpark is saved, Rent Collection Status will show those months as "Unmatch" (it will now expect a carpark rental they didn't actually owe back then). The recorded income for those months is unaffected — this is a display-only side effect on that one tab.\n\n`+
-            `Recommended: Cancel, lock those months first (Income Report → Admin Check + Manager Verify), then add the carpark. Or continue anyway if that's acceptable.`,
-            {confirmText:'Continue Anyway', cancelText:'Cancel', danger:true}
-          );
-          if(!proceed) return;
-        }
-      }
-
       const daysInMonth  = new Date(sy, sm, 0).getDate();
       const daysOccupied = daysInMonth - sd + 1;
       const isProRate    = sd !== 1;
       const amount       = isProRate ? Math.ceil(rental * daysOccupied / daysInMonth) : rental;
       const deposit      = (depositRaw==='' || depositRaw==null) ? rental : Number(depositRaw)||0;
 
+      // fStart (carpark_start_date/carpark2_start_date) is what lets Rent
+      // Collection Status only expect this carpark from its actual start
+      // month onward — earlier unlocked months no longer show a false
+      // "Unmatch" the way they used to before this field existed.
       const tPatch = { updated_at: new Date().toISOString() };
-      tPatch[fCode] = lot; tPatch[fRent] = rental; tPatch[fDep] = deposit;
+      tPatch[fCode] = lot; tPatch[fRent] = rental; tPatch[fDep] = deposit; tPatch[fStart] = start;
       const {error: tErr} = await sb.from('tenants').update(tPatch).eq('id', t.id);
       if(tErr) throw tErr;
 
@@ -9398,12 +9382,12 @@ function openTenantView(id){
       row('')
     )}
     ${t.carpark ? g3(
-      row('Carpark', (()=>{ const cpP = t.carpark_property_id && t.carpark_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark_property_id) : null; return t.carpark + (cpP ? ' ('+cpP.condo+' · '+cpP.unit+')' : ''); })()),
+      row('Carpark', (()=>{ const cpP = t.carpark_property_id && t.carpark_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark_property_id) : null; return t.carpark + (cpP ? ' ('+cpP.condo+' · '+cpP.unit+')' : '') + (t.carpark_start_date ? ' · since '+fmtDate(t.carpark_start_date) : ''); })()),
       row('Carpark Rental', t.carpark_rental!=null ? 'RM '+fmt(t.carpark_rental) : null),
       row('Carpark Deposit', t.carpark_deposit!=null ? 'RM '+fmt(t.carpark_deposit) : null)
     ) : ''}
     ${t.carpark2 ? g3(
-      row('Carpark 2', (()=>{ const cp2P = t.carpark2_property_id && t.carpark2_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark2_property_id) : null; return t.carpark2 + (cp2P ? ' ('+cp2P.condo+' · '+cp2P.unit+')' : ''); })()),
+      row('Carpark 2', (()=>{ const cp2P = t.carpark2_property_id && t.carpark2_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark2_property_id) : null; return t.carpark2 + (cp2P ? ' ('+cp2P.condo+' · '+cp2P.unit+')' : '') + (t.carpark2_start_date ? ' · since '+fmtDate(t.carpark2_start_date) : ''); })()),
       row('Carpark 2 Rental', t.carpark2_rental!=null ? 'RM '+fmt(t.carpark2_rental) : null),
       row('Carpark 2 Deposit', t.carpark2_deposit!=null ? 'RM '+fmt(t.carpark2_deposit) : null)
     ) : ''}
@@ -10948,6 +10932,20 @@ async function commitInlinePayment(tr){
 //   paid === 0            → "Unpaid"   (no receipt yet)
 //   |paid − expected|≤0.01 → "Rental Paid"
 //   otherwise             → "Payment Unmatch"
+// Has a carpark (identified by its optional carpark_start_date /
+// carpark2_start_date field) actually started by month (y,m) yet? NULL
+// means no start date is on file — every tenant has this before "Add
+// Carpark" sets it, and it means "applies to the whole tenancy" (the
+// original, still-default behavior), so a tenant who's always had their
+// carpark is completely unaffected by this check.
+function _carparkStartedByMonth(startDateStr, y, m){
+  if(!startDateStr) return true;
+  const sd = parseISODateLocal(startDateStr);
+  if(isNaN(sd)) return true;
+  const sy = sd.getFullYear(), sm = sd.getMonth()+1;
+  return (y > sy) || (y === sy && m >= sm);
+}
+
 // Per-tenant expected-vs-paid for one month — the shared engine behind
 // both computeRentStatus (Income tab's Rent Collection Status, active
 // tenants only) and the Manager Dashboard's Payment Rate donut (which
@@ -11015,6 +11013,12 @@ function _tenantMonthRentStatus(t, y, m){
       expectedCp2  = lp.sameCarpark2 ? lp.carpark2Share : Math.ceil(expectedCp2Full * lp.ratio);
       proKind = 'last';
     }
+    // A carpark added mid-tenancy (via "Add Carpark") only applies from its
+    // own start date onward — override whatever the branches above computed
+    // if this month predates that, so earlier months stop expecting a
+    // carpark rental the tenant never actually owed back then.
+    if(!_carparkStartedByMonth(t.carpark_start_date, y, m))  expectedCp  = 0;
+    if(!_carparkStartedByMonth(t.carpark2_start_date, y, m)) expectedCp2 = 0;
     // expectedCp/cpPaid below fold BOTH carpark slots into one combined
     // total — the Collection Status table shows a single "Carpark" column.
     expectedCp = expectedCp + expectedCp2;
