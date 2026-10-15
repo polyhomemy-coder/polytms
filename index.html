@@ -5899,7 +5899,7 @@ function renderAdminDashboard(){
   const paneUnpaid = panel(`
     ${secHead('💸','Unpaid / Unmatch — '+MONTHS[m-1]+' '+y,unpaidRows.length,'background:#FEE2E2;color:#B91C1C')}
     ${unpaidRows.length===0 ? emptyMsg('All tenants paid this month ✓') : tbl(
-      miniTh({label:'#'},{label:'Tenant'},{label:'Property · Room'},{label:'Contact'},{label:'Expected',right:true},{label:'Status',right:true},{label:'',right:true}),
+      miniTh({label:'#'},{label:'Tenant'},{label:'Property · Room'},{label:'City'},{label:'Contact'},{label:'Expected',right:true},{label:'Status',right:true},{label:'',right:true}),
       unpaidRows.map((r,i)=>{
         const badge2=r.status==='unpaid'
           ? `<span style="background:#FEE2E2;color:#B91C1C;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700">✕ Unpaid</span>`
@@ -5912,6 +5912,7 @@ function renderAdminDashboard(){
           ${td(i+1,{muted:true})}
           ${td(esc(r.tenant.name||'—'),{bold:true})}
           ${td((r.prop?esc(r.prop.condo+' '+r.prop.unit):'—')+' · <b>'+esc(r.tenant.room_code||'?')+'</b>',{muted:true})}
+          ${td(esc(r.prop?.city||'—'),{muted:true})}
           ${td(contactCell)}
           ${td('RM '+fmt(r.expected),{right:true})}
           ${td(badge2,{right:true})}
