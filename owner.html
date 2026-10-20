@@ -1073,11 +1073,16 @@ function hideLogin(){ $('loginOverlay').classList.add('hidden'); }
 function showApp()  { $('app').classList.add('visible'); }
 function hideLoading(){ $('loadingScreen').classList.add('hidden'); }
 
+// Returns null if no active profile row exists — their access was removed
+// (or never granted). The caller must treat that as "deny access," not
+// default them into the owner role (defense in depth — the database's own
+// RLS policies already block all data access without an active profile
+// row, but this avoids even showing them a confusing empty portal).
 async function getMyRole(){
   try{
     const {data}=await sb.from('profiles').select('role,property_id').eq('id',state.userId).single();
-    return data?.role||'owner';
-  }catch(_){return 'owner';}
+    return data?.role||null;
+  }catch(_){return null;}
 }
 async function getMyPropertyIds(){
   const {data}=await sb.from('profiles').select('property_id').eq('id',state.userId);
@@ -2306,6 +2311,17 @@ async function saveElecBills(){
 
   const isPreview=new URLSearchParams(location.search).get('preview')==='1';
   const role=await getMyRole();
+  if(!role && !isPreview){
+    // No active profile — access was removed. Sign out and show a clear
+    // message instead of bouncing them through index.html (which would
+    // just sign them out again anyway) or leaving them on a blank portal.
+    try{ await sb.auth.signOut(); }catch(_){}
+    hideLoading();
+    showLogin();
+    const statEl=document.getElementById('loginStatus');
+    if(statEl) statEl.textContent='This account no longer has access. Contact your administrator.';
+    return;
+  }
   if(role!=='owner'&&!isPreview){window.location.href='index.html';return;}
 
   if(isPreview){
@@ -2413,6 +2429,12 @@ async function renderNotices(){
       if(error) throw error;
       state.userId=data.user.id;state.user=data.user;
       const role=await getMyRole();
+      if(!role){
+        try{ await sb.auth.signOut(); }catch(_){}
+        stat.innerHTML='<span style="color:#C0392B">This account no longer has access. Contact your administrator.</span>';
+        loginBtn.disabled=false;loginBtn.style.opacity='';
+        return;
+      }
       if(role!=='owner'){window.location.href='index.html';return;}
       // Record successful login
       sb.from('profiles').update({ last_login_at: new Date().toISOString() })

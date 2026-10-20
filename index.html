@@ -3360,10 +3360,18 @@ $('#btnSettings').onclick = ()=>{ $('#inpUrl').value=localStorage.getItem(LS_URL
     try {
       const {data, error} = await sb.auth.signInWithPassword({email, password});
       if(error) throw error;
-      stat.innerHTML='<span class="text-emerald-600">✓ Signed in</span>';
-      hideLogin();
       state.currentUserId = data.user?.id;
       state.role = await fetchUserRole(data.user?.id);
+      if(!state.role){
+        // No active profile — access was removed (or never granted).
+        // Sign back out immediately; don't let them into the app shell.
+        await sb.auth.signOut();
+        state.currentUserId = null;
+        stat.innerHTML='<span class="text-rose-600">This account no longer has access to polyTMS. Contact your administrator.</span>';
+        return;
+      }
+      stat.innerHTML='<span class="text-emerald-600">✓ Signed in</span>';
+      hideLogin();
       if(state.role === 'owner'){ window.location.href = 'owner.html'; return; }
       applyRoleUI(); // apply immediately — don't wait for bootApp data load
       showUserBox(data.user?.email);
@@ -16412,10 +16420,21 @@ function showSetNewPassword(){
 // "already signed in" boot path and by the set-new-password flow once the
 // password update succeeds (both end up with an active session to boot from).
 async function _finishBootWithSession(sess){
-  hideAppLoading();
-  hideLogin();
   state.currentUserId = sess.user?.id;
   state.role = await fetchUserRole(sess.user?.id);
+  if(!state.role){
+    // Persisted session, but no active profile — their access was removed
+    // since this session/device last signed in. Sign out and show the
+    // normal login screen with an explanation, rather than booting them in.
+    try { await sb.auth.signOut(); } catch(_){}
+    state.currentUserId = null;
+    showLogin();
+    const stat = document.getElementById('loginStatus');
+    if(stat) stat.innerHTML = '<span class="text-rose-600">This account no longer has access to polyTMS. Contact your administrator.</span>';
+    return;
+  }
+  hideAppLoading();
+  hideLogin();
   if(state.role === 'owner'){ window.location.href = 'owner.html'; return; }
   applyRoleUI(); // apply immediately — don't wait for bootApp data load
   showUserBox(sess.user?.email);
@@ -16439,14 +16458,21 @@ function showUserBox(email){
 //  Future-proof: adding 'tenant' later only needs an extra case here.
 // ══════════════════════════════════════════════════════════════
 
-// Fetch this user's role from the profiles table.
-// Falls back to 'admin' if no row exists (safe default — still
-// loses Manager tab, won't accidentally grant full access).
+// Fetch this user's role from the profiles table. Returns null if no row
+// exists — this means their access was removed (or never granted), and the
+// caller must treat that as "deny access, sign out," NOT default them into
+// any role. (Previously this fell back to 'admin', which combined with the
+// database's own "authenticated_only" RLS policy requiring nothing more
+// than a valid login meant that deleting someone's profile row — the
+// "Remove Access" button — never actually revoked their access: they could
+// still log in and were silently granted admin rights by this very
+// fallback. Both sides of that gap are now fixed — RLS now also requires
+// an active profiles row, and this function no longer invents one.)
 async function fetchUserRole(userId){
-  if(!sb || !userId) return 'admin';
+  if(!sb || !userId) return null;
   try {
     const {data, error} = await sb.from('profiles').select('role,property_id,name,email,tab_permissions').eq('id', userId).single();
-    if(error || !data) return 'admin';
+    if(error || !data) return null;
     if(data.property_id) state.ownerPropertyId = data.property_id;
     state.currentUserName  = data.name  || '';
     state.currentUserEmail = data.email || '';
@@ -16456,7 +16482,7 @@ async function fetchUserRole(userId){
     // restrictions configured via Property Assignment.
     state.currentUserTabPerms = data.tab_permissions || null;
     return (data.role || 'admin').toLowerCase();
-  } catch(_){ return 'admin'; }
+  } catch(_){ return null; }
 }
 
 // Default tab visibility per role when the current user has no explicit
