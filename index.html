@@ -1613,6 +1613,28 @@
       <p style="font-size:12px;color:#B0CDD3;line-height:1.75">Don't have an account? Contact your administrator<br>to get access to the system.</p>
     </div>
   </div>
+
+  <!-- SET NEW PASSWORD PANEL — shown instead of loginRight when the user
+       arrives via a password-reset email link (type=recovery in the URL
+       hash). Shares the same overlay/left hero panel as the login form. -->
+  <div id="setPwRight" style="width:480px;flex-shrink:0;background:#fff;display:none;flex-direction:column;justify-content:center;padding:60px 52px;min-height:100vh;overflow-y:auto;position:relative">
+    <div style="margin-bottom:42px">
+      <h2 style="font-size:28px;font-weight:800;color:#0B1F2A;line-height:1.2;margin-bottom:8px">🔑 Set a new password</h2>
+      <p style="font-size:13.5px;color:#7BA8B0;line-height:1.55">You're resetting your polyTMS password. Choose a new one to continue.</p>
+    </div>
+    <div style="margin-bottom:18px">
+      <label style="font-size:11px;font-weight:700;color:#94B4BB;text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:7px">New Password</label>
+      <input id="newPw1" type="password" class="input" placeholder="At least 6 characters" autocomplete="new-password" style="font-size:14px;padding:14px 16px;border-radius:12px;border:1.5px solid #D8EEF2;background:#FAFEFF;width:100%;box-sizing:border-box">
+    </div>
+    <div style="margin-bottom:28px">
+      <label style="font-size:11px;font-weight:700;color:#94B4BB;text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:7px">Confirm New Password</label>
+      <input id="newPw2" type="password" class="input" placeholder="Re-enter password" autocomplete="new-password" style="font-size:14px;padding:14px 16px;border-radius:12px;border:1.5px solid #D8EEF2;background:#FAFEFF;width:100%;box-sizing:border-box">
+    </div>
+    <button id="btnSetNewPw" style="width:100%;padding:15px;border-radius:13px;font-size:15px;font-weight:700;letter-spacing:0.3px;border:none;cursor:pointer;background:linear-gradient(135deg,#004C56,#00626E 50%,#0090A3);color:#fff;box-shadow:0 4px 18px rgba(0,98,110,.35);transition:filter .2s;font-family:inherit" onmouseover="this.style.filter='brightness(1.10)'" onmouseout="this.style.filter=''">Set Password &amp; Continue &rarr;</button>
+    <div style="margin-top:14px;text-align:center;min-height:20px">
+      <span id="setPwStatus" style="font-size:13px"></span>
+    </div>
+  </div>
 </div>
 
 <!-- ========== APP SHELL ========== -->
@@ -3373,6 +3395,48 @@ $('#btnSettings').onclick = ()=>{ $('#inpUrl').value=localStorage.getItem(LS_URL
     if(!await confirmModal('Sign out of polyTMS?',{confirmText:'Sign Out',danger:false})) return;
     await signOutAndReturnToLogin();
   };
+})();
+
+// Set New Password — shown after arriving via a password-reset email link.
+// Calls Supabase Auth's updateUser() to actually change the password (the
+// step that was previously missing — the reset email worked, the link
+// worked, but nothing ever let the user set a new password).
+(function _wireSetNewPassword(){
+  const btn  = document.getElementById('btnSetNewPw');
+  const pw1  = document.getElementById('newPw1');
+  const pw2  = document.getElementById('newPw2');
+  const stat = document.getElementById('setPwStatus');
+  if(!btn) return;
+  const doSetPw = async ()=>{
+    const p1 = pw1?.value || '';
+    const p2 = pw2?.value || '';
+    if(!p1 || !p2){ stat.innerHTML='<span class="text-rose-600">Enter and confirm your new password</span>'; return; }
+    if(p1.length < 6){ stat.innerHTML='<span class="text-rose-600">Password must be at least 6 characters</span>'; return; }
+    if(p1 !== p2){ stat.innerHTML='<span class="text-rose-600">Passwords don\'t match</span>'; return; }
+    btn.disabled = true; btn.style.opacity='.6';
+    stat.innerHTML='<span class="text-slate-500">Saving…</span>';
+    try {
+      if(!sb || !sb.auth) throw new Error('Not connected');
+      const { error } = await sb.auth.updateUser({ password: p1 });
+      if(error) throw error;
+      stat.innerHTML='<span class="text-emerald-600">✓ Password updated — signing you in…</span>';
+      // Drop the recovery tokens from the URL so a later refresh doesn't
+      // re-trigger this screen.
+      try { history.replaceState(null, '', location.pathname + location.search); } catch(_){}
+      const sess = (await sb.auth.getSession())?.data?.session;
+      if(sess) await _finishBootWithSession(sess);
+      else showLogin();
+    } catch(e){
+      stat.innerHTML='<span class="text-rose-600">'+esc(e.message||'Failed to update password')+'</span>';
+    } finally {
+      btn.disabled = false; btn.style.opacity='';
+    }
+  };
+  btn.onclick = doSetPw;
+  [pw1, pw2].forEach(el=>{
+    if(!el) return;
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); doSetPw(); } });
+  });
 })();
 
 // --- tabs ----------------------------------------------------
@@ -5147,7 +5211,7 @@ async function bootApp(){
   // Previously sequential (3 round-trips before first render).
   // Now everything races in parallel — boot is as fast as the slowest single query.
   const adminProfilesPromise = state.role === 'manager'
-    ? sb.from('profiles').select('id,email,name').eq('role','admin').order('email')
+    ? sb.from('profiles').select('id,email,name,tab_permissions').eq('role','admin').order('email')
         .then(({data}) => { state.adminProfiles = data || []; })
         .catch(() => {})
     : Promise.resolve();
@@ -5691,7 +5755,7 @@ function renderAdminDashboard(){
   const viewBtn = id => `<button class="p-1 rounded bg-[#EEF7F8] text-[color:var(--brand)]" onclick="openTenantView('${id}')" title="View tenant">${ICON.view}</button>`;
 
   // ── Sub-tab helpers ───────────────────────────────────────────────────────
-  const sub = state.adminSub || 'overview';
+  let sub = state.adminSub || 'overview';
   const badge = (n, warn) => n ? `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:999px;background:${warn?'#FEE2E2':'#E8F8FA'};color:${warn?'#B91C1C':'var(--brand)'};margin-left:4px">${n}</span>` : '';
   const tabs = [
     {id:'overview',  label:'📊 Overview'},
@@ -5705,7 +5769,11 @@ function renderAdminDashboard(){
     {id:'track',     label:'🗓️ Payment Track'},
     ...(state.role==='manager'||state.role==='admin' ? [{id:'users', label:'👥 Users'}] : []),
     ...(state.role==='manager'||state.role==='admin' ? [{id:'notices', label:'📢 Notices'}, {id:'backup', label:'🗄️ Backup'}] : []),
-  ];
+  ].filter(t => _subtabAllowed('admin', t.id));
+  // If the previously-active sub-tab isn't in this admin's allowed set
+  // (e.g. permissions were just tightened), fall back to the first one
+  // they do have access to instead of rendering an empty/invalid pane.
+  if(!tabs.some(t=>t.id===sub)){ sub = tabs[0]?.id || 'overview'; state.adminSub = sub; }
 
   const tabBar = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
     ${tabs.map(t=>`<button onclick="state.adminSub='${t.id}';renderAdminDashboard()"
@@ -16316,10 +16384,42 @@ function showLogin(){
   hideAppLoading();
   const o = document.getElementById('loginOverlay');
   if(o){ o.classList.remove('hidden'); o.classList.add('flex'); o.style.display=''; }
+  // Defensive reset — a previous recovery flow may have left the panels
+  // swapped; a normal login should always show the sign-in form.
+  const lr = document.getElementById('loginRight');
+  const pr = document.getElementById('setPwRight');
+  if(lr) lr.style.display = '';
+  if(pr) pr.style.display = 'none';
 }
 function hideLogin(){
   const o = document.getElementById('loginOverlay');
   if(o){ o.classList.add('hidden'); o.classList.remove('flex'); }
+}
+// Shown instead of the normal login form when the user arrives via a
+// password-reset email link (Supabase auto-establishes a session from the
+// recovery token in the URL) — they must set a new password before the
+// app proceeds, rather than being silently signed in on the old one.
+function showSetNewPassword(){
+  hideAppLoading();
+  const o = document.getElementById('loginOverlay');
+  if(o){ o.classList.remove('hidden'); o.classList.add('flex'); o.style.display=''; }
+  const lr = document.getElementById('loginRight');
+  const pr = document.getElementById('setPwRight');
+  if(lr) lr.style.display = 'none';
+  if(pr) pr.style.display = 'flex';
+}
+// Finish signing in once a valid session exists — shared by the normal
+// "already signed in" boot path and by the set-new-password flow once the
+// password update succeeds (both end up with an active session to boot from).
+async function _finishBootWithSession(sess){
+  hideAppLoading();
+  hideLogin();
+  state.currentUserId = sess.user?.id;
+  state.role = await fetchUserRole(sess.user?.id);
+  if(state.role === 'owner'){ window.location.href = 'owner.html'; return; }
+  applyRoleUI(); // apply immediately — don't wait for bootApp data load
+  showUserBox(sess.user?.email);
+  await bootApp();
 }
 function showUserBox(email){
   const box = document.getElementById('userBox');
@@ -16345,18 +16445,54 @@ function showUserBox(email){
 async function fetchUserRole(userId){
   if(!sb || !userId) return 'admin';
   try {
-    const {data, error} = await sb.from('profiles').select('role,property_id,name,email').eq('id', userId).single();
+    const {data, error} = await sb.from('profiles').select('role,property_id,name,email,tab_permissions').eq('id', userId).single();
     if(error || !data) return 'admin';
     if(data.property_id) state.ownerPropertyId = data.property_id;
     state.currentUserName  = data.name  || '';
     state.currentUserEmail = data.email || '';
+    // NULL = no explicit permissions on file — applyRoleUI() falls back to
+    // the normal role-based default tab set (today's behavior, unchanged).
+    // A non-null object (even {}) means this admin has explicit tab/sub-tab
+    // restrictions configured via Property Assignment.
+    state.currentUserTabPerms = data.tab_permissions || null;
     return (data.role || 'admin').toLowerCase();
   } catch(_){ return 'admin'; }
 }
 
-// Apply tab / UI visibility based on state.role.
+// Default tab visibility per role when the current user has no explicit
+// tab_permissions on file — this is exactly the original, unchanged
+// behavior, and stays the fallback for every manager/owner (this feature
+// only ever applies per-user overrides to admins) and for any admin who
+// hasn't had custom permissions configured yet.
+const ROLE_DEFAULT_TABS = {
+  manager  : ['dashboard','admin','properties','tenants','income','expenses','report'],
+  admin    : ['admin','properties','tenants','income','expenses','report'],
+  owner    : ['tenants','report'],
+};
+// Is top-level tab `tabKey` visible to the CURRENT user? An admin with an
+// explicit tab_permissions object (even {}) uses it instead of the role
+// default — a key simply absent from that object means "not granted".
+function _tabAllowed(tabKey){
+  if(state.role === 'admin' && state.currentUserTabPerms){
+    return state.currentUserTabPerms[tabKey] === true;
+  }
+  return (ROLE_DEFAULT_TABS[state.role] || ROLE_DEFAULT_TABS.admin).includes(tabKey);
+}
+// Is sub-tab `tabKey.subKey` visible? Only meaningful once the parent tab
+// itself is allowed. With no explicit permissions on file, every sub-tab
+// under an allowed tab is visible (today's behavior).
+function _subtabAllowed(tabKey, subKey){
+  if(!_tabAllowed(tabKey)) return false;
+  if(state.role === 'admin' && state.currentUserTabPerms){
+    return state.currentUserTabPerms[tabKey+'.'+subKey] === true;
+  }
+  return true;
+}
+
+// Apply tab / UI visibility based on state.role (and, for an admin with
+// explicit tab_permissions configured, their own per-tab/sub-tab grants).
 //   manager → all tabs, user management panel visible
-//   admin   → no Manager tab
+//   admin   → no Manager tab, further restricted by tab_permissions if set
 //   owner   → only Income Report + Tenants, scoped to their property
 function applyRoleUI(){
   const role = state.role;
@@ -16370,12 +16506,7 @@ function applyRoleUI(){
     report    : document.querySelector('.tab-btn[data-tab="report"]'),
   };
 
-  // Visibility rules per role
-  const visible = {
-    manager  : ['dashboard','admin','properties','tenants','income','expenses','report'],
-    admin    : ['admin','properties','tenants','income','expenses','report'],
-    owner    : ['tenants','report'],
-  }[role] || ['admin','properties','tenants','income','expenses','report'];
+  const visible = Object.keys(tabs).filter(_tabAllowed);
 
   Object.entries(tabs).forEach(([key, btn])=>{
     if(btn) btn.style.display = visible.includes(key) ? '' : 'none';
@@ -16387,6 +16518,26 @@ function applyRoleUI(){
     const firstVisible = visible[0];
     const target = document.querySelector(`.tab-btn[data-tab="${firstVisible}"]`);
     if(target) target.click();
+  }
+
+  // Income tab's own sub-tab row (Rent Collection Status / Payments Ledger /
+  // Aircon Top-ups / Extra Income) — same per-admin gating as the main tabs.
+  // The Admin tab's own sub-tabs are gated separately, inline in
+  // renderAdminDashboard() itself (it rebuilds its sub-tab bar from scratch
+  // on every render, so filtering there is simpler than DOM show/hide here).
+  const incomeSubBtns = document.querySelectorAll('#subtabs .subtab-btn[data-sub]');
+  if(incomeSubBtns.length){
+    let anyVisible = false, activeHidden = false;
+    incomeSubBtns.forEach(btn=>{
+      const ok = _subtabAllowed('income', btn.dataset.sub);
+      btn.style.display = ok ? '' : 'none';
+      if(ok) anyVisible = true;
+      if(!ok && btn.classList.contains('active')) activeHidden = true;
+    });
+    if(activeHidden && anyVisible){
+      const next = Array.from(incomeSubBtns).find(b=>b.style.display!=='none');
+      if(next) next.click();
+    }
   }
 
   // Owner: lock property filter to their assigned property
@@ -16753,18 +16904,126 @@ function openAddAdminModal(){
     }
 
     if(result.restored){
+      // Restoring a previously-removed admin — leave tab_permissions as
+      // whatever it was (or NULL/full-access default), same as before.
       toast(`✅ Admin access restored for ${email}`,'ok');
     } else {
-      toast(`📧 Admin invite sent to ${email}`,'ok');
+      // A genuinely NEW admin starts seeing NOTHING until the manager
+      // explicitly grants tabs/sub-tabs via Property Assignment — {} means
+      // every key is absent, i.e. not granted (see _tabAllowed).
+      await sb.from('profiles').update({ tab_permissions: {} }).eq('email', email);
+      toast(`📧 Admin invite sent to ${email} · starts with no tabs — configure access in Property Assignment`,'ok');
     }
 
     // Refresh admin list in sidebar + user management panel
-    const {data:admins} = await sb.from('profiles').select('id,email,name').eq('role','admin').order('email');
+    const {data:admins} = await sb.from('profiles').select('id,email,name,tab_permissions').eq('role','admin').order('email');
     state.adminProfiles = admins || [];
     renderSidebarFilters();
     const container = document.getElementById('userMgmtPanel');
     if(container) await renderUserManagementPanel(container);
   }, 'Create Admin');
+}
+
+// Labels for the tab/sub-tab access configuration modal — must stay in
+// sync with the tab/sub-tab keys applyRoleUI()/_tabAllowed()/_subtabAllowed()
+// actually check.
+const TAB_ACCESS_LABELS = {
+  admin:      '🗂️ Admin',
+  properties: '🏠 Properties',
+  tenants:    '👥 Tenants',
+  income:     '💰 Income',
+  expenses:   '📋 Expenses',
+  report:     '📊 Income Report',
+};
+const SUBTAB_ACCESS_LABELS = {
+  admin: {
+    overview:'Overview', unpaid:'Unpaid', leases:'Leases', movements:'Movements',
+    vacant:'Vacant', carpark:'Carpark', signoff:'Sign-off', utilities:'Utilities',
+    track:'Payment Track', users:'Users', notices:'Notices', backup:'Backup',
+  },
+  income: { collection:'Rent Collection Status', ledger:'Payments Ledger', aircon:'Aircon Top-ups', extra:'Extra Income' },
+};
+
+// Configure which tabs/sub-tabs one admin can see. NULL permissions (no
+// row configured yet) is shown as "default access" with every box
+// pre-checked, matching what they currently actually see — checking Save
+// at that point switches them from the implicit default to an explicit
+// (but identical) permission set; "Reset to Default" removes the explicit
+// set entirely, reverting to NULL (today's role-based behavior).
+function openConfigureAdminAccessModal(adminId){
+  const admin = (state.adminProfiles||[]).find(a=>a.id===adminId);
+  if(!admin) return;
+  const perms = admin.tab_permissions; // null = default (full) access
+  const isGranted = (tabKey, subKey) => {
+    if(perms == null) return true; // default access — everything on
+    const key = subKey ? tabKey+'.'+subKey : tabKey;
+    return perms[key] === true;
+  };
+  const defaultNote = perms == null
+    ? `<div class="rounded-lg bg-[#E8F4FD] border border-[#BAD8F0] px-3 py-2 text-xs text-slate-700 mb-2">Currently on <b>default access</b> — sees everything except the Manager tab. Saving below switches ${esc(admin.name||admin.email)} to this explicit set.</div>`
+    : `<div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600 mb-2">Custom access is configured for ${esc(admin.name||admin.email)}.</div>`;
+
+  const rows = Object.keys(TAB_ACCESS_LABELS).map(tabKey=>{
+    const subs = SUBTAB_ACCESS_LABELS[tabKey];
+    const tabChecked = isGranted(tabKey) ? 'checked' : '';
+    const subsHtml = subs ? `<div style="margin:4px 0 2px 26px;display:flex;flex-direction:column;gap:3px">
+      ${Object.entries(subs).map(([subKey,label])=>`
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink)">
+          <input type="checkbox" class="cfgSub" data-tab="${tabKey}" data-sub="${subKey}" ${isGranted(tabKey,subKey)?'checked':''}>
+          ${esc(label)}
+        </label>`).join('')}
+    </div>` : '';
+    return `<div style="padding:6px 0;border-bottom:1px solid var(--line)">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--ink)">
+        <input type="checkbox" class="cfgTab" data-tab="${tabKey}" ${tabChecked} onchange="document.querySelectorAll('.cfgSub[data-tab=\\'${tabKey}\\']').forEach(x=>x.disabled=!this.checked)">
+        ${TAB_ACCESS_LABELS[tabKey]}
+      </label>
+      ${subsHtml}
+    </div>`;
+  }).join('');
+
+  openModal(`Tab Access — ${admin.name||admin.email}`, `
+    <div style="max-height:60vh;overflow-y:auto">
+      ${defaultNote}
+      ${rows}
+    </div>
+    <div style="margin-top:10px">
+      <button type="button" id="btnResetAdminAccess" style="font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#F1F5F9;color:#475569;border:none;cursor:pointer">↺ Reset to Default (sees everything except Manager)</button>
+    </div>
+  `, async ()=>{
+    const newPerms = {};
+    document.querySelectorAll('.cfgTab').forEach(cb=>{ if(cb.checked) newPerms[cb.dataset.tab] = true; });
+    document.querySelectorAll('.cfgSub').forEach(cb=>{ if(cb.checked && !cb.disabled) newPerms[cb.dataset.tab+'.'+cb.dataset.sub] = true; });
+    const {error} = await sb.from('profiles').update({ tab_permissions: newPerms }).eq('id', adminId);
+    if(error) throw new Error(error.message);
+    admin.tab_permissions = newPerms;
+    toast(`✓ Access updated for ${admin.name||admin.email}`);
+  }, 'Save Access');
+
+  setTimeout(()=>{
+    const resetBtn = document.getElementById('btnResetAdminAccess');
+    if(resetBtn) resetBtn.onclick = async ()=>{
+      if(!await confirmModal(`Reset ${esc(admin.name||admin.email)} to default access (everything except Manager tab)?`,{confirmText:'Reset',danger:false})) return;
+      const {error} = await sb.from('profiles').update({ tab_permissions: null }).eq('id', adminId);
+      if(error){ toast(error.message,'bad'); return; }
+      admin.tab_permissions = null;
+      toast(`✓ ${admin.name||admin.email} reset to default access`);
+      closeModal();
+    };
+  }, 50);
+}
+
+// Send a password-reset email to one admin — same mechanism as the Users
+// tab's Edit User modal.
+async function sendAdminPasswordReset(adminId){
+  const admin = (state.adminProfiles||[]).find(a=>a.id===adminId);
+  if(!admin) return;
+  if(!await confirmModal(`Send a password-reset email to ${esc(admin.email)}?`,{confirmText:'Send',danger:false})) return;
+  try {
+    const {error} = await sb.auth.resetPasswordForEmail(admin.email, { redirectTo: location.href });
+    if(error) throw error;
+    toast(`📧 Password reset email sent to ${admin.email}`);
+  } catch(e){ toast('Failed: '+e.message,'bad'); }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -16780,6 +17039,24 @@ function renderPropAssignPanel(container){
     const a = admins.find(x=>x.id===id);
     return a ? (a.name || a.email) : '<span style="color:var(--muted);font-style:italic">Unassigned</span>';
   };
+
+  // ── Admin Accounts: password reset, create new admin, tab access ────────
+  const accessSummary = perms => {
+    if(perms == null) return '<span style="color:var(--muted)">Default (all except Manager)</span>';
+    const n = Object.keys(perms).filter(k=>!k.includes('.') && perms[k]===true).length;
+    return n
+      ? `<span style="color:#065F46;font-weight:600">Custom — ${n} tab${n===1?'':'s'}</span>`
+      : `<span style="color:#B91C1C;font-weight:600">No tabs granted yet</span>`;
+  };
+  const adminRows = admins.map(a=>`<tr>
+    <td class="font-semibold">${esc(a.name||'—')}</td>
+    <td class="text-slate-500">${esc(a.email)}</td>
+    <td>${accessSummary(a.tab_permissions)}</td>
+    <td class="text-right whitespace-nowrap">
+      <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openConfigureAdminAccessModal('${a.id}')">⚙ Access</button>
+      <button class="px-2 py-1 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-semibold" onclick="sendAdminPasswordReset('${a.id}')">📧 Reset Password</button>
+    </td>
+  </tr>`).join('');
 
   const rows = props.map(p=>{
     const tenantCount = state.tenants.filter(t=>t.property_id===p.id && t.active!==false).length;
@@ -16797,6 +17074,24 @@ function renderPropAssignPanel(container){
   }).join('');
 
   container.innerHTML = `
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="font-extrabold text-[color:var(--brand)]">👤 Admin Accounts</div>
+          <div class="help mt-0.5">Reset a password, control which tabs/sub-tabs an admin can see, or create a new admin.</div>
+        </div>
+        <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openAddAdminModal()">+ Add Admin</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="data" style="font-size:12px">
+          <thead><tr>
+            <th>Name</th><th>Email</th><th>Tab Access</th><th></th>
+          </tr></thead>
+          <tbody>${adminRows || '<tr><td colspan="4" class="text-center text-slate-400 py-6">No admins yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card p-4" style="margin-top:0">
       <div class="flex items-center justify-between mb-3">
         <div>
@@ -17095,6 +17390,17 @@ async function signOutAndReturnToLogin(){
       </div>`;
       return;
     }
+    // ----- Password-reset link? -----
+    // Supabase puts type=recovery in the URL hash when someone arrives via
+    // a password-reset email link, and auto-establishes a session from it
+    // (detectSessionInUrl, on by default) — so the check below would
+    // otherwise treat them as already signed in and silently boot straight
+    // into the app on their OLD password, with no chance to set a new one.
+    // Catch it first and force the Set New Password screen instead.
+    if(/type=recovery/.test(location.hash)){
+      showSetNewPassword();
+      return;
+    }
     // ----- Check for an existing Supabase Auth session -----
     let sess = null;
     try { sess = (await sb.auth.getSession())?.data?.session || null; } catch(_){}
@@ -17103,15 +17409,7 @@ async function signOutAndReturnToLogin(){
       showLogin();
       return;
     }
-    // Session present → hide loading screen + login overlay, boot the app.
-    hideAppLoading();
-    hideLogin();
-    state.currentUserId = sess.user?.id;
-    state.role = await fetchUserRole(sess.user?.id);
-    if(state.role === 'owner'){ window.location.href = 'owner.html'; return; }
-    applyRoleUI(); // apply immediately — don't wait for bootApp data load
-    showUserBox(sess.user?.email);
-    await bootApp();
+    await _finishBootWithSession(sess);
     return;
   }
 
