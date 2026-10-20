@@ -2004,7 +2004,7 @@
           <span class="subtab-btn active" data-psub="all">🏢 All Properties</span>
           <span class="subtab-btn" data-psub="vacancies">🔍 Vacancies</span>
         </div>
-        <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openPropertyModal()">+ Add Property</button>
+        <button id="btnAddProperty" class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openPropertyModal()">+ Add Property</button>
       </div>
     </div>
 
@@ -2048,8 +2048,8 @@
           <select id="tenantFilter" class="input !w-auto !text-xs"></select>
           <span class="text-[10px] font-bold text-[color:var(--muted)] bg-[#EEF7F8] border border-[#DCEEF1] rounded-md px-1.5 py-1 select-none" title="Use ↑ / ↓ keys to cycle through properties">↑↓</span>
         </div>
-        <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#DCFCE7] text-[#065F46] border border-[#86EFAC] hover:bg-[#BBF7D0]" onclick="openWaBroadcast()">📱 WhatsApp</button>
-        <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openTenantModal()">+ Add Tenant</button>
+        <button id="btnWaBroadcast" class="px-4 py-2 rounded-xl text-sm font-bold bg-[#DCFCE7] text-[#065F46] border border-[#86EFAC] hover:bg-[#BBF7D0]" onclick="openWaBroadcast()">📱 WhatsApp</button>
+        <button id="btnAddTenant" class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openTenantModal()">+ Add Tenant</button>
       </div>
     </div>
     <div class="card p-0 overflow-hidden">
@@ -2081,11 +2081,11 @@
         <div class="help">Every individual payment row for this month — edit/delete here.</div>
         <div class="flex gap-2 items-center flex-wrap">
           <select id="paySelProp" class="input !w-auto !text-xs"></select>
-          <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#EEF7F8] text-[color:var(--brand)] border border-[color:var(--line)]" onclick="openReceiptUpload()">📤 Upload Receipts</button>
-          <button class="btn-accent px-4 py-2 rounded-xl text-sm font-bold" onclick="prefillPayments()">⚡ Prefill from tenancy</button>
+          <button id="btnLedgerUpload" class="px-4 py-2 rounded-xl text-sm font-bold bg-[#EEF7F8] text-[color:var(--brand)] border border-[color:var(--line)]" onclick="openReceiptUpload()">📤 Upload Receipts</button>
+          <button id="btnLedgerPrefill" class="btn-accent px-4 py-2 rounded-xl text-sm font-bold" onclick="prefillPayments()">⚡ Prefill from tenancy</button>
           <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#DCFCE7] text-[#065F46] border border-[#86EFAC] hover:bg-[#BBF7D0]" onclick="exportPaymentsXlsx()">📊 Export Excel</button>
           <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#FEE2E2] text-[#991B1B] border border-[#FCA5A5] hover:bg-[#FECACA]" onclick="exportPaymentsPdf()">📄 Export PDF</button>
-          <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openPaymentModal()">+ Add Row</button>
+          <button id="btnLedgerAddRow" class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openPaymentModal()">+ Add Row</button>
         </div>
       </div>
       <div class="card p-0 overflow-hidden">
@@ -2111,7 +2111,7 @@
             <span class="sf-pill" data-sf="unmatch">⚠ Unmatch</span>
             <span class="sf-pill" data-sf="unpaid">✕ Unpaid</span>
           </div>
-          <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#EEF7F8] text-[color:var(--brand)] border border-[color:var(--line)]" onclick="openReceiptUpload()">📤 Upload Receipts</button>
+          <button id="btnCollectionUpload" class="px-4 py-2 rounded-xl text-sm font-bold bg-[#EEF7F8] text-[color:var(--brand)] border border-[color:var(--line)]" onclick="openReceiptUpload()">📤 Upload Receipts</button>
         </div>
       </div>
       <div class="card p-0 overflow-hidden">
@@ -2134,7 +2134,7 @@
         <div class="flex gap-2 items-center">
           <select id="airSelProp" class="input !w-auto !text-xs"></select>
           <button class="px-4 py-2 rounded-xl text-sm font-bold border border-emerald-500 text-emerald-700 bg-emerald-50 hover:bg-emerald-100" onclick="exportAirconXlsx()">⬇ Export Excel</button>
-          <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openAirModal()">+ Add Top-up</button>
+          <button id="btnAirconAdd" class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openAirModal()">+ Add Top-up</button>
         </div>
       </div>
       <div id="pendingIsewaBanner"></div>
@@ -2149,7 +2149,7 @@
         <div class="help">Misc income outside rent (deposits, key fees, etc.) <span id="extMonthLbl" class="ml-2"></span></div>
         <div class="flex gap-2 items-center">
           <select id="extSelProp" class="input !w-auto !text-xs"></select>
-          <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openExtraModal()">+ Add Extra Income</button>
+          <button id="btnExtraAdd" class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openExtraModal()">+ Add Extra Income</button>
         </div>
       </div>
       <div class="card p-0 overflow-hidden">
@@ -2287,8 +2287,8 @@
       <div class="section-title">Expenses <span class="help ml-2" id="expMonthLbl"></span></div>
       <div class="flex gap-2 items-center">
         <select id="expSelProp" class="input !w-auto !text-xs"></select>
-        <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#FFF4E5] text-[#F4811F] border border-[#F8C893] hover:bg-[#FFEBCC]" onclick="openBulkExpenseModal()">📋 Bulk Expenses</button>
-        <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openExpenseModal()">+ Add Expense</button>
+        <button id="btnBulkExpense" class="px-4 py-2 rounded-xl text-sm font-bold bg-[#FFF4E5] text-[#F4811F] border border-[#F8C893] hover:bg-[#FFEBCC]" onclick="openBulkExpenseModal()">📋 Bulk Expenses</button>
+        <button id="btnAddExpense" class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openExpenseModal()">+ Add Expense</button>
       </div>
     </div>
     <!-- Category sub-tabs -->
@@ -6978,6 +6978,7 @@ const BACKUP_TABLES = [
 ];
 
 function renderBackupPanel(container){
+  const canEditBackup = _editAllowed('admin','backup');
   container.innerHTML = `
     <div style="background:var(--card);border-radius:16px;border:1px solid var(--line);overflow:hidden;margin-bottom:24px">
       <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -6985,6 +6986,7 @@ function renderBackupPanel(container){
           <div style="font-size:15px;font-weight:700;color:var(--ink)">🗄️ Data Backup & Restore</div>
           <div style="font-size:12px;color:var(--muted);margin-top:2px">Export all data to JSON · Restore from a backup file</div>
         </div>
+        ${canEditBackup ? `
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button id="btnDoBackup" onclick="doBackup()"
             style="font-size:13px;font-weight:700;padding:9px 18px;border-radius:10px;background:linear-gradient(135deg,#065F46,#059669);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;gap:6px">
@@ -6995,7 +6997,7 @@ function renderBackupPanel(container){
             ⬆️ Restore from File
             <input type="file" id="restoreFileInput" accept=".json" style="display:none" onchange="doRestore(this)">
           </label>
-        </div>
+        </div>` : `<div style="font-size:12px;color:var(--muted);font-style:italic">View-only — you don't have edit access to Backup.</div>`}
       </div>
       <div style="padding:14px 18px">
         <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px">
@@ -7779,8 +7781,9 @@ function renderProperties(){
       <td class="text-right whitespace-nowrap">
         <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)]" onclick="openPropertyView('${p.id}')" title="View details">${ICON.view}</button>
         <button class="p-1.5 rounded bg-[#E8F4FD] text-[#1E5BB8]" onclick="openGenerateSAModal('${p.id}')" title="Generate Service Agreement">${ICON.doc}</button>
+        ${_editAllowed('properties') ? `
         <button class="p-1.5 rounded bg-slate-100" onclick="openPropertyModal('${p.id}')" title="Edit">${ICON.edit}</button>
-        <button class="p-1.5 rounded bg-rose-50 text-rose-600" onclick="delProperty('${p.id}')" title="Delete">${ICON.trash}</button>
+        <button class="p-1.5 rounded bg-rose-50 text-rose-600" onclick="delProperty('${p.id}')" title="Delete">${ICON.trash}</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -7960,8 +7963,9 @@ function renderTenants(){
         <td class="text-center text-slate-500">${t.no_of_staying||'—'}</td>
         <td class="text-right whitespace-nowrap">
           <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantView('${t.id}')" title="View">${ICON.view}</button>
+          ${_editAllowed('tenants') ? `
           <button class="p-1.5 rounded bg-[#DCFCE7] text-[#065F46] text-xs font-semibold" onclick="reactivateTenant('${t.id}')" title="Reactivate">${ICON.undo}</button>
-          <button class="p-1.5 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delTenant('${t.id}')" title="Delete permanently">${ICON.trash}</button>
+          <button class="p-1.5 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delTenant('${t.id}')" title="Delete permanently">${ICON.trash}</button>` : ''}
         </td>
       </tr>`;
     }
@@ -7982,14 +7986,15 @@ function renderTenants(){
         <div style="display:inline-flex;flex-direction:column;gap:2px;align-items:flex-end">
           <div style="display:flex;gap:2px">
             <button class="p-1.5 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs hover:opacity-75" onclick="openTenantView('${t.id}')" title="View details">${ICON.view}</button>
-            <button class="p-1.5 rounded bg-slate-100 text-xs hover:opacity-75" onclick="openTenantModal('${t.id}')" title="Edit">${ICON.edit}</button>
+            ${_editAllowed('tenants') ? `<button class="p-1.5 rounded bg-slate-100 text-xs hover:opacity-75" onclick="openTenantModal('${t.id}')" title="Edit">${ICON.edit}</button>` : ''}
             <button class="p-1.5 rounded bg-[#E8F4FD] text-[#1E5BB8] text-xs hover:opacity-75" onclick="openGenerateTAModal('${t.id}')" title="Tenancy Agreement">${ICON.doc}</button>
           </div>
+          ${_editAllowed('tenants') ? `
           <div style="display:flex;gap:2px">
             <button class="p-1.5 rounded bg-[#DCFCE7] text-[#065F46] text-xs hover:opacity-75" onclick="recontractTenant('${t.id}')" title="Recontract">${ICON.undo}</button>
             <button class="p-1.5 rounded bg-[#FFF4E5] text-[#F4811F] text-xs hover:opacity-75" onclick="moveOutTenant('${t.id}')" title="Move Out">${ICON.box}</button>
             <button class="p-1.5 rounded bg-rose-50 text-rose-600 text-xs hover:opacity-75" onclick="delTenant('${t.id}')" title="Delete">${ICON.trash}</button>
-          </div>
+          </div>` : ''}
         </div>
       </td>
     </tr>`;
@@ -8026,7 +8031,7 @@ function renderTenants(){
           <td class="text-slate-300">—</td>
           <td class="text-center text-slate-300">—</td>
           <td class="text-right whitespace-nowrap">
-            <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantModal(null, {property_id:'${filt}', room_code:'${esc(r)}'})" title="Add tenant to room ${esc(r)}">+ Add tenant</button>
+            ${_editAllowed('tenants') ? `<button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openTenantModal(null, {property_id:'${filt}', room_code:'${esc(r)}'})" title="Add tenant to room ${esc(r)}">+ Add tenant</button>` : ''}
           </td>
         </tr>`).join('');
     }
@@ -9512,18 +9517,22 @@ function openTenantView(id){
   // a fixed comfortable size — while the wrapper below handles overflow by
   // moving whole buttons onto a second row instead of squeezing them.
   const btnBase = 'padding:9px 14px;border-radius:12px;font-size:13px;font-weight:700;white-space:nowrap;line-height:1.2;display:inline-flex;align-items:center;gap:6px';
-  const editBtn = t.active===false
+  // Edit/Reactivate, Move-out details, Add Carpark and Change Room all
+  // mutate the tenant record — hidden entirely for a View-only admin.
+  // Generate TA just downloads a document, so it stays visible regardless.
+  const canEditTenants = _editAllowed('tenants');
+  const editBtn = !canEditTenants ? '' : (t.active===false
     ? `<button style="${btnBase};background:#DCFCE7;color:#065F46" onclick="closeModal();reactivateTenant('${t.id}')">${iconBtn(ICON.undo,'Reactivate')}</button>`
-    : `<button class="btn-brand" style="${btnBase}" onclick="closeModal();openTenantModal('${t.id}')">${iconBtn(ICON.edit,'Edit')}</button>`;
+    : `<button class="btn-brand" style="${btnBase}" onclick="closeModal();openTenantModal('${t.id}')">${iconBtn(ICON.edit,'Edit')}</button>`);
   const taBtn = t.active===false ? '' :
     `<button style="${btnBase};background:#E8F4FD;color:#1E5BB8" onclick="closeModal();openGenerateTAModal('${t.id}')">${iconBtn(ICON.doc,'Generate TA')}</button>`;
-  const moDetailsBtn = t.active===false
+  const moDetailsBtn = (canEditTenants && t.active===false)
     ? `<button style="${btnBase};background:#FFF4E5;color:#F4811F" onclick="closeModal();openMoveOutDetails('${t.id}')">${iconBtn(ICON.edit,'Move-out details')}</button>`
     : '';
-  const addCarparkBtn = (t.active!==false && ((!t.carpark||t.carpark==='NA') || (!t.carpark2||t.carpark2==='NA')))
+  const addCarparkBtn = (canEditTenants && t.active!==false && ((!t.carpark||t.carpark==='NA') || (!t.carpark2||t.carpark2==='NA')))
     ? `<button style="${btnBase};background:#FFF7ED;color:#BF8355;border:1px solid #FCE3C8" onclick="closeModal();openAddCarparkModal('${t.id}')" title="Add a carpark mid-tenancy without misdating past months — also works for a 2nd carpark"><span>🅿️</span> Add Carpark</button>`
     : '';
-  const changeRoomBtn = (t.active!==false && t.room_code)
+  const changeRoomBtn = (canEditTenants && t.active!==false && t.room_code)
     ? `<button style="${btnBase};background:#EEF7F8;color:#1E5BB8;border:1px solid #BAD8F0" onclick="closeModal();openChangeRoomModal('${t.id}')" title="Move to a different room, keeping the same agreement dates"><span>🔄</span> Change Room</button>`
     : '';
   $('#modalFoot').innerHTML = `
@@ -10223,16 +10232,17 @@ async function openGenerateSAModal(propertyId){
     </tr>`;
   }).join('');
 
+  const canEditProps = _editAllowed('properties');
   const headerBar = `<div class="flex items-center justify-between mb-1">
     <div class="text-xs text-slate-500">${hasTpl
       ? '✓ Using shared SA master template.'
       : '⚠ No SA master template found — contact your manager to upload one.'}</div>
-    <button type="button" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]" onclick="openSAEditTemplateModal('${p.id}')">📝 Edit SA Template</button>
+    ${canEditProps ? `<button type="button" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA]" onclick="openSAEditTemplateModal('${p.id}')">📝 Edit SA Template</button>` : ''}
   </div>`;
 
   const setupHint = hasTpl ? '' : `
     <div class="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs leading-relaxed">
-      <b>One-time setup:</b> click <b>📝 Edit SA Template</b> above to upload your <b>SA_template.docx</b>. It syncs to all users automatically.
+      <b>One-time setup:</b> ${canEditProps ? 'click <b>📝 Edit SA Template</b> above to upload your <b>SA_template.docx</b>. It syncs to all users automatically.' : 'ask your manager to upload the SA_template.docx — you do not have edit access to Properties.'}
     </div>`;
 
   const missingNote = missing.length
@@ -10715,8 +10725,9 @@ function renderPayments(){
       <td>${fmtDate(r.paid_on)}</td>
       <td>${esc(r.remark||'')}</td>
       <td class="text-right whitespace-nowrap">
+        ${_editAllowed('income','ledger') ? `
         <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openPaymentModal('${r.id}')">Edit</button>
-        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delPayment('${r.id}')">Del</button>
+        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delPayment('${r.id}')">Del</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -10728,7 +10739,7 @@ function renderPayments(){
   const _payCndOpts = _condoOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'');
   const _payUntOpts = _unitOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'', pid);
   const dateDefault = `${state.year}-${String(state.month).padStart(2,'0')}-01`;
-  const addRow = `<tr class="add-row pay-add-row">
+  const addRow = !_editAllowed('income','ledger') ? '' : `<tr class="add-row pay-add-row">
     <td><select class="pay-add-condo input !text-xs !py-1 !px-2 !w-full" onchange="onInlineCondoChange(this,'pay-add-prop')">
       <option value="">— condo —</option>${_payCndOpts}
     </select></td>
@@ -11159,7 +11170,7 @@ function renderRentStatus(pid){
   // Build WhatsApp blast button for unpaid/unmatch filter
   const waRows = (filter==='unpaid'||filter==='unmatch') ? rows : allRows.filter(r=>r.status==='unpaid'||r.status==='unmatch');
   const waIds  = JSON.stringify(waRows.map(r=>r.tenant.id));
-  const waBtn  = waRows.length
+  const waBtn  = (waRows.length && _editAllowed('income','collection'))
     ? `<button class="ml-3 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#DCFCE7] text-[#065F46] border border-[#86EFAC] hover:bg-[#BBF7D0]" onclick="openWaUnpaidBlast(${waIds.replace(/"/g,'&quot;')})">📱 WhatsApp ${waRows.length} Unpaid</button>`
     : '';
   if(sumEl) sumEl.innerHTML = allRows.length
@@ -11254,6 +11265,7 @@ function renderPendingIsewaBanner(){
   if(!host) return;
   const list = state.pendingIsewa || [];
   if(!list.length){ host.innerHTML=''; return; }
+  const canEditAircon = _editAllowed('income','aircon');
 
   const rows = list.map(p=>{
     const d       = fmtDate(iSewaUTCtoMYTDate(p.time_stamp_raw||p.received_at||''));
@@ -11270,8 +11282,8 @@ function renderPendingIsewaBanner(){
       <td class="num">${amtHtml}</td>
       <td>${esc(from)}${tid?'<br>':''} ${tid}</td>
       <td class="text-right whitespace-nowrap">
-        <button class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm transition"
-          onclick="openAssignIsewa('${p.id}')">Assign →</button>
+        ${canEditAircon ? `<button class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm transition"
+          onclick="openAssignIsewa('${p.id}')">Assign →</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -11287,9 +11299,9 @@ function renderPendingIsewaBanner(){
           <span class="text-amber-600 text-xs ml-1">— tap to ${expanded?'hide':'show'}</span>
           <span class="isewa-arrow ml-2 text-amber-600 text-xs font-bold">${expanded?'▲':'▼'}</span>
         </button>
-        <button onclick="(async function(){const btn=event.target;btn.disabled=true;btn.textContent='⏳ Matching…';await loadPendingIsewa();renderAircon();btn.disabled=false;btn.textContent='🔄 Auto-Match';})()"
+        ${canEditAircon ? `<button onclick="(async function(){const btn=event.target;btn.disabled=true;btn.textContent='⏳ Matching…';await loadPendingIsewa();renderAircon();btn.disabled=false;btn.textContent='🔄 Auto-Match';})()"
           style="padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;background:#F59E0B;color:#fff;border:none;cursor:pointer;white-space:nowrap;flex-shrink:0"
-          title="Try to auto-match all pending payments to your properties">🔄 Auto-Match</button>
+          title="Try to auto-match all pending payments to your properties">🔄 Auto-Match</button>` : ''}
       </div>
       <div class="isewa-body overflow-x-auto" style="display:${expanded?'':'none'}">
         <table class="data text-sm w-full">
@@ -11419,8 +11431,9 @@ function renderAircon(){
       <td>${fmtDate(r.topped_up_on)}</td>
       <td>${displayRemark}${isewaTag}</td>
       <td class="text-right whitespace-nowrap">
+        ${_editAllowed('income','aircon') ? `
         <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openAirModal('${r.id}')">Edit</button>
-        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delAircon('${r.id}')">Del</button>
+        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delAircon('${r.id}')">Del</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -11430,7 +11443,7 @@ function renderAircon(){
   const _airCndOpts = _condoOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'');
   const _airUntOpts = _unitOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'', pid);
   const dateDefault = `${state.year}-${String(state.month).padStart(2,'0')}-01`;
-  const addRow = `<tr class="add-row air-add-row">
+  const addRow = !_editAllowed('income','aircon') ? '' : `<tr class="add-row air-add-row">
     <td></td>
     <td><div style="display:flex;gap:4px;width:100%">
       <select class="air-add-condo input !text-xs !py-1 !px-2" style="flex:1;min-width:0" onchange="onInlineCondoChange(this,'air-add-prop')">
@@ -11614,8 +11627,9 @@ function buildExpenseSection(items, opts){
       <td class="num">${fmt(r.amount)}</td>
       <td>${fmtDate(r.expense_date)}</td>
       <td class="text-right whitespace-nowrap">
+        ${_editAllowed('expenses') ? `
         <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openExpenseModal('${r.id}')">Edit</button>
-        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delExpense('${r.id}')">Del</button>
+        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delExpense('${r.id}')">Del</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -11630,7 +11644,7 @@ function buildExpenseSection(items, opts){
   const descPlaceholder = isOther
     ? 'Description (required)…'
     : 'Description (Enter to add)';
-  const addRow = cat ? `<tr class="add-row exp-add-row" data-cat="${esc(cat)}">
+  const addRow = (cat && _editAllowed('expenses')) ? `<tr class="add-row exp-add-row" data-cat="${esc(cat)}">
     <td><select class="exp-add-condo input !text-xs !py-1 !px-2 !w-full" onchange="onInlineCondoChange(this,'exp-add-prop')">
       <option value="">— condo —</option>${_expCndOpts}
     </select></td>
@@ -11841,8 +11855,9 @@ function renderExtras(){
       <td>${esc(r.description||'')}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td class="text-right whitespace-nowrap">
+        ${_editAllowed('income','extra') ? `
         <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openExtraModal('${r.id}')">Edit</button>
-        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delExtra('${r.id}')">Del</button>
+        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delExtra('${r.id}')">Del</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -11851,7 +11866,7 @@ function renderExtras(){
   // Inline quick-add row (Excel-style)
   const _extCndOpts = _condoOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'');
   const _extUntOpts = _unitOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'', pid);
-  const addRow = `<tr class="add-row ext-add-row">
+  const addRow = !_editAllowed('income','extra') ? '' : `<tr class="add-row ext-add-row">
     <td><select class="ext-add-condo input !text-xs !py-1 !px-2 !w-full" onchange="onInlineCondoChange(this,'ext-add-prop')">
       <option value="">— condo —</option>${_extCndOpts}
     </select></td>
@@ -14877,13 +14892,13 @@ function renderAnnotations(){
         <div style="font-size:12px;color:#1E3A5F;line-height:1.5">${esc(r.text)}</div>
       </div>`).join('') : '';
 
-    const canReply  = (isAdmin || isManager) && !n.resolved;
+    const canReply  = (isAdmin || isManager) && !n.resolved && _editAllowed('report');
     const replyBtn  = canReply
       ? `<button onclick="replyAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#DBEAFE;color:#1D4ED8">💬 Reply</button>`
       : '';
-    const resolveBtn= !n.resolved
+    const resolveBtn= !_editAllowed('report') ? '' : (!n.resolved
       ? `<button onclick="resolveAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#DCFCE7;color:#065F46">✓ Resolve</button>`
-      : `<button onclick="reopenAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#FEF3C7;color:#92400E">↩ Reopen</button>`;
+      : `<button onclick="reopenAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#FEF3C7;color:#92400E">↩ Reopen</button>`);
     const deleteBtn = isManager
       ? `<button onclick="deleteAnnotation('${n.id}')" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:7px;border:none;cursor:pointer;background:#FEE2E2;color:#B91C1C">✕</button>` : '';
     const editBtn   = isManager && !n.resolved
@@ -15177,6 +15192,7 @@ function renderReportSignoff(){
 
   const adminBtnCls  = 'px-2 py-1 rounded-lg text-[11px] font-bold bg-[#E8F4FD] text-[#1E5BB8] border border-[#BAD8F0] hover:bg-[#D4E8FA] whitespace-nowrap shrink-0';
   const mgrBtnCls    = 'px-2 py-1 rounded-lg text-[11px] font-bold bg-[#E8F8E8] text-[#1F7A1F] border border-[#B8E0B8] hover:bg-[#D4F0D4] whitespace-nowrap shrink-0';
+  const canEditReport = _editAllowed('report');
 
   const lockBanner = locked
     ? `<div class="text-xs font-bold bg-rose-50 border border-rose-200 text-rose-700 rounded-lg px-2.5 py-1.5">🔒 LOCKED — both sign-offs done. Edits to this month's payments / aircon / expenses / extras are blocked. Uncheck either sign-off to unlock.</div>`
@@ -15191,8 +15207,9 @@ function renderReportSignoff(){
         <span>Admin Check</span>
         <span class="ml-1 shrink-0">${adminOn?'✓ DONE':'⏳ PENDING'}${tsTxt(r?.admin_checked_at)}</span>
       </div>
+      ${canEditReport ? `
       <button id="btnAdminCheckQuick" class="${adminBtnCls}">✓ Check</button>
-      <button id="btnAdminCheck" class="${adminBtnCls}" title="Mark multiple units">☰</button>
+      <button id="btnAdminCheck" class="${adminBtnCls}" title="Mark multiple units">☰</button>` : ''}
     </div>
     ${isAdmin ? '' : `
     <div class="flex items-center gap-1.5" id="btnManagerVerifyRow">
@@ -16498,9 +16515,11 @@ const ROLE_DEFAULT_TABS = {
 // Is top-level tab `tabKey` visible to the CURRENT user? An admin with an
 // explicit tab_permissions object (even {}) uses it instead of the role
 // default — a key simply absent from that object means "not granted".
+// A granted key holds 'view', 'edit', or (legacy) `true` — all are visible,
+// only the edit level differs. See _editAllowed() below for that check.
 function _tabAllowed(tabKey){
   if(state.role === 'admin' && state.currentUserTabPerms){
-    return state.currentUserTabPerms[tabKey] === true;
+    return !!state.currentUserTabPerms[tabKey];
   }
   return (ROLE_DEFAULT_TABS[state.role] || ROLE_DEFAULT_TABS.admin).includes(tabKey);
 }
@@ -16510,9 +16529,46 @@ function _tabAllowed(tabKey){
 function _subtabAllowed(tabKey, subKey){
   if(!_tabAllowed(tabKey)) return false;
   if(state.role === 'admin' && state.currentUserTabPerms){
-    return state.currentUserTabPerms[tabKey+'.'+subKey] === true;
+    return !!state.currentUserTabPerms[tabKey+'.'+subKey];
   }
   return true;
+}
+// Can the CURRENT user add/edit/delete within `tabKey` (or `tabKey.subKey`
+// for a tab that has sub-tabs)? Only admins with an explicit tab_permissions
+// object are ever restricted to 'view' — everyone else (manager, owner, or
+// an admin still on default access) gets full edit rights within whatever
+// they can already see, unchanged from before this feature existed.
+// Call with just `tabKey` for properties/tenants/expenses/report (no
+// sub-tabs, so the tab-level key itself carries the edit level); call with
+// both `tabKey` and `subKey` for admin/income sub-tabs.
+function _editAllowed(tabKey, subKey){
+  if(state.role !== 'admin') return true;
+  const perms = state.currentUserTabPerms;
+  if(perms == null) return true;
+  const key = subKey ? tabKey+'.'+subKey : tabKey;
+  const v = perms[key];
+  return v === true || v === 'edit';
+}
+
+// Hide the handful of top-level "Add X" / mutating-action buttons that live
+// in the static page HTML (not regenerated on every render, so a plain
+// visibility check/display toggle here is enough — unlike the per-row
+// buttons inside tables, which are gated inline where they're built).
+function _applyEditPermissionUI(){
+  const set = (id, allowed) => { const el = document.getElementById(id); if(el) el.style.display = allowed ? '' : 'none'; };
+  set('btnAddProperty',      _editAllowed('properties'));
+  set('btnWaBroadcast',      _editAllowed('tenants'));
+  set('btnAddTenant',        _editAllowed('tenants'));
+  set('btnLedgerUpload',     _editAllowed('income','ledger'));
+  set('btnLedgerPrefill',    _editAllowed('income','ledger'));
+  set('btnLedgerAddRow',     _editAllowed('income','ledger'));
+  set('btnCollectionUpload', _editAllowed('income','collection'));
+  set('btnAirconAdd',        _editAllowed('income','aircon'));
+  set('btnExtraAdd',         _editAllowed('income','extra'));
+  set('btnBulkExpense',      _editAllowed('expenses'));
+  set('btnAddExpense',       _editAllowed('expenses'));
+  set('btnLaunch',           _editAllowed('report'));
+  set('btnAddAnnotation',    _editAllowed('report'));
 }
 
 // Apply tab / UI visibility based on state.role (and, for an admin with
@@ -16574,6 +16630,8 @@ function applyRoleUI(){
   // Show preview box only for the real manager (not during preview itself)
   const previewBox = document.getElementById('rolePreviewBox');
   if(previewBox) previewBox.style.display = state.realRole === 'manager' || state.role === 'manager' ? 'block' : 'none';
+
+  _applyEditPermissionUI();
 }
 
 // ── Role Preview (manager only) ───────────────────────────────
@@ -16781,8 +16839,9 @@ async function renderUserManagementPanel(container){
     const isMe = p.id === state.currentUserId;
     const propObj = p.property_id ? props.find(x=>x.id===p.property_id) : null;
     const propLabel = propObj ? `${propObj.condo||''} ${propObj.unit||''}`.trim() : '—';
-    // Admin can only edit owner rows; manager can edit all (except themselves)
-    const canEdit = !isMe && (isManager || (isAdmin && p.role === 'owner'));
+    // Admin can only edit owner rows (and only with Edit access on admin.users);
+    // manager can edit all (except themselves)
+    const canEdit = !isMe && (isManager || (isAdmin && p.role === 'owner' && _editAllowed('admin','users')));
 
     // For owner rows: show Send/Resend Invitation button if not yet active
     const inviteBtn = (p.role === 'owner' && !p.last_login_at && canEdit)
@@ -16829,7 +16888,7 @@ async function renderUserManagementPanel(container){
           <div style="font-size:12px;color:var(--muted);margin-top:2px">Manage who can access the Owner Portal. ${isManager ? 'Admin accounts are managed from Manager → Property Assignment.' : ''}</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          <button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Add Owner</button>
+          ${(isManager || _editAllowed('admin','users')) ? `<button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Add Owner</button>` : ''}
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -16848,7 +16907,8 @@ async function renderUserManagementPanel(container){
       </div>
     </div>`;
 
-  document.getElementById('btnInviteUser').onclick = openInviteUserModal;
+  const _btnInvite = document.getElementById('btnInviteUser');
+  if(_btnInvite) _btnInvite.onclick = openInviteUserModal;
 }
 
 // Called from the "Send Invitation" / "Resend" button in the User Management table.
@@ -16967,12 +17027,22 @@ const SUBTAB_ACCESS_LABELS = {
   income: { collection:'Rent Collection Status', ledger:'Payments Ledger', aircon:'Aircon Top-ups', extra:'Extra Income' },
 };
 
-// Configure which tabs/sub-tabs one admin can see. NULL permissions (no
-// row configured yet) is shown as "default access" with every box
-// pre-checked, matching what they currently actually see — checking Save
-// at that point switches them from the implicit default to an explicit
-// (but identical) permission set; "Reset to Default" removes the explicit
-// set entirely, reverting to NULL (today's role-based behavior).
+// Configure which tabs/sub-tabs one admin can see, and whether they can
+// only VIEW or also EDIT (add/change/delete) within each. NULL permissions
+// (no row configured yet) is shown as "default access" with everything set
+// to Edit, matching what they currently actually get — saving at that point
+// switches them from the implicit default to an explicit (but identical)
+// permission set; "Reset to Default" removes the explicit set entirely,
+// reverting to NULL (today's role-based behavior).
+//
+// Storage: tab_permissions[key] is 'view', 'edit', or (legacy) `true` —
+// legacy `true` means "edit" (it predates the view/edit split, and back
+// then a granted tab always meant full access). A key absent/false means
+// no access at all. `key` is the bare tab name for properties/tenants/
+// expenses/report (no sub-tabs, so the tab row itself carries the level),
+// or 'tab.sub' for an admin/income sub-tab — the top-level 'admin'/'income'
+// key for those two is a plain visibility flag with no edit level of its
+// own, since all of their actual content lives one level down in sub-tabs.
 function openConfigureAdminAccessModal(adminId){
   const admin = (state.adminProfiles||[]).find(a=>a.id===adminId);
   if(!admin) return;
@@ -16980,28 +17050,50 @@ function openConfigureAdminAccessModal(adminId){
   const isGranted = (tabKey, subKey) => {
     if(perms == null) return true; // default access — everything on
     const key = subKey ? tabKey+'.'+subKey : tabKey;
-    return perms[key] === true;
+    return !!perms[key];
+  };
+  // 'view' | 'edit' | null (null = not granted / Off)
+  const getLevel = (tabKey, subKey) => {
+    if(perms == null) return 'edit';
+    const key = subKey ? tabKey+'.'+subKey : tabKey;
+    const v = perms[key];
+    if(v === true) return 'edit';
+    if(v === 'view' || v === 'edit') return v;
+    return null;
   };
   const defaultNote = perms == null
-    ? `<div class="rounded-lg bg-[#E8F4FD] border border-[#BAD8F0] px-3 py-2 text-xs text-slate-700 mb-2">Currently on <b>default access</b> — sees everything except the Manager tab. Saving below switches ${esc(admin.name||admin.email)} to this explicit set.</div>`
-    : `<div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600 mb-2">Custom access is configured for ${esc(admin.name||admin.email)}.</div>`;
+    ? `<div class="rounded-lg bg-[#E8F4FD] border border-[#BAD8F0] px-3 py-2 text-xs text-slate-700 mb-2">Currently on <b>default access</b> — sees and can edit everything except the Manager tab. Saving below switches ${esc(admin.name||admin.email)} to this explicit set.</div>`
+    : `<div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600 mb-2">Custom access is configured for ${esc(admin.name||admin.email)}. <b>View</b> = can look but not add/change/delete anything in that section. <b>Edit</b> = full access.</div>`;
+
+  const levelSelect = (key, level, disabled) => `
+    <select class="accLevel" data-key="${key}" ${disabled?'disabled':''} style="font-size:11px;font-weight:700;padding:4px 7px;border-radius:7px;border:1px solid var(--line);background:#fff;color:var(--ink)">
+      <option value="off" ${level===null?'selected':''}>Off</option>
+      <option value="view" ${level==='view'?'selected':''}>👁 View</option>
+      <option value="edit" ${level==='edit'?'selected':''}>✏ Edit</option>
+    </select>`;
 
   const rows = Object.keys(TAB_ACCESS_LABELS).map(tabKey=>{
     const subs = SUBTAB_ACCESS_LABELS[tabKey];
-    const tabChecked = isGranted(tabKey) ? 'checked' : '';
-    const subsHtml = subs ? `<div style="margin:4px 0 2px 26px;display:flex;flex-direction:column;gap:3px">
-      ${Object.entries(subs).map(([subKey,label])=>`
-        <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink)">
-          <input type="checkbox" class="cfgSub" data-tab="${tabKey}" data-sub="${subKey}" ${isGranted(tabKey,subKey)?'checked':''}>
-          ${esc(label)}
-        </label>`).join('')}
-    </div>` : '';
-    return `<div style="padding:6px 0;border-bottom:1px solid var(--line)">
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--ink)">
-        <input type="checkbox" class="cfgTab" data-tab="${tabKey}" ${tabChecked} onchange="document.querySelectorAll('.cfgSub[data-tab=\\'${tabKey}\\']').forEach(x=>x.disabled=!this.checked)">
-        ${TAB_ACCESS_LABELS[tabKey]}
-      </label>
-      ${subsHtml}
+    if(subs){
+      const tabChecked = isGranted(tabKey) ? 'checked' : '';
+      const subsHtml = `<div style="margin:4px 0 2px 26px;display:flex;flex-direction:column;gap:6px">
+        ${Object.entries(subs).map(([subKey,label])=>`
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <span style="font-size:12px;color:var(--ink)">${esc(label)}</span>
+            ${levelSelect(tabKey+'.'+subKey, getLevel(tabKey,subKey), !isGranted(tabKey))}
+          </div>`).join('')}
+      </div>`;
+      return `<div style="padding:6px 0;border-bottom:1px solid var(--line)">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--ink)">
+          <input type="checkbox" class="cfgTab" data-tab="${tabKey}" ${tabChecked} onchange="document.querySelectorAll('.accLevel[data-key^=\\'${tabKey}.\\']').forEach(x=>x.disabled=!this.checked)">
+          ${TAB_ACCESS_LABELS[tabKey]}
+        </label>
+        ${subsHtml}
+      </div>`;
+    }
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span style="font-size:13px;font-weight:700;color:var(--ink)">${TAB_ACCESS_LABELS[tabKey]}</span>
+      ${levelSelect(tabKey, getLevel(tabKey), false)}
     </div>`;
   }).join('');
 
@@ -17011,12 +17103,15 @@ function openConfigureAdminAccessModal(adminId){
       ${rows}
     </div>
     <div style="margin-top:10px">
-      <button type="button" id="btnResetAdminAccess" style="font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#F1F5F9;color:#475569;border:none;cursor:pointer">↺ Reset to Default (sees everything except Manager)</button>
+      <button type="button" id="btnResetAdminAccess" style="font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#F1F5F9;color:#475569;border:none;cursor:pointer">↺ Reset to Default (sees + can edit everything except Manager)</button>
     </div>
   `, async ()=>{
     const newPerms = {};
     document.querySelectorAll('.cfgTab').forEach(cb=>{ if(cb.checked) newPerms[cb.dataset.tab] = true; });
-    document.querySelectorAll('.cfgSub').forEach(cb=>{ if(cb.checked && !cb.disabled) newPerms[cb.dataset.tab+'.'+cb.dataset.sub] = true; });
+    document.querySelectorAll('.accLevel').forEach(sel=>{
+      if(sel.disabled) return;
+      if(sel.value !== 'off') newPerms[sel.dataset.key] = sel.value;
+    });
     const {error} = await sb.from('profiles').update({ tab_permissions: newPerms }).eq('id', adminId);
     if(error) throw new Error(error.message);
     admin.tab_permissions = newPerms;
@@ -17086,7 +17181,7 @@ function renderPropAssignPanel(container){
   // ── Admin Accounts: password reset, create new admin, tab access ────────
   const accessSummary = perms => {
     if(perms == null) return '<span style="color:var(--muted)">Default (all except Manager)</span>';
-    const n = Object.keys(perms).filter(k=>!k.includes('.') && perms[k]===true).length;
+    const n = Object.keys(perms).filter(k=>!k.includes('.') && perms[k]).length;
     return n
       ? `<span style="color:#065F46;font-weight:600">Custom — ${n} tab${n===1?'':'s'}</span>`
       : `<span style="color:#B91C1C;font-weight:600">No tabs granted yet</span>`;
@@ -17186,6 +17281,7 @@ async function renderAnnouncementsPanel(container){
     return;
   }
 
+  const canEditNotices = _editAllowed('admin','notices');
   const rows=notices.map(n=>{
     const dt=n.created_at?new Date(n.created_at).toLocaleDateString('en-MY',{day:'numeric',month:'short',year:'numeric'}):'';
     return `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)">
@@ -17195,12 +17291,13 @@ async function renderAnnouncementsPanel(container){
         ${n.video_url?`<div style="font-size:11px;color:#007B8A;margin-top:3px">🔗 ${esc(n.video_url.slice(0,60))}${n.video_url.length>60?'…':''}</div>`:''}
         <div style="font-size:11px;color:var(--muted);margin-top:3px">${dt}</div>
       </div>
+      ${canEditNotices ? `
       <div style="display:flex;gap:6px;flex-shrink:0">
         <button onclick="openEditAnnouncementModal('${n.id}','${esc(n.title||'')}',${JSON.stringify(n.body||'')},${JSON.stringify(n.video_url||'')})"
           style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">Edit</button>
         <button onclick="deleteAnnouncement('${n.id}')"
           style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:8px;background:#FFF0F0;color:#C0392B;border:1px solid #FCCACA;cursor:pointer">Delete</button>
-      </div>
+      </div>` : ''}
     </div>`;
   }).join('');
 
@@ -17211,14 +17308,15 @@ async function renderAnnouncementsPanel(container){
           <div style="font-size:15px;font-weight:700;color:var(--ink)">📢 Announcements</div>
           <div style="font-size:12px;color:var(--muted);margin-top:2px">Visible to all owners in their portal Notices tab</div>
         </div>
-        <button id="btnAddAnnouncement" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#F4811F,#FF9A45);color:#fff;border:none;cursor:pointer">+ New Notice</button>
+        ${canEditNotices ? `<button id="btnAddAnnouncement" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#F4811F,#FF9A45);color:#fff;border:none;cursor:pointer">+ New Notice</button>` : ''}
       </div>
       <div style="padding:0 18px">
         ${rows||`<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No announcements yet. Create one to notify all owners.</div>`}
       </div>
     </div>`;
 
-  document.getElementById('btnAddAnnouncement').onclick=openCreateAnnouncementModal;
+  const _btnAddAnn = document.getElementById('btnAddAnnouncement');
+  if(_btnAddAnn) _btnAddAnn.onclick=openCreateAnnouncementModal;
 }
 
 function openCreateAnnouncementModal(){
