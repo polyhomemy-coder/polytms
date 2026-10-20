@@ -16751,6 +16751,11 @@ async function renderUserManagementPanel(container){
     container.innerHTML = `<div class="text-sm text-rose-500 py-2">Could not load users: ${esc(e.message)}</div>`;
     return;
   }
+  // Admin account management (add/edit/remove/tab access/password) now
+  // lives entirely in Manager tab → Property Assignment. This panel is
+  // Owner-only for both admins and managers — only show owner rows, plus
+  // the viewer's own row (whatever its role) so "✏️ My Name" still works.
+  profiles = profiles.filter(p => p.role === 'owner' || p.id === state.currentUserId);
   const props = state.properties || [];
 
   const roleChip = r => ({
@@ -16816,20 +16821,14 @@ async function renderUserManagementPanel(container){
     </tr>`;
   }).join('');
 
-  // Subtitle differs by role
-  const subtitle = isAdmin
-    ? 'You can add and manage 🏠 Owner accounts'
-    : 'Manage who can access polyTMS and their role';
-
   container.innerHTML = `
     <div style="background:var(--card);border-radius:16px;border:1px solid var(--line);overflow:hidden;margin-bottom:24px">
       <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
         <div>
           <div style="font-size:15px;font-weight:700;color:var(--ink)">👥 User Management</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px">${subtitle}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">Manage who can access the Owner Portal. ${isManager ? 'Admin accounts are managed from Manager → Property Assignment.' : ''}</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          ${isManager ? `<button id="btnAddAdmin" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#1E3A8A,#1E5BB8);color:#fff;border:none;cursor:pointer">🗂️ + Add Admin</button>` : ''}
           <button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Add Owner</button>
         </div>
       </div>
@@ -16850,8 +16849,6 @@ async function renderUserManagementPanel(container){
     </div>`;
 
   document.getElementById('btnInviteUser').onclick = openInviteUserModal;
-  const btnAdmin = document.getElementById('btnAddAdmin');
-  if(btnAdmin) btnAdmin.onclick = openAddAdminModal;
 }
 
 // Called from the "Send Invitation" / "Resend" button in the User Management table.
@@ -17052,6 +17049,26 @@ async function sendAdminPasswordReset(adminId){
   } catch(e){ toast('Failed: '+e.message,'bad'); }
 }
 
+// Fully revoke an admin's access to polyTMS — deletes their profiles row,
+// which (combined with the "authenticated_only" RLS policies requiring an
+// active profile) immediately blocks them from every table, not just the
+// UI. Their underlying login still exists, but it can no longer read or
+// write anything.
+async function removeAdminAccess(adminId){
+  const admin = (state.adminProfiles||[]).find(a=>a.id===adminId);
+  if(!admin) return;
+  if(!await confirmModal(`Remove access for ${esc(admin.name||admin.email)} (${esc(admin.email)})?\n\nThey won't be able to log in to polyTMS or access any data.`,{confirmText:'Remove',danger:true})) return;
+  try {
+    await deleteProfile(adminId);
+    toast(`🗑 Removed ${admin.name||admin.email}`);
+    const {data:admins} = await sb.from('profiles').select('id,email,name,tab_permissions').eq('role','admin').order('email');
+    state.adminProfiles = admins || [];
+    renderSidebarFilters();
+    const container = document.getElementById('propAssignPanel');
+    if(container) renderPropAssignPanel(container);
+  } catch(e){ toast('Remove failed: '+e.message,'bad'); }
+}
+
 // ════════════════════════════════════════════════════════════════
 // ANNOUNCEMENTS MANAGEMENT (manager only)
 // ════════════════════════════════════════════════════════════════
@@ -17081,6 +17098,7 @@ function renderPropAssignPanel(container){
     <td class="text-right whitespace-nowrap">
       <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openConfigureAdminAccessModal('${a.id}')">⚙ Access</button>
       <button class="px-2 py-1 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-semibold" onclick="sendAdminPasswordReset('${a.id}')">📧 Reset Password</button>
+      <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="removeAdminAccess('${a.id}')">🗑 Remove</button>
     </td>
   </tr>`).join('');
 
