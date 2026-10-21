@@ -3425,6 +3425,12 @@ $('#btnSettings').onclick = ()=>{ $('#inpUrl').value=localStorage.getItem(LS_URL
     stat.innerHTML='<span class="text-slate-500">Saving…</span>';
     try {
       if(!sb || !sb.auth) throw new Error('Not connected');
+      // Guard against a stale/already-used recovery link reaching this far
+      // with no session behind it — without this, updateUser() below throws
+      // Supabase's raw "Auth session missing!", which means nothing to
+      // someone who just wants to know why their new password won't save.
+      const { data: { session: _curSess } } = await sb.auth.getSession();
+      if(!_curSess) throw new Error('Your reset link has expired or was already used. Close this tab and click "Forgot password?" again to request a new one.');
       const { error } = await sb.auth.updateUser({ password: p1 });
       if(error) throw error;
       stat.innerHTML='<span class="text-emerald-600">✓ Password updated — signing you in…</span>';
@@ -17530,6 +17536,27 @@ async function signOutAndReturnToLogin(){
         <p style="margin:0 0 8px">${esc(e.message || 'Connection failed')}</p>
         <p style="margin:0;font-size:13px">The baked credentials at the top of <code>index.html</code> are invalid or the project is offline. Check the URL + anon key and re-deploy.</p>
       </div>`;
+      return;
+    }
+    // ----- Expired / already-used password-reset link? -----
+    // When a recovery link's one-time token is no longer valid — most often
+    // because it was already opened once before (a 2nd tab/click reuses the
+    // same link, or a corporate email scanner "safe-links" it before the
+    // person ever clicks) — Supabase redirects back with error=access_denied
+    // &error_code=otp_expired in the hash instead of a real access_token,
+    // but still often echoes type=recovery in that same broken hash. Catch
+    // this FIRST, before the type=recovery check below, otherwise we'd show
+    // the Set New Password form with no session behind it — any submit then
+    // fails with a raw, confusing "Auth session missing!" error instead of
+    // telling the person what actually went wrong.
+    const _hashErr = location.hash.match(/[#&]error=([^&]+)/);
+    if(_hashErr){
+      const _descM = location.hash.match(/error_description=([^&]+)/);
+      const _desc = _descM ? decodeURIComponent(_descM[1].replace(/\+/g,' ')) : 'This link is invalid or has expired.';
+      try { history.replaceState(null, '', location.pathname + location.search); } catch(_){}
+      showLogin();
+      const _stat = document.getElementById('loginStatus');
+      if(_stat) _stat.innerHTML = '<span class="text-rose-600">⚠ '+esc(_desc)+' Click "Forgot password?" below to request a new link.</span>';
       return;
     }
     // ----- Password-reset link? -----
