@@ -1761,7 +1761,7 @@
       <span class="subtab-btn active" data-mgrsub="dashboard">📊 Dashboard</span>
       <span class="subtab-btn" data-mgrsub="incomerpt">📄 Income Report</span>
       <span class="subtab-btn" data-mgrsub="feelist">🧾 Manage Fee</span>
-      <span class="subtab-btn" data-mgrsub="ownunit">🏠 Own Unit</span>
+      <span class="subtab-btn" data-mgrsub="ownunit">🏠 R2R Yearly</span>
       <span class="subtab-btn" data-mgrsub="assign">🏢 Property Assignment</span>
       <span class="subtab-btn" data-mgrsub="export">🧮 Export to Accountant</span>
     </div>
@@ -1953,7 +1953,7 @@
         <div class="hero-card hero-orange-light anim-hero" style="animation-delay:.18s">
           <div class="hero-label">🏠 R2R Units</div>
           <div class="hero-value" id="r2rUnitCount">–</div>
-          <div class="hero-sub">own-unit properties</div>
+          <div class="hero-sub">R2R properties</div>
         </div>
       </div>
 
@@ -1964,7 +1964,10 @@
             <div class="section-title">R2R Yearly Income Matrix</div>
             <div class="help mt-1">Nett income per unit per month. Green = profit, red = loss.</div>
           </div>
-          <div class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1" id="r2rYearTabs"></div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1" id="r2rYearTabs"></div>
+            <button id="btnR2RExport" class="px-3 py-2 rounded-xl text-xs font-bold bg-[#DCFCE7] text-[#065F46] border border-[#86EFAC] hover:bg-[#BBF7D0]" onclick="openR2RExportModal()">⬇ Export Excel</button>
+          </div>
         </div>
         <div class="divider"></div>
         <div class="overflow-x-auto" style="max-height:60vh">
@@ -7634,11 +7637,13 @@ function renderIncomeReportListing(){ _renderMgrUnitListing('income'); }
 //  = total per row. Bottom row = total per column.
 // ============================================================
 async function renderOwnUnitDashboard(){
-  // Same strict AND as the dashboard's "Own R2R Income" tile — model='R2R'
-  // AND unit_type='own_unit' — so this matrix's totals always match that
-  // tile regardless of which sidebar Unit Type chip happens to be active.
+  // ALL R2R-model properties, regardless of Unit Type (Own Unit or Other
+  // Unit) — broader than the Dashboard's "Own R2R Income" tile (which
+  // stays strictly model='R2R' AND unit_type='own_unit' for its Gross
+  // Profit math, unaffected by this). This matrix is a standalone view of
+  // every R2R unit's yearly nett performance, not tied to that tile.
   const props = state.properties.filter(p=>{
-    const isR2R = p.model === 'R2R' && p.unit_type === 'own_unit';
+    const isR2R = p.model === 'R2R';
     return isR2R && p.active!==false && _propPassesGlobalFilter(p);
   });
   $('#r2rUnitCount').textContent = props.length;
@@ -7652,7 +7657,7 @@ async function renderOwnUnitDashboard(){
   ).join('');
 
   if(!props.length){
-    $('#r2rMatrix').innerHTML = '<div class="text-slate-400 text-sm py-10 text-center">No Own-Unit (R2R) properties yet. Add one in the Properties tab.</div>';
+    $('#r2rMatrix').innerHTML = '<div class="text-slate-400 text-sm py-10 text-center">No R2R properties yet. Add one in the Properties tab.</div>';
     animateNumber($('#r2rYearTotal'), 0, {prefix:'RM '});
     $('#r2rProfitMonths').textContent = '0';
     $('#r2rLossMonths').textContent = '0';
@@ -7742,6 +7747,87 @@ async function renderOwnUnitDashboard(){
         </tr>
       </tfoot>
     </table>`;
+}
+
+// ── R2R Yearly export — pick units + months, then download an .xlsx ──────
+// Lets the manager export a subset of the matrix above (not just the full
+// 12-month/all-units view) for sending to an accountant or owner.
+function openR2RExportModal(){
+  const focusYear = state.r2rYear || state.year;
+  const props = state.properties
+    .filter(p=> p.model==='R2R' && p.active!==false && _propPassesGlobalFilter(p))
+    .sort((a,b)=>(a.condo+' '+a.unit).localeCompare(b.condo+' '+b.unit));
+  if(!props.length) return toast('No R2R units to export','warn');
+
+  const unitRows = props.map(p=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:var(--ink)">
+      <input type="checkbox" class="r2rExpUnit" value="${p.id}" checked>
+      ${esc(p.condo)} · ${esc(p.unit)}
+    </label>`).join('');
+
+  const monthRows = MONTHS.map((m,i)=>`
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink)">
+      <input type="checkbox" class="r2rExpMonth" value="${i+1}" checked> ${m}
+    </label>`).join('');
+
+  const selectClearRow = (cls) => `
+    <div style="display:flex;gap:10px">
+      <button type="button" style="font-size:11px;font-weight:700;color:var(--brand);background:none;border:none;cursor:pointer;padding:0" onclick="document.querySelectorAll('.${cls}').forEach(c=>c.checked=true)">Select All</button>
+      <button type="button" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:0" onclick="document.querySelectorAll('.${cls}').forEach(c=>c.checked=false)">Clear</button>
+    </div>`;
+
+  openModal('⬇ Export R2R Yearly Income', `
+    <div style="margin-bottom:16px">
+      <label class="label">Year</label>
+      <select id="r2rExpYear" class="input">
+        ${[focusYear-1,focusYear,focusYear+1].map(y=>`<option value="${y}" ${y===focusYear?'selected':''}>${y}</option>`).join('')}
+      </select>
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <label class="label" style="margin:0">Units (${props.length})</label>
+        ${selectClearRow('r2rExpUnit')}
+      </div>
+      <div style="max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:8px 12px">${unitRows}</div>
+    </div>
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <label class="label" style="margin:0">Months</label>
+        ${selectClearRow('r2rExpMonth')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;border:1px solid var(--line);border-radius:10px;padding:10px 12px">${monthRows}</div>
+    </div>
+  `, async ()=>{
+    const year    = Number($('#r2rExpYear').value);
+    const propIds = Array.from(document.querySelectorAll('.r2rExpUnit:checked')).map(c=>c.value);
+    const months  = Array.from(document.querySelectorAll('.r2rExpMonth:checked')).map(c=>Number(c.value)).sort((a,b)=>a-b);
+    if(!propIds.length) throw new Error('Select at least one unit');
+    if(!months.length) throw new Error('Select at least one month');
+    await exportR2RYearlyXlsx(year, propIds, months);
+  }, '⬇ Export');
+}
+
+async function exportR2RYearlyXlsx(year, propIds, months){
+  const props = state.properties.filter(p=>propIds.includes(p.id));
+  const grid = await Promise.all(props.map(async p=>{
+    const vals = await Promise.all(months.map(m=>computeMonthNett(p, year, m)));
+    const total = vals.reduce((s,v)=>s+v, 0);
+    return { p, vals, total };
+  }));
+  const header = ['Condo','Unit','Total', ...months.map(m=>MONTHS[m-1])];
+  const dataRows = grid.map(g=>[
+    g.p.condo, g.p.unit, Number(g.total.toFixed(2)),
+    ...g.vals.map(v=>Number(v.toFixed(2)))
+  ]);
+  const totalRow = [
+    '', 'TOTAL', Number(grid.reduce((s,g)=>s+g.total,0).toFixed(2)),
+    ...months.map((m,i)=>Number(grid.reduce((s,g)=>s+g.vals[i],0).toFixed(2)))
+  ];
+  const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows, totalRow]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'R2R Yearly '+year);
+  XLSX.writeFile(wb, `R2R_Yearly_Income_${year}.xlsx`);
+  toast(`✓ Exported ${props.length} unit${props.length===1?'':'s'} · ${months.length} month${months.length===1?'':'s'}`);
 }
 
 // ----- PROPERTIES -----
