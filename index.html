@@ -17507,6 +17507,17 @@ async function signOutAndReturnToLogin(){
 }
 
 (async()=>{
+  // Snapshot the URL hash BEFORE creating the Supabase client below — the
+  // client's own detectSessionInUrl (on by default) silently consumes a
+  // recovery/error hash and strips it via history.replaceState as soon as
+  // its background initialization finishes, which can beat our own check
+  // in the race below depending on network timing. Reading location.hash
+  // live, after connect(), was intermittently seeing it already cleared —
+  // showing a plain re-login with no explanation and no way to set a new
+  // password, exactly the bug this snapshot fixes. Everything below that
+  // needs to know whether this page load is a recovery/error link must
+  // read _bootHash, not location.hash.
+  const _bootHash = location.hash;
   // ----- PRODUCTION PATH: baked credentials + Supabase Auth login -----
   // The anon key in the HTML is harmless on its own — RLS_LOCKDOWN.sql
   // requires `auth.role()='authenticated'` for every table, so a visitor
@@ -17549,9 +17560,9 @@ async function signOutAndReturnToLogin(){
     // the Set New Password form with no session behind it — any submit then
     // fails with a raw, confusing "Auth session missing!" error instead of
     // telling the person what actually went wrong.
-    const _hashErr = location.hash.match(/[#&]error=([^&]+)/);
+    const _hashErr = _bootHash.match(/[#&]error=([^&]+)/);
     if(_hashErr){
-      const _descM = location.hash.match(/error_description=([^&]+)/);
+      const _descM = _bootHash.match(/error_description=([^&]+)/);
       const _desc = _descM ? decodeURIComponent(_descM[1].replace(/\+/g,' ')) : 'This link is invalid or has expired.';
       try { history.replaceState(null, '', location.pathname + location.search); } catch(_){}
       showLogin();
@@ -17566,7 +17577,7 @@ async function signOutAndReturnToLogin(){
     // otherwise treat them as already signed in and silently boot straight
     // into the app on their OLD password, with no chance to set a new one.
     // Catch it first and force the Set New Password screen instead.
-    if(/type=recovery/.test(location.hash)){
+    if(/type=recovery/.test(_bootHash)){
       showSetNewPassword();
       return;
     }
