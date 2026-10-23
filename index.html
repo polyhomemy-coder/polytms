@@ -14188,11 +14188,17 @@ function renderReportHTML(ctx, opts){
     assignedCpLots.add(lot);
     // Snapshot is keyed by this tenant's own id — not room_code/lot code.
     const d = displayDates(cpTenant);
-    const start = termStartOf(d);
+    // A carpark added mid-tenancy (via "Add Carpark") has its OWN start
+    // date, independent of the room's — use that instead of the room's
+    // agreement_start/renewal date, so e.g. a carpark that began in
+    // September doesn't show the room's original June start.
+    const cpOwnStart = normCarpark(cpTenant.carpark)===lot  ? cpTenant.carpark_start_date  :
+                        normCarpark(cpTenant.carpark2)===lot ? cpTenant.carpark2_start_date : null;
+    const start = cpOwnStart || termStartOf(d);
     const mo = tenureMonths(start, d.agreement_end);
     tenancyEntries.push({
       label: 'Carpark '+lot,
-      start, end: d.agreement_end, mo, renewed: isRenewedTerm(d)
+      start, end: d.agreement_end, mo, renewed: !cpOwnStart && isRenewedTerm(d)
     });
   });
   // Vacant carpark lots — configured on the property but no tenant assigned yet
@@ -14532,14 +14538,17 @@ function renderReportDesktopHTML(ctx, opts){
   // for a tenant who's never been renewed.
   const termStartOf = t => t && (t.current_term_start || t.agreement_start);
   const isRenewedTerm = t => !!(t && t.current_term_start && t.current_term_start !== t.agreement_start);
-  const shortTenancy = t => {
-    const start = termStartOf(t);
+  // overrideStart lets a CARPARK line show its own start date (set via
+  // "Add Carpark" for a lot added mid-tenancy) instead of the room's
+  // agreement_start/renewal date — see the carpark call sites below.
+  const shortTenancy = (t, overrideStart) => {
+    const start = overrideStart || termStartOf(t);
     if(!t || !start || !t.agreement_end) return '—';
     const txt = `${fmtDate(start)} – ${fmtDate(t.agreement_end)}`;
-    return isRenewedTerm(t) ? `↻ ${txt}` : txt;
+    return (!overrideStart && isRenewedTerm(t)) ? `↻ ${txt}` : txt;
   };
-  const tenureStr = t => {
-    const mo = t ? tenureMonths(termStartOf(t), t.agreement_end) : null;
+  const tenureStr = (t, overrideStart) => {
+    const mo = t ? tenureMonths(overrideStart || termStartOf(t), t.agreement_end) : null;
     return mo!=null ? mo+' mo' : '—';
   };
   // Display-only: once a report is locked, its Tenancy/Tenure columns show
@@ -14566,12 +14575,20 @@ function renderReportDesktopHTML(ctx, opts){
     const roomDisplay = l.type==='room' ? displayDates(l.tenant, l.tenant?.room_code||l.code) : null;
     // Snapshot is keyed by tenant id, not room_code — see buildTenancySnapshot.
     const cpDisplay    = l.type==='carpark' && cpTenant ? displayDates(cpTenant) : null;
+    // A carpark added mid-tenancy (via "Add Carpark") has its OWN start
+    // date, independent of the room's — use that instead of the room's
+    // agreement_start/renewal date, so e.g. a carpark that began in
+    // September doesn't show the room's original June start.
+    const cpOverrideStart = (l.type==='carpark' && cpTenant)
+      ? (normCarpark(cpTenant.carpark)===normCarpark(l.code)  ? cpTenant.carpark_start_date  :
+         normCarpark(cpTenant.carpark2)===normCarpark(l.code) ? cpTenant.carpark2_start_date : null)
+      : null;
     const tenancyTxt = l.type==='room'
       ? shortTenancy(roomDisplay)
-      : (cpDisplay ? shortTenancy(cpDisplay) : '—');
+      : (cpDisplay ? shortTenancy(cpDisplay, cpOverrideStart) : '—');
     const tenureTxt  = l.type==='room'
       ? tenureStr(roomDisplay)
-      : (cpDisplay ? tenureStr(cpDisplay) : '—');
+      : (cpDisplay ? tenureStr(cpDisplay, cpOverrideStart) : '—');
     const proRateHtml = l.proRateNote
       ? `<span style="font-size:10px;font-weight:500;color:rgba(0,123,138,.6);font-style:italic;margin-right:6px;white-space:nowrap">${esc(l.proRateNote)}</span>`
       : '';
