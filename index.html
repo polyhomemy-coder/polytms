@@ -4735,7 +4735,25 @@ function _applyAutoComOverride(propId, y, m){
 // Auto-insert "Rent Commission" expense rows for any tenant whose
 // agreement_start falls in (year, month) for the given property. Idempotent
 // per-tenant — checks the existing description string before inserting.
+//
+// This is called from more than one place that can fire at nearly the same
+// moment for the same property+month (the once-per-month batch sync in
+// _ensureMonthInit, and the Income Report rebuilding itself on month/
+// property change) — both would otherwise independently SELECT "nothing
+// exists yet" before either one's INSERT lands, and both insert, producing
+// a duplicate row. The in-flight map below makes a second call for the
+// same key simply await the first call's own promise instead of starting
+// an independent read-then-write cycle, closing that race for any calls
+// that happen within this one browser tab/session.
+const _rcInFlight = new Map();
 async function ensureRentCommissionExpensesFor(propId, y, m){
+  const key = propId+'_'+y+'_'+m;
+  if(_rcInFlight.has(key)) return _rcInFlight.get(key);
+  const p = _ensureRentCommissionExpensesForImpl(propId, y, m).finally(()=>_rcInFlight.delete(key));
+  _rcInFlight.set(key, p);
+  return p;
+}
+async function _ensureRentCommissionExpensesForImpl(propId, y, m){
   const p = (state.properties||[]).find(x=>x.id===propId);
   if(!p || p.active===false) return false;
   if(isReportLocked(propId, y, m)) return false;
