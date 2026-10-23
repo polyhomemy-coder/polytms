@@ -9486,6 +9486,11 @@ function openTenantView(id){
   const row = (label, val) => val==null||val===''
     ? `<div class="py-1.5"><div class="text-xs uppercase tracking-wide text-slate-400">${esc(label)}</div><div class="text-sm text-slate-300">—</div></div>`
     : `<div class="py-1.5"><div class="text-xs uppercase tracking-wide text-slate-500">${esc(label)}</div><div class="text-sm font-semibold text-slate-800" style="line-height:1.5">${String(val).split('\n').map(l=>esc(l.trim())).filter(Boolean).join('<br>')}</div></div>`;
+  // Same markup as row(), but the value is trusted HTML (already escaped
+  // piece-by-piece by the caller) instead of being escaped as one block —
+  // row() would otherwise turn an embedded <a> link into literal text.
+  const rowHtml = (label, valHtml) =>
+    `<div class="py-1.5"><div class="text-xs uppercase tracking-wide text-slate-500">${esc(label)}</div><div class="text-sm font-semibold text-slate-800" style="line-height:1.5">${valHtml}</div></div>`;
   // ---- First-month pro-rate reminder (active tenants only) ----
   // Shows when this tenant is in their move-in month or the month right after.
   // Surfaces the formula + a WhatsApp link to remind the tenant of next
@@ -9612,25 +9617,25 @@ function openTenantView(id){
       row('')
     )}
     ${t.carpark ? g3(
-      row('Carpark', (()=>{
+      rowHtml('Carpark', (()=>{
         const cpP = t.carpark_property_id && t.carpark_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark_property_id) : null;
-        const base = t.carpark + (cpP ? ' ('+cpP.condo+' · '+cpP.unit+')' : '');
+        const base = esc(t.carpark) + (cpP ? ' ('+esc(cpP.condo)+' · '+esc(cpP.unit)+')' : '');
         const editLink = _editAllowed('tenants')
           ? ` <a href="javascript:void(0)" onclick="openSetCarparkStartModal('${t.id}',1)" style="font-size:11px;font-weight:700;text-decoration:underline;color:${t.carpark_start_date?'var(--brand)':'#F4811F'}">${t.carpark_start_date?'✏ edit':'⚠ set start date'}</a>`
           : '';
-        return base + (t.carpark_start_date ? ' · since '+fmtDate(t.carpark_start_date) : '') + editLink;
+        return base + (t.carpark_start_date ? ' · since '+esc(fmtDate(t.carpark_start_date)) : '') + editLink;
       })()),
       row('Carpark Rental', t.carpark_rental!=null ? 'RM '+fmt(t.carpark_rental) : null),
       row('Carpark Deposit', t.carpark_deposit!=null ? 'RM '+fmt(t.carpark_deposit) : null)
     ) : ''}
     ${t.carpark2 ? g3(
-      row('Carpark 2', (()=>{
+      rowHtml('Carpark 2', (()=>{
         const cp2P = t.carpark2_property_id && t.carpark2_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark2_property_id) : null;
-        const base = t.carpark2 + (cp2P ? ' ('+cp2P.condo+' · '+cp2P.unit+')' : '');
+        const base = esc(t.carpark2) + (cp2P ? ' ('+esc(cp2P.condo)+' · '+esc(cp2P.unit)+')' : '');
         const editLink = _editAllowed('tenants')
           ? ` <a href="javascript:void(0)" onclick="openSetCarparkStartModal('${t.id}',2)" style="font-size:11px;font-weight:700;text-decoration:underline;color:${t.carpark2_start_date?'var(--brand)':'#F4811F'}">${t.carpark2_start_date?'✏ edit':'⚠ set start date'}</a>`
           : '';
-        return base + (t.carpark2_start_date ? ' · since '+fmtDate(t.carpark2_start_date) : '') + editLink;
+        return base + (t.carpark2_start_date ? ' · since '+esc(fmtDate(t.carpark2_start_date)) : '') + editLink;
       })()),
       row('Carpark 2 Rental', t.carpark2_rental!=null ? 'RM '+fmt(t.carpark2_rental) : null),
       row('Carpark 2 Deposit', t.carpark2_deposit!=null ? 'RM '+fmt(t.carpark2_deposit) : null)
