@@ -4741,12 +4741,23 @@ async function ensureRentCommissionExpensesFor(propId, y, m){
   if(isReportLocked(propId, y, m)) return false;
   // Never auto-insert when the user has turned off Rent-Comm Auto for this property+month
   if(_rcAutoComIsOff(propId, y, m)) return false;
-  const tenants = (state.tenants||[]).filter(t=>{
+  const roomStartsThisMonth = t => {
     if(!t.agreement_start) return false;
     const s = parseISODateLocal(t.agreement_start);
-    if(isNaN(s)) return false;
-    return s.getFullYear()===y && (s.getMonth()+1)===m;
-  });
+    return !isNaN(s) && s.getFullYear()===y && (s.getMonth()+1)===m;
+  };
+  // A tenant is a candidate this month if EITHER their room started this
+  // month, OR a carpark attached to them (added later via "Add Carpark",
+  // tracked by its own carpark_start_date/carpark2_start_date) started
+  // this month — these can land in different months, and each needs its
+  // own one-time commission row posted on ITS OWN start month, not only
+  // the room's. Previously this filter only ever looked at the room's
+  // start, so a carpark added mid-tenancy never got a commission row at all.
+  const tenants = (state.tenants||[]).filter(t=>
+    roomStartsThisMonth(t)
+    || (t.carpark  && _carparkStartsInMonth(t.carpark_start_date,  y, m))
+    || (t.carpark2 && _carparkStartsInMonth(t.carpark2_start_date, y, m))
+  );
   if(!tenants.length) return false;
   const { data: existing } = await sb.from('expenses').select('description,category')
     .eq('property_id',propId).eq('year',y).eq('month',m);
@@ -4756,8 +4767,9 @@ async function ensureRentCommissionExpensesFor(propId, y, m){
   const rows = [];
   tenants.forEach(t=>{
     // Tenant's room property is `t.property_id` — only post the room
-    // commission on THAT property's report.
-    if(t.property_id===propId && t.room_code && !has('Room '+t.room_code)){
+    // commission on THAT property's report, and only on the room's own
+    // start month.
+    if(roomStartsThisMonth(t) && t.property_id===propId && t.room_code && !has('Room '+t.room_code)){
       const { amt, moTxt } = _commissionAmount(t, 'room');
       const desc = `Rent Commission (Room ${t.room_code})${moTxt}`;
       // Skip if user has manually deleted this row for this month
@@ -4766,10 +4778,13 @@ async function ensureRentCommissionExpensesFor(propId, y, m){
           category:'rent_commission', description:desc,
           amount:amt, expense_date:null});
     }
-    // Carpark 1 commission
+    // Carpark 1 commission — triggers on the carpark's own start date when
+    // one is on file, otherwise on the room's own start month (a carpark
+    // present from day one has no separate start date to check).
     const cpProp = t.carpark_property_id || t.property_id;
     const cpFull = Number(t.carpark_rental||0);
-    if(cpProp===propId && t.carpark && cpFull>0 && !has('Carpark '+t.carpark)){
+    const cpTriggers = t.carpark_start_date ? _carparkStartsInMonth(t.carpark_start_date, y, m) : roomStartsThisMonth(t);
+    if(cpTriggers && cpProp===propId && t.carpark && cpFull>0 && !has('Carpark '+t.carpark)){
       const { amt, moTxt } = _commissionAmount(t, 'carpark');
       const desc = `Rent Commission (Carpark ${t.carpark})${moTxt}`;
       if(amt>0 && !_rcIsDeleted(propId,y,m,desc))
@@ -4777,10 +4792,11 @@ async function ensureRentCommissionExpensesFor(propId, y, m){
           category:'rent_commission', description:desc,
           amount:amt, expense_date:null});
     }
-    // Carpark 2 commission
+    // Carpark 2 commission — same rule, independent property binding
     const cp2Prop = t.carpark2_property_id || t.property_id;
     const cp2Full = Number(t.carpark2_rental||0);
-    if(cp2Prop===propId && t.carpark2 && cp2Full>0 && !has('Carpark '+t.carpark2)){
+    const cp2Triggers = t.carpark2_start_date ? _carparkStartsInMonth(t.carpark2_start_date, y, m) : roomStartsThisMonth(t);
+    if(cp2Triggers && cp2Prop===propId && t.carpark2 && cp2Full>0 && !has('Carpark '+t.carpark2)){
       const mo2   = tenureMonths(t.agreement_start, t.agreement_end);
       const ratio2= mo2 ? (mo2/12) : 1;
       const amt2  = +(cp2Full * ratio2).toFixed(2);
@@ -11124,6 +11140,15 @@ function _carparkStartedByMonth(startDateStr, y, m){
   const sy = sd.getFullYear(), sm = sd.getMonth()+1;
   return (y > sy) || (y === sy && m >= sm);
 }
+// Does a carpark's own start date fall EXACTLY in month (y,m)? Used to
+// trigger its one-time rent commission on the month it actually began —
+// see the carpark-commission fix in renderReportHTML/renderReportDesktopHTML.
+function _carparkStartsInMonth(startDateStr, y, m){
+  if(!startDateStr) return false;
+  const sd = parseISODateLocal(startDateStr);
+  if(isNaN(sd)) return false;
+  return sd.getFullYear()===y && (sd.getMonth()+1)===m;
+}
 
 // Per-tenant expected-vs-paid for one month — the shared engine behind
 // both computeRentStatus (Income tab's Rent Collection Status, active
@@ -13998,10 +14023,15 @@ function renderReportHTML(ctx, opts){
   if(autoCom){
     roomTenancies.forEach(t=>{
       const s = t.agreement_start ? new Date(t.agreement_start) : null;
-      if(s && s.getFullYear()===year && (s.getMonth()+1)===month){
-        const mo = tenureMonths(t.agreement_start, t.agreement_end);
-        const ratio = mo ? (mo/12) : 1;
-        const moTxt = mo ? ` · ${mo}/12 mo` : '';
+      const roomStartsThisMonth = !!(s && s.getFullYear()===year && (s.getMonth()+1)===month);
+      // Pro-rate by the room's full contract tenure — same ratio used for
+      // the room itself and for a carpark added to it later (the "Add
+      // Carpark" flow doesn't track a separate carpark-only end date, so
+      // there's no more precise basis to pro-rate a later-added carpark by).
+      const mo = tenureMonths(t.agreement_start, t.agreement_end);
+      const ratio = mo ? (mo/12) : 1;
+      const moTxt = mo ? ` · ${mo}/12 mo` : '';
+      if(roomStartsThisMonth){
         // Room commission — exact match on "Room X)" to avoid "Room M" matching "Room MM"
         const hasRoomRC = expenses.some(e=>e.category==='rent_commission'
           && (e.description||'').includes('Room '+t.room_code+')'));
@@ -14009,29 +14039,39 @@ function renderReportHTML(ctx, opts){
           const amt = +(Number(t.room_rental||0) * ratio).toFixed(2);
           if(amt>0) expRows.push({desc:'Rent Commission (Room '+t.room_code+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
         }
-        // Carpark commission — same tenure-pro-rate rule
-        const cpFull = Number(t.carpark_rental||0);
-        const cpProp = t.carpark_property_id || t.property_id;
-        if(t.carpark && cpFull>0 && cpProp===P.id){
-          const cpLot = String(t.carpark).trim();
-          const hasCpRC = expenses.some(e=>e.category==='rent_commission'
-            && (e.description||'').includes('Carpark '+cpLot+')'));
-          if(!hasCpRC){
-            const amt = +(cpFull * ratio).toFixed(2);
-            if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
-          }
+      }
+      // Carpark commission — triggers on the carpark's OWN start date when
+      // one is on file (set via "Add Carpark" for a lot added mid-tenancy,
+      // e.g. a carpark starting months after the room did), otherwise falls
+      // back to the room's own start month (a carpark that was part of the
+      // original tenancy from day one has no separate start date to check).
+      const cpStartsThisMonth = t.carpark_start_date
+        ? _carparkStartsInMonth(t.carpark_start_date, year, month)
+        : roomStartsThisMonth;
+      const cpFull = Number(t.carpark_rental||0);
+      const cpProp = t.carpark_property_id || t.property_id;
+      if(cpStartsThisMonth && t.carpark && cpFull>0 && cpProp===P.id){
+        const cpLot = String(t.carpark).trim();
+        const hasCpRC = expenses.some(e=>e.category==='rent_commission'
+          && (e.description||'').includes('Carpark '+cpLot+')'));
+        if(!hasCpRC){
+          const amt = +(cpFull * ratio).toFixed(2);
+          if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
         }
-        // 2nd carpark commission — same rule, independent property binding
-        const cp2Full = Number(t.carpark2_rental||0);
-        const cp2Prop = t.carpark2_property_id || t.property_id;
-        if(t.carpark2 && cp2Full>0 && cp2Prop===P.id){
-          const cp2Lot = String(t.carpark2).trim();
-          const hasCp2RC = expenses.some(e=>e.category==='rent_commission'
-            && (e.description||'').includes('Carpark '+cp2Lot+')'));
-          if(!hasCp2RC){
-            const amt2 = +(cp2Full * ratio).toFixed(2);
-            if(amt2>0) expRows.push({desc:'Rent Commission (Carpark '+cp2Lot+')'+moTxt, amount:amt2, cat:'rent_commission', _auto:true});
-          }
+      }
+      // 2nd carpark commission — same rule, independent property binding
+      const cp2StartsThisMonth = t.carpark2_start_date
+        ? _carparkStartsInMonth(t.carpark2_start_date, year, month)
+        : roomStartsThisMonth;
+      const cp2Full = Number(t.carpark2_rental||0);
+      const cp2Prop = t.carpark2_property_id || t.property_id;
+      if(cp2StartsThisMonth && t.carpark2 && cp2Full>0 && cp2Prop===P.id){
+        const cp2Lot = String(t.carpark2).trim();
+        const hasCp2RC = expenses.some(e=>e.category==='rent_commission'
+          && (e.description||'').includes('Carpark '+cp2Lot+')'));
+        if(!hasCp2RC){
+          const amt2 = +(cp2Full * ratio).toFixed(2);
+          if(amt2>0) expRows.push({desc:'Rent Commission (Carpark '+cp2Lot+')'+moTxt, amount:amt2, cat:'rent_commission', _auto:true});
         }
       }
     });
@@ -14393,11 +14433,15 @@ function renderReportDesktopHTML(ctx, opts){
   if(autoCom){
     roomTenancies.forEach(t=>{
       const s = t.agreement_start ? new Date(t.agreement_start) : null;
-      if(s && s.getFullYear()===year && (s.getMonth()+1)===month){
-        // Pro-rate by tenure: rental × (months / 12).
-        const mo = tenureMonths(t.agreement_start, t.agreement_end);
-        const ratio = mo ? (mo/12) : 1;
-        const moTxt = mo ? ` · ${mo}/12 mo` : '';
+      const roomStartsThisMonth = !!(s && s.getFullYear()===year && (s.getMonth()+1)===month);
+      // Pro-rate by the room's full contract tenure — same ratio used for
+      // the room itself and for a carpark added to it later (the "Add
+      // Carpark" flow doesn't track a separate carpark-only end date, so
+      // there's no more precise basis to pro-rate a later-added carpark by).
+      const mo = tenureMonths(t.agreement_start, t.agreement_end);
+      const ratio = mo ? (mo/12) : 1;
+      const moTxt = mo ? ` · ${mo}/12 mo` : '';
+      if(roomStartsThisMonth){
         // Room commission — exact match on "Room X)" to avoid substring collision
         const hasRoomRC = expenses.some(e=>e.category==='rent_commission'
           && (e.description||'').includes('Room '+t.room_code+')'));
@@ -14405,18 +14449,39 @@ function renderReportDesktopHTML(ctx, opts){
           const amt = +(Number(t.room_rental||0) * ratio).toFixed(2);
           if(amt>0) expRows.push({desc:'Rent Commission (Room '+t.room_code+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
         }
-        // Carpark commission — same tenure rule, only when tenant has a carpark
-        // on THIS property.
-        const cpFull = Number(t.carpark_rental||0);
-        const cpProp = t.carpark_property_id || t.property_id;
-        if(t.carpark && cpFull>0 && cpProp===P.id){
-          const cpLot = String(t.carpark).trim();
-          const hasCpRC = expenses.some(e=>e.category==='rent_commission'
-            && (e.description||'').includes('Carpark '+cpLot+')'));
-          if(!hasCpRC){
-            const amt = +(cpFull * ratio).toFixed(2);
-            if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
-          }
+      }
+      // Carpark commission — triggers on the carpark's OWN start date when
+      // one is on file (set via "Add Carpark" for a lot added mid-tenancy),
+      // otherwise falls back to the room's own start month (a carpark that
+      // was part of the original tenancy from day one has no separate
+      // start date to check). Only when the carpark is on THIS property.
+      const cpStartsThisMonth = t.carpark_start_date
+        ? _carparkStartsInMonth(t.carpark_start_date, year, month)
+        : roomStartsThisMonth;
+      const cpFull = Number(t.carpark_rental||0);
+      const cpProp = t.carpark_property_id || t.property_id;
+      if(cpStartsThisMonth && t.carpark && cpFull>0 && cpProp===P.id){
+        const cpLot = String(t.carpark).trim();
+        const hasCpRC = expenses.some(e=>e.category==='rent_commission'
+          && (e.description||'').includes('Carpark '+cpLot+')'));
+        if(!hasCpRC){
+          const amt = +(cpFull * ratio).toFixed(2);
+          if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
+        }
+      }
+      // 2nd carpark commission — same rule, independent property binding
+      const cp2StartsThisMonth = t.carpark2_start_date
+        ? _carparkStartsInMonth(t.carpark2_start_date, year, month)
+        : roomStartsThisMonth;
+      const cp2Full = Number(t.carpark2_rental||0);
+      const cp2Prop = t.carpark2_property_id || t.property_id;
+      if(cp2StartsThisMonth && t.carpark2 && cp2Full>0 && cp2Prop===P.id){
+        const cp2Lot = String(t.carpark2).trim();
+        const hasCp2RC = expenses.some(e=>e.category==='rent_commission'
+          && (e.description||'').includes('Carpark '+cp2Lot+')'));
+        if(!hasCp2RC){
+          const amt2 = +(cp2Full * ratio).toFixed(2);
+          if(amt2>0) expRows.push({desc:'Rent Commission (Carpark '+cp2Lot+')'+moTxt, amount:amt2, cat:'rent_commission', _auto:true});
         }
       }
     });
