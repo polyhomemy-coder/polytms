@@ -8924,6 +8924,47 @@ function openAddCarparkModal(id){
   );
 }
 
+// Set (or correct) the start date on a carpark slot that's ALREADY filled —
+// openAddCarparkModal above only works on an empty slot, so a carpark that
+// was typed directly into the plain Edit Tenant form (or predates this
+// feature) has no start date on file, which silently makes Rent Collection
+// Status and the auto rent-commission logic assume it's been there since
+// the tenant's original move-in. This just corrects that one field — it
+// doesn't touch the lot code, rental, or any payment already recorded.
+function openSetCarparkStartModal(id, slot){
+  const t = state.tenants.find(x=>x.id===id); if(!t) return;
+  const lot    = slot===1 ? t.carpark  : t.carpark2;
+  const start  = slot===1 ? t.carpark_start_date : t.carpark2_start_date;
+  const fStart = slot===1 ? 'carpark_start_date' : 'carpark2_start_date';
+  if(!lot) return;
+  openModal(`Set Start Date — Carpark ${esc(lot)}`, `
+    <div class="space-y-3">
+      <div class="rounded-xl bg-[#FFF4E5] border border-[#F8C893] px-3 py-2 text-xs leading-relaxed text-slate-700">
+        Sets when this carpark actually started, so Rent Collection Status and the Income Report (including its rent commission) only expect it from that month onward — not from the tenant's original move-in. This doesn't touch any payment already recorded.
+      </div>
+      <div><label class="label">Start Date *</label><input type="date" id="cps_start" class="input" value="${start||''}"></div>
+    </div>`,
+    async ()=>{
+      const val = $('#cps_start').value;
+      if(!val) throw new Error('Enter the start date');
+      const [sy, sm] = val.split('-').map(Number);
+      const tPatch = { updated_at: new Date().toISOString() };
+      tPatch[fStart] = val;
+      const {error} = await sb.from('tenants').update(tPatch).eq('id', t.id);
+      if(error) throw error;
+      t[fStart] = val;
+      // Materialize the now-newly-triggered commission row for the
+      // carpark's actual start month right away, instead of waiting for
+      // the admin to happen to revisit that month.
+      await ensureRentCommissionExpensesFor(t.property_id, sy, sm).catch(()=>{});
+      if(sy===state.year && sm===state.month) await loadExpenses();
+      renderTab('tenants');
+      toast(`✓ Carpark ${lot} start date set to ${fmtDate(val)}`);
+    },
+    'Save'
+  );
+}
+
 // ============================================================
 //  CHANGE ROOM MID-TENANCY (e.g. "upgrade" from Room I to Room J)
 // ============================================================
@@ -9571,12 +9612,26 @@ function openTenantView(id){
       row('')
     )}
     ${t.carpark ? g3(
-      row('Carpark', (()=>{ const cpP = t.carpark_property_id && t.carpark_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark_property_id) : null; return t.carpark + (cpP ? ' ('+cpP.condo+' · '+cpP.unit+')' : '') + (t.carpark_start_date ? ' · since '+fmtDate(t.carpark_start_date) : ''); })()),
+      row('Carpark', (()=>{
+        const cpP = t.carpark_property_id && t.carpark_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark_property_id) : null;
+        const base = t.carpark + (cpP ? ' ('+cpP.condo+' · '+cpP.unit+')' : '');
+        const editLink = _editAllowed('tenants')
+          ? ` <a href="javascript:void(0)" onclick="openSetCarparkStartModal('${t.id}',1)" style="font-size:11px;font-weight:700;text-decoration:underline;color:${t.carpark_start_date?'var(--brand)':'#F4811F'}">${t.carpark_start_date?'✏ edit':'⚠ set start date'}</a>`
+          : '';
+        return base + (t.carpark_start_date ? ' · since '+fmtDate(t.carpark_start_date) : '') + editLink;
+      })()),
       row('Carpark Rental', t.carpark_rental!=null ? 'RM '+fmt(t.carpark_rental) : null),
       row('Carpark Deposit', t.carpark_deposit!=null ? 'RM '+fmt(t.carpark_deposit) : null)
     ) : ''}
     ${t.carpark2 ? g3(
-      row('Carpark 2', (()=>{ const cp2P = t.carpark2_property_id && t.carpark2_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark2_property_id) : null; return t.carpark2 + (cp2P ? ' ('+cp2P.condo+' · '+cp2P.unit+')' : '') + (t.carpark2_start_date ? ' · since '+fmtDate(t.carpark2_start_date) : ''); })()),
+      row('Carpark 2', (()=>{
+        const cp2P = t.carpark2_property_id && t.carpark2_property_id!==t.property_id ? state.properties.find(x=>x.id===t.carpark2_property_id) : null;
+        const base = t.carpark2 + (cp2P ? ' ('+cp2P.condo+' · '+cp2P.unit+')' : '');
+        const editLink = _editAllowed('tenants')
+          ? ` <a href="javascript:void(0)" onclick="openSetCarparkStartModal('${t.id}',2)" style="font-size:11px;font-weight:700;text-decoration:underline;color:${t.carpark2_start_date?'var(--brand)':'#F4811F'}">${t.carpark2_start_date?'✏ edit':'⚠ set start date'}</a>`
+          : '';
+        return base + (t.carpark2_start_date ? ' · since '+fmtDate(t.carpark2_start_date) : '') + editLink;
+      })()),
       row('Carpark 2 Rental', t.carpark2_rental!=null ? 'RM '+fmt(t.carpark2_rental) : null),
       row('Carpark 2 Deposit', t.carpark2_deposit!=null ? 'RM '+fmt(t.carpark2_deposit) : null)
     ) : ''}
