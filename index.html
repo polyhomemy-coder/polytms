@@ -4508,21 +4508,51 @@ async function _downloadDesktopPDF(propId, y, m){
 // (cleaning + balance forward) to appear in the report. These helpers
 // query the DB directly (rather than relying on state.expenses) so they
 // work for any (property, year, month) combination.
+// In-flight lock: a second call for the same (property, year, month) while
+// the first is still mid-flight awaits that same promise instead of running
+// its own independent read-then-insert — this is what produced duplicate
+// "Cleaning" rows beyond the property's own configured times-per-month
+// (two concurrent callers both counting "0 of 2 exist yet" before either
+// insert landed, so both inserted their own 2, for 4 total).
+const _cleanInFlight = new Map();
 async function ensureCleaningExpensesFor(propId, y, m){
+  const key = propId+'_'+y+'_'+m;
+  if(_cleanInFlight.has(key)) return _cleanInFlight.get(key);
+  const job = _ensureCleaningExpensesForImpl(propId, y, m)
+    .finally(()=>_cleanInFlight.delete(key));
+  _cleanInFlight.set(key, job);
+  return job;
+}
+async function _ensureCleaningExpensesForImpl(propId, y, m){
   const p = (state.properties||[]).find(x=>x.id===propId);
   if(!p || p.active===false) return false;
   if(isReportLocked(propId, y, m)) return false;
   const times  = Number(p.cleaning_times_per_month||0);
   const charge = Number(p.cleaning_charge_per_time||0);
   if(times<=0 || charge<=0) return false;
-  try { if(localStorage.getItem(_cleanFlagKey(propId,y,m))==='1') return false; }
-  catch(_){}
+  // NOTE: no longer short-circuits on the localStorage "already ensured
+  // this month" flag before reading the DB — that early-return meant a
+  // month that already picked up duplicate rows from the pre-in-flight-
+  // guard race (see _cleanInFlight above) could never self-heal, since
+  // this function would return before ever looking at the DB again. The
+  // DB read below is cheap and is what makes both correctness AND healing
+  // possible; the flag is still set below, it just isn't load-bearing.
   const { data: exp } = await sb.from('expenses').select('id,category')
     .eq('property_id',propId).eq('year',y).eq('month',m);
-  // Count-based check: only insert the rows that are still missing.
-  // Prevents double-inserts when two devices run this concurrently —
-  // the second device sees the rows the first already created and skips.
-  const existingClean = (exp||[]).filter(e=>e.category==='cleaning').length;
+  const cleanRows = (exp||[]).filter(e=>e.category==='cleaning');
+  // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
+  // have inserted more cleaning rows than the property's own configured
+  // times-per-month — trim the extras so an already-affected month's
+  // report stops double-counting the next time it's loaded/built, with no
+  // manual cleanup needed.
+  if(cleanRows.length > times){
+    const dupIds = cleanRows.slice(times).map(e=>e.id);
+    const {error: delErr} = await sb.from('expenses').delete().in('id', dupIds);
+    if(delErr){ toast(delErr.message,'bad'); return false; }
+    try { localStorage.setItem(_cleanFlagKey(propId,y,m), '1'); } catch(_){}
+    return true;
+  }
+  const existingClean = cleanRows.length;
   if(existingClean >= times) return false;
   const rows = [];
   for(let i=existingClean+1;i<=times;i++){
@@ -4857,9 +4887,28 @@ async function _ensureRentCommissionExpensesForImpl(propId, y, m){
     || (t.carpark2 && _carparkStartsInMonth(t.carpark2_start_date, y, m))
   );
   if(!tenants.length) return false;
-  const { data: existing } = await sb.from('expenses').select('description,category')
+  const { data: existingRaw } = await sb.from('expenses').select('id,description,category')
     .eq('property_id',propId).eq('year',y).eq('month',m);
-  const has = sub => (existing||[]).some(e=>
+  // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
+  // have inserted the exact same rent_commission row twice — group by
+  // description, keep the first of each group, delete the rest, so an
+  // already-affected month's report stops double-counting the next time
+  // it's loaded/built, with no manual cleanup needed.
+  const rcRows = (existingRaw||[]).filter(e=>e.category==='rent_commission');
+  const byDesc = new Map();
+  rcRows.forEach(e=>{
+    const k = e.description||'';
+    if(!byDesc.has(k)) byDesc.set(k, []);
+    byDesc.get(k).push(e.id);
+  });
+  const dupIds = [];
+  byDesc.forEach(ids=>{ if(ids.length>1) dupIds.push(...ids.slice(1)); });
+  if(dupIds.length){
+    const {error: delErr} = await sb.from('expenses').delete().in('id', dupIds);
+    if(delErr){ toast(delErr.message,'bad'); return false; }
+  }
+  const existing = (existingRaw||[]).filter(e=>!dupIds.includes(e.id));
+  const has = sub => existing.some(e=>
     e.category==='rent_commission' && (e.description||'').includes(sub)
   );
   const rows = [];
@@ -4936,7 +4985,21 @@ async function ensureRentCommissionExpenses(){
 //   skipped if a payment already exists for that (property, room, month)
 //   or if the report is locked.
 // ============================================================
+// Same in-flight guard as ensureCleaningExpensesFor/ensureManagementFee
+// ExpensesFor/ensureRentCommissionExpensesFor above — two concurrent
+// callers for the same (property, year, month) used to both read "no
+// payment row for this room yet" and both insert, producing a duplicated
+// move-in pro-rate/full-month payment for the same tenant.
+const _firstProRateInFlight = new Map();
 async function ensureFirstMonthProRateExpensesFor(propId, y, m){
+  const key = propId+'_'+y+'_'+m;
+  if(_firstProRateInFlight.has(key)) return _firstProRateInFlight.get(key);
+  const job = _ensureFirstMonthProRateExpensesForImpl(propId, y, m)
+    .finally(()=>_firstProRateInFlight.delete(key));
+  _firstProRateInFlight.set(key, job);
+  return job;
+}
+async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
   if(isReportLocked(propId, y, m)) return false;
   // Pick up tenants whose move-in lands in (y, m). Two kinds:
   //   • Pro-rate (start day > 1): partial month, computed via helper.
@@ -4958,9 +5021,30 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
   if(!tenants.length) return false;
   const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','room');
-  const byRoom = new Map((pays||[]).map(p=> [(p.room_code||'').toUpperCase(), p]));
+  // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
+  // have inserted the same room's move-in payment twice. Group by room
+  // code, keep one per room (prefer an already-tagged row, since that's
+  // more likely the "real" one with its formula/remark correctly set),
+  // delete the rest.
+  const byRoomRaw = new Map();
+  (pays||[]).forEach(p=>{
+    const code = (p.room_code||'').toUpperCase();
+    if(!byRoomRaw.has(code)) byRoomRaw.set(code, []);
+    byRoomRaw.get(code).push(p);
+  });
+  const roomDupIds = [];
+  const byRoom = new Map();
+  byRoomRaw.forEach((rows, code)=>{
+    const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
+    rows.forEach(r=>{ if(r.id!==keep.id) roomDupIds.push(r.id); });
+    byRoom.set(code, keep);
+  });
+  if(roomDupIds.length){
+    const {error: delErr} = await sb.from('rental_payments').delete().in('id', roomDupIds);
+    if(delErr) toast(delErr.message,'bad');
+  }
   const taken = new Set(byRoom.keys());
-  let inserted = 0;
+  let inserted = roomDupIds.length>0 ? 1 : 0;
   for(const t of tenants){
     const code = (t.room_code||'').toUpperCase();
     const existing = byRoom.get(code);
@@ -5075,7 +5159,24 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
   if(crossCpTenants.length){
     const { data: cpPays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
       .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','carpark');
-    const cpByLot = new Map((cpPays||[]).map(p=> [normCarpark(p.room_code), p]));
+    // SELF-HEAL: same dedup as the room payments above, grouped by lot.
+    const cpByLotRaw = new Map();
+    (cpPays||[]).forEach(p=>{
+      const lot = normCarpark(p.room_code);
+      if(!cpByLotRaw.has(lot)) cpByLotRaw.set(lot, []);
+      cpByLotRaw.get(lot).push(p);
+    });
+    const cpDupIds = [];
+    const cpByLot = new Map();
+    cpByLotRaw.forEach((rows, lot)=>{
+      const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
+      rows.forEach(r=>{ if(r.id!==keep.id) cpDupIds.push(r.id); });
+      cpByLot.set(lot, keep);
+    });
+    if(cpDupIds.length){
+      const {error: cpDelErr} = await sb.from('rental_payments').delete().in('id', cpDupIds);
+      if(cpDelErr) toast(cpDelErr.message,'bad'); else inserted++;
+    }
     for(const t of crossCpTenants){
       if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId)
         await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark),  Number(t.carpark_rental||0));
@@ -5096,7 +5197,20 @@ async function ensureFirstMonthProRateExpenses(){
   return any;
 }
 
+// Same in-flight guard as the other ensure* functions — two concurrent
+// callers for the same (property, year, month) used to both read "no
+// payment row for this room yet" and both insert, producing a duplicated
+// move-out pro-rate payment for the same tenant.
+const _lastProRateInFlight = new Map();
 async function ensureLastMonthProRateExpensesFor(propId, y, m){
+  const key = propId+'_'+y+'_'+m;
+  if(_lastProRateInFlight.has(key)) return _lastProRateInFlight.get(key);
+  const job = _ensureLastMonthProRateExpensesForImpl(propId, y, m)
+    .finally(()=>_lastProRateInFlight.delete(key));
+  _lastProRateInFlight.set(key, job);
+  return job;
+}
+async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
   if(isReportLocked(propId, y, m)) return false;
   const tenants = (state.tenants||[]).filter(t=>{
     if(t.property_id !== propId) return false;
@@ -5106,8 +5220,28 @@ async function ensureLastMonthProRateExpensesFor(propId, y, m){
   if(!tenants.length) return false;
   const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','room');
-  const byRoom = new Map((pays||[]).map(p=> [(p.room_code||'').toUpperCase(), p]));
-  let inserted = 0;
+  // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
+  // have inserted the same room's move-out pro-rate payment twice. Group
+  // by room code, keep one per room (prefer an already-tagged row), delete
+  // the rest.
+  const byRoomRaw = new Map();
+  (pays||[]).forEach(p=>{
+    const code = (p.room_code||'').toUpperCase();
+    if(!byRoomRaw.has(code)) byRoomRaw.set(code, []);
+    byRoomRaw.get(code).push(p);
+  });
+  const roomDupIds = [];
+  const byRoom = new Map();
+  byRoomRaw.forEach((rows, code)=>{
+    const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
+    rows.forEach(r=>{ if(r.id!==keep.id) roomDupIds.push(r.id); });
+    byRoom.set(code, keep);
+  });
+  if(roomDupIds.length){
+    const {error: delErr} = await sb.from('rental_payments').delete().in('id', roomDupIds);
+    if(delErr) toast(delErr.message,'bad');
+  }
+  let inserted = roomDupIds.length>0 ? 1 : 0;
   for(const t of tenants){
     const code = (t.room_code||'').toUpperCase();
     const lp = computeLastMonthProRate(t);
@@ -5200,7 +5334,24 @@ async function reconcileStaleProRateTagsFor(propId, y, m){
 // if no management_fee row exists yet AND there's actual rental income.
 // Synced (re-amount) if the existing row's amount diverges from current
 // rental income — so adding payments later updates the fee automatically.
+// Same in-flight guard as ensureCleaningExpensesFor/ensureRentCommission
+// ExpensesFor above — two concurrent callers for the same (property, year,
+// month) used to both read "no management_fee row yet" (computed from
+// whatever rental total each happened to have loaded at that instant) and
+// both insert, producing two rows with DIFFERENT amounts (one from a
+// partially-loaded total, one from the final total) rather than identical
+// duplicates — which is why these looked like two unrelated fee lines
+// instead of an obvious repeat.
+const _mgmtFeeInFlight = new Map();
 async function ensureManagementFeeExpensesFor(propId, y, m){
+  const key = propId+'_'+y+'_'+m;
+  if(_mgmtFeeInFlight.has(key)) return _mgmtFeeInFlight.get(key);
+  const job = _ensureManagementFeeExpensesForImpl(propId, y, m)
+    .finally(()=>_mgmtFeeInFlight.delete(key));
+  _mgmtFeeInFlight.set(key, job);
+  return job;
+}
+async function _ensureManagementFeeExpensesForImpl(propId, y, m){
   const p = (state.properties||[]).find(x=>x.id===propId);
   if(!p || p.active===false) return false;
   if(isReportLocked(propId, y, m)) return false;
@@ -5220,6 +5371,17 @@ async function ensureManagementFeeExpensesFor(propId, y, m){
   const expectedDesc = `Management Fee (${pct}% × RM ${totRental.toFixed(2)})`;
   const { data: exps } = await sb.from('expenses').select('id,description,amount')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('category','management_fee');
+  // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
+  // have inserted more than one management_fee row — often with DIFFERENT
+  // amounts, since each racing call computed totRental from whatever
+  // payments happened to be loaded at that instant. Keep the first, delete
+  // the rest, so an already-affected month's report stops double-counting
+  // the next time it's loaded/built, with no manual cleanup needed.
+  if((exps||[]).length > 1){
+    const dupIds = exps.slice(1).map(e=>e.id);
+    const {error: delErr} = await sb.from('expenses').delete().in('id', dupIds);
+    if(delErr){ toast(delErr.message,'bad'); return false; }
+  }
   const existing = (exps||[])[0];
   if(existing){
     const cur     = Number(existing.amount||0);
