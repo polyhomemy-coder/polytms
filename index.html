@@ -2844,6 +2844,19 @@ function _propExistedByMonth(p, y, m){
   return new Date(p.created_at) <= monthEnd;
 }
 
+// Has ANY tenant (active or since moved out) started their tenancy at this
+// property on or before (y, m)? Used by the Utilities matrix to tell "never
+// had a tenant yet by this month — N/A" apart from "had a tenant, just
+// nothing recorded for this particular month — genuinely 0".
+function _propHasTenantByMonth(propId, y, m){
+  const monthEnd = new Date(y, m, 0, 23, 59, 59, 999);
+  return (state.tenants||[]).some(t=>{
+    if(t.property_id !== propId || !t.agreement_start) return false;
+    const s = parseISODateLocal(t.agreement_start);
+    return !isNaN(s) && s <= monthEnd;
+  });
+}
+
 function renderSidebarFilters(){
   const cityChipsEl  = document.getElementById('sbCityChips');
   const typeChipsEl  = document.getElementById('sbTypeChips');
@@ -6681,8 +6694,22 @@ function _paintUtilities(container){
   const bodyRows = sortedProps.map((p,i)=>{
     let rowTotal = 0;
     const cells = months.map(({y,m})=>{
+      // Not applicable yet — the unit didn't exist, or no tenant had ever
+      // moved in by this month — distinct from "existed, just nothing
+      // recorded for this one month" below.
+      if(!_propExistedByMonth(p, y, m) || !_propHasTenantByMonth(p.id, y, m)){
+        return `<td style="${CELL_BORDER};padding:4px 6px;text-align:right;color:var(--line)">—</td>`;
+      }
       const {v, has} = valueFor(p.id, y, m);
-      if(!has) return `<td style="${CELL_BORDER};padding:4px 6px;text-align:right;color:var(--line)">·</td>`;
+      if(!has){
+        // AC Top-Up specifically: a tenant was present but genuinely topped
+        // up nothing that month — a real 0, not "not entered yet" like a
+        // TNB/water/internet bill the owner just hasn't keyed in.
+        if(isElectric && electricMetric==='ac'){
+          return `<td style="${CELL_BORDER};padding:4px 6px;text-align:right;font-size:11.5px;font-weight:700;color:var(--muted)">0.00</td>`;
+        }
+        return `<td style="${CELL_BORDER};padding:4px 6px;text-align:right;color:var(--line)">·</td>`;
+      }
       rowTotal += v;
       const neg = v<0;
       return `<td style="${CELL_BORDER};padding:4px 6px;text-align:right;font-size:11.5px;font-weight:700;color:${neg?'#B91C1C':'var(--ink)'}">${neg?'−':''}${fmt(Math.abs(v))}</td>`;
@@ -13412,7 +13439,34 @@ function openTenantModal(id, prefill){
     }
   }, 0);
 }
-async function delTenant(id){ if(!await confirmModal('Delete this tenant?\n\nThis cannot be undone.',{confirmText:'Delete',danger:true}))return; const {error}=await sb.from('tenants').delete().eq('id',id); if(error)return toast(error.message,'bad'); await loadTenants(); renderTab('tenants'); toast('Deleted'); }
+// A hard delete removes the tenant row entirely — unlike Move Out, nothing
+// is kept. Their payment amounts live on independently in rental_payments
+// (keyed by room_code, not tenant id), but the tenancy DATES (move-in/
+// move-out, tenure) have nowhere else to live — once this row is gone,
+// even an already-LOCKED report's Tenancy/Tenure column has nothing left
+// to show, because that frozen snapshot is keyed off this same row and
+// can't outlive it if it never captured one (e.g. the tenant was deleted
+// before the report was ever locked). Block the delete when payment
+// history exists for this room and point to Move Out instead, which keeps
+// the row (and its dates) intact.
+async function delTenant(id){
+  const t = state.tenants.find(x=>x.id===id);
+  if(!t) return;
+  if(t.room_code){
+    const { data: roomPays } = await sb.from('rental_payments').select('room_code')
+      .eq('property_id', t.property_id).eq('item_type','room');
+    const hasPayments = (roomPays||[]).some(p=>
+      (p.room_code||'').toUpperCase() === String(t.room_code).toUpperCase());
+    if(hasPayments){
+      toast('This tenant has payment history on file — deleting them would permanently erase their tenancy dates from past (even locked) reports. Use "Move Out" instead, which keeps their record.', 'bad');
+      return;
+    }
+  }
+  if(!await confirmModal('Delete this tenant?\n\nThis cannot be undone.',{confirmText:'Delete',danger:true})) return;
+  const {error}=await sb.from('tenants').delete().eq('id',id);
+  if(error)return toast(error.message,'bad');
+  await loadTenants(); renderTab('tenants'); toast('Deleted');
+}
 
 
 // ── Condo / Unit two-step picker helpers ─────────────────────────────────────
@@ -13877,6 +13931,9 @@ function buildTenancySnapshot(propId, y, m){
   tenants.forEach(t=>{
     if(!t.id) return;
     snap[String(t.id)] = {
+      // Lets a later-deleted tenant's row still be matched back to its room
+      // from the snapshot alone — see the fallback in buildReportLineMap.
+      room_code: t.room_code || null,
       agreement_start: t.agreement_start || null,
       agreement_end:   t.agreement_end   || null,
       // Start of the tenant's CURRENT (most recent) term as of lock time —
@@ -14034,6 +14091,36 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
     const line = ensureLine('room', t.room_code);
     if(!line.tenant) line.tenant = t;
   });
+  // A tenant who was later HARD-DELETED (not just moved out) leaves no live
+  // row to match against — the room's payment amount still shows (it lives
+  // independently in rental_payments), but Tenancy/Tenure would otherwise
+  // silently fall back to "—" even for an already-locked month, which is
+  // exactly the "locked should stay locked" guarantee this snapshot exists
+  // for. Reconstruct a minimal stand-in from the frozen snapshot (now keyed
+  // with room_code — see buildTenancySnapshot) so the printed dates survive
+  // the tenant row's deletion. Only possible for months locked AFTER this
+  // fix shipped — a snapshot captured before it has no room_code to match on.
+  if(tenancySnapshot){
+    const snapEntries = Object.values(tenancySnapshot);
+    for(const line of lineMap.values()){
+      if(line.type!=='room' || line.tenant) continue;
+      const entry = snapEntries.find(s=>
+        s.room_code && String(s.room_code).toUpperCase()===String(line.code).toUpperCase());
+      if(entry){
+        line.tenant = {
+          id: null,
+          room_code: line.code,
+          agreement_start: entry.agreement_start,
+          agreement_end: entry.agreement_end,
+          current_term_start: entry.current_term_start,
+          room_rental: entry.room_rental,
+          carpark_rental: entry.carpark_rental,
+          carpark2_rental: entry.carpark2_rental,
+          active: false,
+        };
+      }
+    }
+  }
 
   // ROOM PAYMENTS — apply the split rule
   payments.filter(p=>p.item_type==='room').forEach(p=>{
