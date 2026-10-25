@@ -1760,7 +1760,7 @@
     <div id="mgrSubTabs" class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1 mb-3 w-fit flex-wrap">
       <span class="subtab-btn active" data-mgrsub="dashboard">📊 Dashboard</span>
       <span class="subtab-btn" data-mgrsub="incomerpt">📄 Income Report</span>
-      <span class="subtab-btn" data-mgrsub="feelist">🧾 Manage Fee</span>
+      <span class="subtab-btn" data-mgrsub="feelist">🧾 H2M Yearly</span>
       <span class="subtab-btn" data-mgrsub="ownunit">🏠 R2R Yearly</span>
       <span class="subtab-btn" data-mgrsub="assign">🏢 Property Assignment</span>
       <span class="subtab-btn" data-mgrsub="export">🧮 Export to Accountant</span>
@@ -1919,13 +1919,41 @@
     </div>
 
     <div id="dashFeeListView" class="hidden-force">
+      <!-- HERO TILES -->
+      <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+        <div class="hero-card hero-cyan anim-hero" style="animation-delay:0s">
+          <div class="hero-label">📅 Year Total Mgmt Fee</div>
+          <div class="hero-value" id="h2mYearTotal">RM –</div>
+          <div class="hero-sub" id="h2mYearTotalSub">across all H2M units</div>
+        </div>
+        <div class="hero-card hero-cyan-light anim-hero" style="animation-delay:.06s">
+          <div class="hero-label">📊 Avg Monthly Fee</div>
+          <div class="hero-value" id="h2mAvgMonthly">RM –</div>
+          <div class="hero-sub" id="h2mAvgMonthlySub">yearly total ÷ 12</div>
+        </div>
+        <div class="hero-card hero-orange-light anim-hero" style="animation-delay:.12s">
+          <div class="hero-label">🏠 H2M Units</div>
+          <div class="hero-value" id="h2mUnitCount">–</div>
+          <div class="hero-sub">fee-paying properties</div>
+        </div>
+      </div>
+
+      <!-- YEARLY MATRIX — rows = H2M units, cols = months, cells = mgmt fee -->
       <div class="card">
-        <div class="flex items-center justify-between">
-          <div class="section-title">Manage Fee</div>
-          <div class="help" id="dashMonthLbl"></div>
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div class="section-title">H2M Yearly Management Fee Matrix</div>
+            <div class="help mt-1">Management fee charged per unit per month.</div>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-1 bg-[#E8F8FA] rounded-xl p-1" id="h2mYearTabs"></div>
+            <button id="btnH2MExport" class="px-3 py-2 rounded-xl text-xs font-bold bg-[#DCFCE7] text-[#065F46] border border-[#86EFAC] hover:bg-[#BBF7D0]" onclick="openH2MExportModal()">⬇ Export Excel</button>
+          </div>
         </div>
         <div class="divider"></div>
-        <div id="dashTable"></div>
+        <div class="overflow-x-auto" style="max-height:60vh">
+          <div id="h2mMatrix"><div class="text-slate-400 text-sm py-10 text-center">No H2M units yet.</div></div>
+        </div>
       </div>
     </div>
 
@@ -2530,6 +2558,7 @@ let state = {
   expenseCat: 'all',          // 'all' | 'management_fee' | 'rent_commission' | 'cleaning' | 'maintenance' | 'other'
   mgrSub: 'dashboard',        // 'dashboard' | 'incomerpt' | 'feelist' | 'ownunit' | 'assign' — Manager tab sub-tab
   r2rYear: null,              // year shown in the R2R yearly matrix; null = follow state.year
+  h2mYear: null,              // year shown in the H2M yearly matrix; null = follow state.year
   propSub: 'all',             // 'all' | 'vacancies' — Properties parent sub-pane
   propCityFilter: [],         // selected city values — empty = show all cities
   propTypeFilter: [],         // selected unit types ('other_unit'|'own_unit') — empty = show both
@@ -3514,6 +3543,14 @@ document.addEventListener('click', e=>{
   const pill = e.target.closest('#r2rYearTabs .yr-pill');
   if(!pill) return;
   state.r2rYear = Number(pill.dataset.year);
+  renderDashboard();
+});
+
+// --- H2M yearly matrix year switcher pills ---
+document.addEventListener('click', e=>{
+  const pill = e.target.closest('#h2mYearTabs .yr-pill');
+  if(!pill) return;
+  state.h2mYear = Number(pill.dataset.year);
   renderDashboard();
 });
 
@@ -4640,6 +4677,31 @@ async function computeMonthNett(P, year, month){
   return totRental + totAircond + totExt - totExp;
 }
 
+// Just the management fee portion for a single property+month — same
+// "real row if recorded, else service% × rental fallback" logic embedded
+// in computeMonthNett above, pulled out on its own for the H2M Yearly
+// matrix, which needs the fee alone rather than the full nett.
+async function computeMonthMgmtFee(P, year, month){
+  const [pay, exp] = await Promise.all([
+    sb.from('rental_payments').select('*').eq('property_id',P.id).eq('year',year).eq('month',month),
+    sb.from('expenses').select('*').eq('property_id',P.id).eq('year',year).eq('month',month),
+  ]);
+  const payments = pay.data||[], expenses = exp.data||[];
+  const feeRows = expenses.filter(e=>e.category==='management_fee');
+  if(feeRows.length) return feeRows.reduce((s,e)=>s+Number(e.amount||0),0);
+  const totRental = payments.reduce((s,p)=>{
+    if(p.payment_kind==='advance_covered_full'){
+      const t = (state.tenants||[]).find(x=>
+        x.property_id===p.property_id &&
+        (x.room_code||'').toUpperCase()===(p.room_code||'').toUpperCase()
+      );
+      if(t) return s + tenantRentForProperty(t, P.id);
+    }
+    return s + Number(p.amount||0);
+  }, 0);
+  return +(totRental * (Number(P.service_percent||0)/100)).toFixed(2);
+}
+
 // Chain-aware nett computation. Returns the "true" nett a property would
 // post for a given month, INCLUDING any implied balance-forward from prior
 // months even if those BF rows haven't been auto-materialized yet (e.g.
@@ -4686,9 +4748,14 @@ async function computeMonthNettWithChain(P, year, month){
 // ============================================================
 
 // Tenure-pro-rated commission for one tenant: rental × (months / 12).
-function _commissionAmount(tenant, kind /* 'room' | 'carpark' */){
+// `overrideStart` lets a carpark added mid-tenancy (its own carpark_start_
+// date/carpark2_start_date, set via "Add Carpark" or "set start date") be
+// pro-rated by ITS OWN span through the shared agreement end, instead of
+// the room's full original term — matching the Tenure column shown in the
+// Income Report, which uses the same override.
+function _commissionAmount(tenant, kind /* 'room' | 'carpark' */, overrideStart){
   const rental = Number(kind==='carpark' ? tenant.carpark_rental : tenant.room_rental) || 0;
-  const mo = tenureMonths(tenant.agreement_start, tenant.agreement_end);
+  const mo = tenureMonths(overrideStart || tenant.agreement_start, tenant.agreement_end);
   const ratio = mo ? (mo/12) : 1;
   const amt = +(rental * ratio).toFixed(2);
   const moTxt = mo ? ` · ${mo}/12 mo` : '';
@@ -4803,7 +4870,7 @@ async function _ensureRentCommissionExpensesForImpl(propId, y, m){
     const cpFull = Number(t.carpark_rental||0);
     const cpTriggers = t.carpark_start_date ? _carparkStartsInMonth(t.carpark_start_date, y, m) : roomStartsThisMonth(t);
     if(cpTriggers && cpProp===propId && t.carpark && cpFull>0 && !has('Carpark '+t.carpark)){
-      const { amt, moTxt } = _commissionAmount(t, 'carpark');
+      const { amt, moTxt } = _commissionAmount(t, 'carpark', t.carpark_start_date);
       const desc = `Rent Commission (Carpark ${t.carpark})${moTxt}`;
       if(amt>0 && !_rcIsDeleted(propId,y,m,desc))
         rows.push({property_id:propId, year:y, month:m,
@@ -4815,7 +4882,7 @@ async function _ensureRentCommissionExpensesForImpl(propId, y, m){
     const cp2Full = Number(t.carpark2_rental||0);
     const cp2Triggers = t.carpark2_start_date ? _carparkStartsInMonth(t.carpark2_start_date, y, m) : roomStartsThisMonth(t);
     if(cp2Triggers && cp2Prop===propId && t.carpark2 && cp2Full>0 && !has('Carpark '+t.carpark2)){
-      const mo2   = tenureMonths(t.agreement_start, t.agreement_end);
+      const mo2   = tenureMonths(t.carpark2_start_date || t.agreement_start, t.agreement_end);
       const ratio2= mo2 ? (mo2/12) : 1;
       const amt2  = +(cp2Full * ratio2).toFixed(2);
       const mo2Txt= mo2 ? ` · ${mo2}/12 mo` : '';
@@ -5659,7 +5726,7 @@ function renderDashboard(){
 
   if(sub === 'ownunit') return renderOwnUnitDashboard();
   if(sub === 'incomerpt') return renderIncomeReportListing();
-  if(sub === 'feelist')  return renderManagementFeeUnitListing();
+  if(sub === 'feelist')  return renderH2MYearlyDashboard();
   if(sub === 'assign'){
     if(state.role === 'manager'){
       const panel = document.getElementById('propAssignPanel');
@@ -7753,6 +7820,7 @@ async function renderOwnUnitDashboard(){
     }).join('');
     const totCls = Math.abs(g.total) < 0.005 ? 'zero' : (g.total>0 ? 'pos' : 'neg');
     return `<tr class="anim-row" style="animation-delay:${Math.min(i,12)*30}ms">
+      <td class="text-center" style="color:var(--muted)">${i+1}</td>
       <td class="sticky-col"><div class="font-semibold">${esc(g.p.condo)}</div><div class="text-[11px] text-slate-500">${esc(g.p.unit)}</div></td>
       <td class="num ${totCls}" style="font-weight:700">${fmt(g.total)}</td>
       ${cells}
@@ -7767,6 +7835,7 @@ async function renderOwnUnitDashboard(){
     <table class="yr-matrix">
       <thead>
         <tr>
+          <th class="text-center">No</th>
           <th class="sticky-col">Unit</th>
           <th class="num">Total</th>
           ${monthHeaders}
@@ -7775,6 +7844,7 @@ async function renderOwnUnitDashboard(){
       <tbody>${bodyRows}</tbody>
       <tfoot>
         <tr>
+          <td></td>
           <td class="sticky-col">Column Total</td>
           <td class="num ${footTotCls}">${fmt(yearTotal)}</td>
           ${footCells}
@@ -7861,6 +7931,184 @@ async function exportR2RYearlyXlsx(year, propIds, months){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'R2R Yearly '+year);
   XLSX.writeFile(wb, `R2R_Yearly_Income_${year}.xlsx`);
+  toast(`✓ Exported ${props.length} unit${props.length===1?'':'s'} · ${months.length} month${months.length===1?'':'s'}`);
+}
+
+// ============================================================
+//  H2M (MANAGE FEE) YEARLY DASHBOARD — same matrix format as the
+//  R2R Yearly tab above, but rows = fee-paying units, cells = the
+//  management fee charged that month instead of nett income.
+// ============================================================
+async function renderH2MYearlyDashboard(){
+  // Same unit-selection rule as the old single-month Manage Fee listing
+  // (not strictly H2M-model-only) — any active unit with a service % set,
+  // or that has an actual management_fee expense row recorded somewhere —
+  // so the yearly total keeps matching the Dashboard's "Management Fee" tile.
+  const feeRowsAll = state.expenses.filter(x=>x.category==='management_fee');
+  const props = state.properties.filter(p=>{
+    if(p.active===false) return false;
+    if(!_propPassesGlobalFilter(p)) return false;
+    return Number(p.service_percent||0)>0 || feeRowsAll.some(x=>x.property_id===p.id && Number(x.amount||0)>0);
+  });
+  $('#h2mUnitCount').textContent = props.length;
+
+  const focusYear = state.h2mYear || state.year;
+  const years = [focusYear-1, focusYear, focusYear+1];
+  $('#h2mYearTabs').innerHTML = years.map(y=>
+    `<span class="yr-pill ${y===focusYear?'active':''}" data-year="${y}">${y}</span>`
+  ).join('');
+
+  if(!props.length){
+    $('#h2mMatrix').innerHTML = '<div class="text-slate-400 text-sm py-10 text-center">No fee-paying units yet.</div>';
+    animateNumber($('#h2mYearTotal'), 0, {prefix:'RM '});
+    animateNumber($('#h2mAvgMonthly'), 0, {prefix:'RM '});
+    $('#h2mYearTotalSub').textContent = focusYear + ' · across all H2M units';
+    return;
+  }
+
+  $('#h2mMatrix').innerHTML = '<div class="text-slate-400 text-sm py-10 text-center">Calculating yearly matrix for ' + focusYear + '…</div>';
+
+  // Capture the year we're rendering — discard a stale result if the user
+  // switches year or sub-tab mid-flight (same guard as the R2R matrix).
+  state._h2mRenderYear = focusYear;
+  const grid = await Promise.all(
+    props.map(async p=>{
+      const monthly = await Promise.all(
+        Array.from({length:12}, (_, i)=> computeMonthMgmtFee(p, focusYear, i+1))
+      );
+      const total = monthly.reduce((s,v)=>s+v, 0);
+      return { p, monthly, total };
+    })
+  );
+  if(state._h2mRenderYear !== focusYear || state.mgrSub !== 'feelist') return;
+
+  const yearTotal = grid.reduce((s,g)=>s+g.total, 0);
+  animateNumber($('#h2mYearTotal'), yearTotal, {prefix:'RM '});
+  animateNumber($('#h2mAvgMonthly'), yearTotal/12, {prefix:'RM '});
+  $('#h2mYearTotalSub').textContent = focusYear + ' · across all H2M units';
+  $('#h2mAvgMonthlySub').textContent = focusYear + ' · yearly total ÷ 12';
+
+  const monthHeaders = MONTHS.map(m=>`<th class="num">${m}</th>`).join('');
+  const colTotals = Array(12).fill(0);
+  // Sort rows by total fee desc so the most material units bubble up
+  const sortedGrid = [...grid].sort((a,b)=>b.total-a.total);
+  const bodyRows = sortedGrid.map((g, i)=>{
+    g.monthly.forEach((v, mi)=>{ colTotals[mi] += v; });
+    const cells = g.monthly.map(v=>{
+      const display = v < 0.005 ? '—' : fmt(v);
+      return `<td class="num">${display}</td>`;
+    }).join('');
+    return `<tr class="anim-row" style="animation-delay:${Math.min(i,12)*30}ms">
+      <td class="text-center" style="color:var(--muted)">${i+1}</td>
+      <td class="sticky-col"><div class="font-semibold">${esc(g.p.condo)}</div><div class="text-[11px] text-slate-500">${esc(g.p.unit)}</div></td>
+      <td class="num">${Number(g.p.service_percent||0)}%</td>
+      <td class="num" style="font-weight:700">${fmt(g.total)}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+  const footCells = colTotals.map(v=>`<td class="num">${fmt(v)}</td>`).join('');
+  $('#h2mMatrix').innerHTML = `
+    <table class="yr-matrix">
+      <thead>
+        <tr>
+          <th class="text-center">No</th>
+          <th class="sticky-col">Unit</th>
+          <th class="num">Fee %</th>
+          <th class="num">Total</th>
+          ${monthHeaders}
+        </tr>
+      </thead>
+      <tbody>${bodyRows}</tbody>
+      <tfoot>
+        <tr>
+          <td></td>
+          <td class="sticky-col">Column Total</td>
+          <td></td>
+          <td class="num">${fmt(yearTotal)}</td>
+          ${footCells}
+        </tr>
+      </tfoot>
+    </table>`;
+}
+
+// ── H2M Yearly export — pick units + months, then download an .xlsx ─────
+function openH2MExportModal(){
+  const focusYear = state.h2mYear || state.year;
+  const feeRowsAll = state.expenses.filter(x=>x.category==='management_fee');
+  const props = state.properties
+    .filter(p=> p.active!==false && _propPassesGlobalFilter(p)
+      && (Number(p.service_percent||0)>0 || feeRowsAll.some(x=>x.property_id===p.id && Number(x.amount||0)>0)))
+    .sort((a,b)=>(a.condo+' '+a.unit).localeCompare(b.condo+' '+b.unit));
+  if(!props.length) return toast('No fee-paying units to export','warn');
+
+  const unitRows = props.map(p=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:var(--ink)">
+      <input type="checkbox" class="h2mExpUnit" value="${p.id}" checked>
+      ${esc(p.condo)} · ${esc(p.unit)} <span style="color:var(--muted)">(${Number(p.service_percent||0)}%)</span>
+    </label>`).join('');
+
+  const monthRows = MONTHS.map((m,i)=>`
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink)">
+      <input type="checkbox" class="h2mExpMonth" value="${i+1}" checked> ${m}
+    </label>`).join('');
+
+  const selectClearRow = (cls) => `
+    <div style="display:flex;gap:10px">
+      <button type="button" style="font-size:11px;font-weight:700;color:var(--brand);background:none;border:none;cursor:pointer;padding:0" onclick="document.querySelectorAll('.${cls}').forEach(c=>c.checked=true)">Select All</button>
+      <button type="button" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:0" onclick="document.querySelectorAll('.${cls}').forEach(c=>c.checked=false)">Clear</button>
+    </div>`;
+
+  openModal('⬇ Export H2M Yearly Management Fee', `
+    <div style="margin-bottom:16px">
+      <label class="label">Year</label>
+      <select id="h2mExpYear" class="input">
+        ${[focusYear-1,focusYear,focusYear+1].map(y=>`<option value="${y}" ${y===focusYear?'selected':''}>${y}</option>`).join('')}
+      </select>
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <label class="label" style="margin:0">Units (${props.length})</label>
+        ${selectClearRow('h2mExpUnit')}
+      </div>
+      <div style="max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:8px 12px">${unitRows}</div>
+    </div>
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <label class="label" style="margin:0">Months</label>
+        ${selectClearRow('h2mExpMonth')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;border:1px solid var(--line);border-radius:10px;padding:10px 12px">${monthRows}</div>
+    </div>
+  `, async ()=>{
+    const year    = Number($('#h2mExpYear').value);
+    const propIds = Array.from(document.querySelectorAll('.h2mExpUnit:checked')).map(c=>c.value);
+    const months  = Array.from(document.querySelectorAll('.h2mExpMonth:checked')).map(c=>Number(c.value)).sort((a,b)=>a-b);
+    if(!propIds.length) throw new Error('Select at least one unit');
+    if(!months.length) throw new Error('Select at least one month');
+    await exportH2MYearlyXlsx(year, propIds, months);
+  }, '⬇ Export');
+}
+
+async function exportH2MYearlyXlsx(year, propIds, months){
+  const props = state.properties.filter(p=>propIds.includes(p.id));
+  const grid = await Promise.all(props.map(async p=>{
+    const vals = await Promise.all(months.map(m=>computeMonthMgmtFee(p, year, m)));
+    const total = vals.reduce((s,v)=>s+v, 0);
+    return { p, vals, total };
+  }));
+  const header = ['Condo','Unit','Fee %','Total', ...months.map(m=>MONTHS[m-1])];
+  const dataRows = grid.map(g=>[
+    g.p.condo, g.p.unit, Number(g.p.service_percent||0), Number(g.total.toFixed(2)),
+    ...g.vals.map(v=>Number(v.toFixed(2)))
+  ]);
+  const totalRow = [
+    '', 'TOTAL', '', Number(grid.reduce((s,g)=>s+g.total,0).toFixed(2)),
+    ...months.map((m,i)=>Number(grid.reduce((s,g)=>s+g.vals[i],0).toFixed(2)))
+  ];
+  const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows, totalRow]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'H2M Yearly '+year);
+  XLSX.writeFile(wb, `H2M_Yearly_ManagementFee_${year}.xlsx`);
   toast(`✓ Exported ${props.length} unit${props.length===1?'':'s'} · ${months.length} month${months.length===1?'':'s'}`);
 }
 
@@ -14123,18 +14371,24 @@ function renderReportHTML(ctx, opts){
       // e.g. a carpark starting months after the room did), otherwise falls
       // back to the room's own start month (a carpark that was part of the
       // original tenancy from day one has no separate start date to check).
+      // Also pro-rated by its OWN tenure (its start through the shared
+      // agreement end) rather than the room's full ratio above, matching
+      // the Tenure column shown for this carpark in the Income table.
       const cpStartsThisMonth = t.carpark_start_date
         ? _carparkStartsInMonth(t.carpark_start_date, year, month)
         : roomStartsThisMonth;
       const cpFull = Number(t.carpark_rental||0);
       const cpProp = t.carpark_property_id || t.property_id;
       if(cpStartsThisMonth && t.carpark && cpFull>0 && cpProp===P.id){
+        const cpMo    = tenureMonths(t.carpark_start_date || t.agreement_start, t.agreement_end);
+        const cpRatio = cpMo ? (cpMo/12) : 1;
+        const cpMoTxt = cpMo ? ` · ${cpMo}/12 mo` : '';
         const cpLot = String(t.carpark).trim();
         const hasCpRC = expenses.some(e=>e.category==='rent_commission'
           && (e.description||'').includes('Carpark '+cpLot+')'));
         if(!hasCpRC){
-          const amt = +(cpFull * ratio).toFixed(2);
-          if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
+          const amt = +(cpFull * cpRatio).toFixed(2);
+          if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+cpMoTxt, amount:amt, cat:'rent_commission', _auto:true});
         }
       }
       // 2nd carpark commission — same rule, independent property binding
@@ -14144,12 +14398,15 @@ function renderReportHTML(ctx, opts){
       const cp2Full = Number(t.carpark2_rental||0);
       const cp2Prop = t.carpark2_property_id || t.property_id;
       if(cp2StartsThisMonth && t.carpark2 && cp2Full>0 && cp2Prop===P.id){
+        const cp2Mo    = tenureMonths(t.carpark2_start_date || t.agreement_start, t.agreement_end);
+        const cp2Ratio = cp2Mo ? (cp2Mo/12) : 1;
+        const cp2MoTxt = cp2Mo ? ` · ${cp2Mo}/12 mo` : '';
         const cp2Lot = String(t.carpark2).trim();
         const hasCp2RC = expenses.some(e=>e.category==='rent_commission'
           && (e.description||'').includes('Carpark '+cp2Lot+')'));
         if(!hasCp2RC){
-          const amt2 = +(cp2Full * ratio).toFixed(2);
-          if(amt2>0) expRows.push({desc:'Rent Commission (Carpark '+cp2Lot+')'+moTxt, amount:amt2, cat:'rent_commission', _auto:true});
+          const amt2 = +(cp2Full * cp2Ratio).toFixed(2);
+          if(amt2>0) expRows.push({desc:'Rent Commission (Carpark '+cp2Lot+')'+cp2MoTxt, amount:amt2, cat:'rent_commission', _auto:true});
         }
       }
     });
@@ -14539,18 +14796,24 @@ function renderReportDesktopHTML(ctx, opts){
       // otherwise falls back to the room's own start month (a carpark that
       // was part of the original tenancy from day one has no separate
       // start date to check). Only when the carpark is on THIS property.
+      // Also pro-rated by its OWN tenure (its start through the shared
+      // agreement end) rather than the room's full ratio above, matching
+      // the Tenure column shown for this carpark in the Income table.
       const cpStartsThisMonth = t.carpark_start_date
         ? _carparkStartsInMonth(t.carpark_start_date, year, month)
         : roomStartsThisMonth;
       const cpFull = Number(t.carpark_rental||0);
       const cpProp = t.carpark_property_id || t.property_id;
       if(cpStartsThisMonth && t.carpark && cpFull>0 && cpProp===P.id){
+        const cpMo    = tenureMonths(t.carpark_start_date || t.agreement_start, t.agreement_end);
+        const cpRatio = cpMo ? (cpMo/12) : 1;
+        const cpMoTxt = cpMo ? ` · ${cpMo}/12 mo` : '';
         const cpLot = String(t.carpark).trim();
         const hasCpRC = expenses.some(e=>e.category==='rent_commission'
           && (e.description||'').includes('Carpark '+cpLot+')'));
         if(!hasCpRC){
-          const amt = +(cpFull * ratio).toFixed(2);
-          if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+moTxt, amount:amt, cat:'rent_commission', _auto:true});
+          const amt = +(cpFull * cpRatio).toFixed(2);
+          if(amt>0) expRows.push({desc:'Rent Commission (Carpark '+cpLot+')'+cpMoTxt, amount:amt, cat:'rent_commission', _auto:true});
         }
       }
       // 2nd carpark commission — same rule, independent property binding
@@ -14560,12 +14823,15 @@ function renderReportDesktopHTML(ctx, opts){
       const cp2Full = Number(t.carpark2_rental||0);
       const cp2Prop = t.carpark2_property_id || t.property_id;
       if(cp2StartsThisMonth && t.carpark2 && cp2Full>0 && cp2Prop===P.id){
+        const cp2Mo    = tenureMonths(t.carpark2_start_date || t.agreement_start, t.agreement_end);
+        const cp2Ratio = cp2Mo ? (cp2Mo/12) : 1;
+        const cp2MoTxt = cp2Mo ? ` · ${cp2Mo}/12 mo` : '';
         const cp2Lot = String(t.carpark2).trim();
         const hasCp2RC = expenses.some(e=>e.category==='rent_commission'
           && (e.description||'').includes('Carpark '+cp2Lot+')'));
         if(!hasCp2RC){
-          const amt2 = +(cp2Full * ratio).toFixed(2);
-          if(amt2>0) expRows.push({desc:'Rent Commission (Carpark '+cp2Lot+')'+moTxt, amount:amt2, cat:'rent_commission', _auto:true});
+          const amt2 = +(cp2Full * cp2Ratio).toFixed(2);
+          if(amt2>0) expRows.push({desc:'Rent Commission (Carpark '+cp2Lot+')'+cp2MoTxt, amount:amt2, cat:'rent_commission', _auto:true});
         }
       }
     });
