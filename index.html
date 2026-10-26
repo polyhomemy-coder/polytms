@@ -4720,29 +4720,22 @@ async function computeMonthNett(P, year, month){
   return totRental + totAircond + totExt - totExp;
 }
 
-// Just the management fee portion for a single property+month — same
-// "real row if recorded, else service% × rental fallback" logic embedded
-// in computeMonthNett above, pulled out on its own for the H2M Yearly
-// matrix, which needs the fee alone rather than the full nett.
+// Just the management fee portion for a single property+month, for the
+// H2M Yearly matrix. This used to run its own separate, simplified
+// calculation (raw payment sum, no cross-property carpark handling) and
+// blindly SUMMED every management_fee row it found — so a leftover
+// duplicate from the race bug (fixed in ensureManagementFeeExpensesFor)
+// made the month look inflated, and the figure visibly changed between
+// page loads as that duplicate got healed elsewhere in the background.
+// Routing through the same ensureManagementFeeExpensesFor the real Income
+// Report relies on guarantees this matrix always shows exactly the same
+// number the report does — and as a side effect, simply viewing this tab
+// heals any remaining duplicate for every property+month it touches.
 async function computeMonthMgmtFee(P, year, month){
-  const [pay, exp] = await Promise.all([
-    sb.from('rental_payments').select('*').eq('property_id',P.id).eq('year',year).eq('month',month),
-    sb.from('expenses').select('*').eq('property_id',P.id).eq('year',year).eq('month',month),
-  ]);
-  const payments = pay.data||[], expenses = exp.data||[];
-  const feeRows = expenses.filter(e=>e.category==='management_fee');
-  if(feeRows.length) return feeRows.reduce((s,e)=>s+Number(e.amount||0),0);
-  const totRental = payments.reduce((s,p)=>{
-    if(p.payment_kind==='advance_covered_full'){
-      const t = (state.tenants||[]).find(x=>
-        x.property_id===p.property_id &&
-        (x.room_code||'').toUpperCase()===(p.room_code||'').toUpperCase()
-      );
-      if(t) return s + tenantRentForProperty(t, P.id);
-    }
-    return s + Number(p.amount||0);
-  }, 0);
-  return +(totRental * (Number(P.service_percent||0)/100)).toFixed(2);
+  await ensureManagementFeeExpensesFor(P.id, year, month).catch(()=>{});
+  const { data: exps } = await sb.from('expenses').select('amount')
+    .eq('property_id',P.id).eq('year',year).eq('month',month).eq('category','management_fee');
+  return (exps||[]).reduce((s,e)=>s+Number(e.amount||0),0);
 }
 
 // Chain-aware nett computation. Returns the "true" nett a property would
