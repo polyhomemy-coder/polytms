@@ -7913,6 +7913,32 @@ function _renderMgrUnitListing(mode){
 function renderManagementFeeUnitListing(){ _renderMgrUnitListing('fee'); }
 function renderIncomeReportListing(){ _renderMgrUnitListing('income'); }
 
+// Run `items` through `fn` with at most `limit` concurrently in flight —
+// used by the R2R/H2M Yearly matrices, which otherwise fire one Promise.all
+// per property (each itself firing one per month, each itself firing
+// several queries) with NO cap at all. For ~50 properties × 12 months ×
+// 4-5 queries each, that's 2,000-3,000 simultaneous fetches — enough to
+// blow past the browser's per-origin connection limit and Supabase's rate
+// limit, causing scattered "TypeError: Failed to fetch" errors that abort
+// the whole matrix build (hence the "sometimes fails to load" symptom).
+// Capping how many PROPERTIES are in flight at once (each still computing
+// its own 12 months in parallel) keeps the peak concurrent request count
+// in the low hundreds instead of the thousands.
+async function _mapWithConcurrency(items, limit, fn){
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker(){
+    while(idx < items.length){
+      const i = idx++;
+      try { results[i] = await fn(items[i], i); }
+      catch(e){ console.warn('[polyTMS] matrix cell failed, skipping:', e); results[i] = null; }
+    }
+  }
+  const workers = Array.from({length: Math.max(1, Math.min(limit, items.length))}, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 // ============================================================
 //  OWN UNIT (R2R) DASHBOARD — yearly matrix view
 //  Rows = R2R properties, columns = months of the selected year,
@@ -7958,15 +7984,15 @@ async function renderOwnUnitDashboard(){
   // Capture the year we're rendering — if the user clicks a different year
   // mid-flight, we'll discard our stale result.
   state._r2rRenderYear = focusYear;
-  const grid = await Promise.all(
-    props.map(async p=>{
-      const monthly = await Promise.all(
-        Array.from({length:12}, (_, i)=> computeMonthNett(p, focusYear, i+1))
-      );
-      const total = monthly.reduce((s,v)=>s+v, 0);
-      return { p, monthly, total };
-    })
-  );
+  // Throttled to 6 properties in flight at once — see _mapWithConcurrency.
+  const gridRaw = await _mapWithConcurrency(props, 6, async p=>{
+    const monthly = await Promise.all(
+      Array.from({length:12}, (_, i)=> computeMonthNett(p, focusYear, i+1))
+    );
+    const total = monthly.reduce((s,v)=>s+v, 0);
+    return { p, monthly, total };
+  });
+  const grid = gridRaw.filter(Boolean);
   // Bail if the user has switched year/property-type since we started
   if(state._r2rRenderYear !== focusYear || state.mgrSub !== 'ownunit') return;
 
@@ -8153,15 +8179,17 @@ async function renderH2MYearlyDashboard(){
   // Capture the year we're rendering — discard a stale result if the user
   // switches year or sub-tab mid-flight (same guard as the R2R matrix).
   state._h2mRenderYear = focusYear;
-  const grid = await Promise.all(
-    props.map(async p=>{
-      const monthly = await Promise.all(
-        Array.from({length:12}, (_, i)=> computeMonthMgmtFee(p, focusYear, i+1))
-      );
-      const total = monthly.reduce((s,v)=>s+v, 0);
-      return { p, monthly, total };
-    })
-  );
+  // Throttled to 4 properties in flight at once (lower than R2R's 6 since
+  // each computeMonthMgmtFee call now does more queries per cell — see
+  // _mapWithConcurrency above for why this cap exists at all).
+  const gridRaw = await _mapWithConcurrency(props, 4, async p=>{
+    const monthly = await Promise.all(
+      Array.from({length:12}, (_, i)=> computeMonthMgmtFee(p, focusYear, i+1))
+    );
+    const total = monthly.reduce((s,v)=>s+v, 0);
+    return { p, monthly, total };
+  });
+  const grid = gridRaw.filter(Boolean);
   if(state._h2mRenderYear !== focusYear || state.mgrSub !== 'feelist') return;
 
   const yearTotal = grid.reduce((s,g)=>s+g.total, 0);
