@@ -5000,6 +5000,83 @@ async function ensureFirstMonthProRateExpensesFor(propId, y, m){
   _firstProRateInFlight.set(key, job);
   return job;
 }
+
+// ── DUAL room/lot detection ─────────────────────────────────────────────
+// A room (or, for a cross-property carpark, a lot) can legitimately need
+// TWO separate payment rows in the same month: one tenant moving OUT and a
+// DIFFERENT tenant moving IN, both sharing the same room_code/lot. The
+// self-heal dedup and "reconcile the existing row" logic in both pro-rate
+// functions used to assume at most one relevant row per code — in the dual
+// case that silently let whichever event ran second either get deleted as
+// a "duplicate" of the first event's row, or skipped entirely because the
+// surviving row already had a payment_kind set (just not for THIS tenant).
+// These helpers detect that situation so both functions can special-case it.
+function _roomHasOtherMoveOut(propId, roomCode, y, m, excludeId){
+  return (state.tenants||[]).some(t2=>
+    t2.property_id===propId && t2.id!==excludeId &&
+    (t2.room_code||'').toUpperCase()===roomCode &&
+    (()=>{ const lp=computeLastMonthProRate(t2); return lp && lp.moveOutYear===y && lp.moveOutMonth===m; })()
+  );
+}
+function _roomHasOtherMoveIn(propId, roomCode, y, m, excludeId){
+  return (state.tenants||[]).some(t2=>{
+    if(t2.property_id!==propId || t2.id===excludeId) return false;
+    if((t2.room_code||'').toUpperCase()!==roomCode) return false;
+    if(!t2.agreement_start) return false;
+    const s = parseISODateLocal(t2.agreement_start);
+    return !isNaN(s) && s.getFullYear()===y && (s.getMonth()+1)===m;
+  });
+}
+function _lotHasOtherCarparkMoveOut(cpPropId, lot, y, m, excludeId){
+  return (state.tenants||[]).some(t2=>{
+    if(t2.id===excludeId) return false;
+    const cp1 = t2.carpark  && normCarpark(t2.carpark) ===lot && (t2.carpark_property_id ||t2.property_id)===cpPropId;
+    const cp2 = t2.carpark2 && normCarpark(t2.carpark2)===lot && (t2.carpark2_property_id||t2.property_id)===cpPropId;
+    if(!cp1 && !cp2) return false;
+    const lp = computeLastMonthProRate(t2);
+    return lp && lp.moveOutYear===y && lp.moveOutMonth===m;
+  });
+}
+function _lotHasOtherCarparkMoveIn(cpPropId, lot, y, m, excludeId){
+  return (state.tenants||[]).some(t2=>{
+    if(t2.id===excludeId) return false;
+    const cp1 = t2.carpark  && normCarpark(t2.carpark) ===lot && (t2.carpark_property_id ||t2.property_id)===cpPropId;
+    const cp2 = t2.carpark2 && normCarpark(t2.carpark2)===lot && (t2.carpark2_property_id||t2.property_id)===cpPropId;
+    if(!cp1 && !cp2) return false;
+    if(!t2.agreement_start) return false;
+    const s = parseISODateLocal(t2.agreement_start);
+    return !isNaN(s) && s.getFullYear()===y && (s.getMonth()+1)===m;
+  });
+}
+// Picks which row among `rowsForCode` (an array, possibly empty/undefined)
+// is already THIS tenant's own payment. In the normal (non-dual) case
+// there's at most one row to begin with, so this just returns it unchanged
+// — identical to the original single-row behavior. In the dual case:
+//   1. A row already tagged for this exact event is definitely ours.
+//   2. Otherwise, among UNTAGGED rows only (never touch one tagged for a
+//      different kind, or a real advance-covered receipt), prefer one
+//      whose amount already matches our expected share.
+//   3. Otherwise, if exactly ONE untagged row remains with nowhere else to
+//      go, claim it by elimination — this is what lets a genuinely wrong/
+//      stale placeholder (e.g. the departing tenant's carpark still
+//      showing a full month's rate, or even the NEXT tenant's rate) get
+//      corrected down to the real pro-rated share, instead of either
+//      getting silently deleted as a false "duplicate" of the other
+//      event's row, or left untouched forever because its amount doesn't
+//      already happen to be right.
+function _pickExistingForEvent(rowsForCode, expectedAmount, kind, isDual){
+  if(!rowsForCode || !rowsForCode.length) return null;
+  if(!isDual) return rowsForCode[0];
+  const tagged = rowsForCode.find(r=>r.payment_kind===kind);
+  if(tagged) return tagged;
+  const untagged = rowsForCode.filter(r=>!r.payment_kind);
+  if(!untagged.length) return null;
+  const amtMatch = expectedAmount!=null
+    ? untagged.find(r=>Math.abs(Number(r.amount||0)-expectedAmount)<0.5)
+    : null;
+  if(amtMatch) return amtMatch;
+  return untagged.length===1 ? untagged[0] : null;
+}
 async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
   if(isReportLocked(propId, y, m)) return false;
   // Pick up tenants whose move-in lands in (y, m). Two kinds:
@@ -5022,23 +5099,34 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
   if(!tenants.length) return false;
   const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','room');
-  // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
-  // have inserted the same room's move-in payment twice. Group by room
-  // code, keep one per room (prefer an already-tagged row, since that's
-  // more likely the "real" one with its formula/remark correctly set),
-  // delete the rest.
   const byRoomRaw = new Map();
   (pays||[]).forEach(p=>{
     const code = (p.room_code||'').toUpperCase();
     if(!byRoomRaw.has(code)) byRoomRaw.set(code, []);
     byRoomRaw.get(code).push(p);
   });
+  // DUAL ROOMS: see _roomHasOtherMoveOut above — a room with a DIFFERENT
+  // tenant moving out this same month legitimately needs two rows, so its
+  // code must be excluded from the "collapse to one" self-heal below.
+  const dualRoomCodes = new Set();
+  tenants.forEach(t=>{
+    const code = (t.room_code||'').toUpperCase();
+    if(!dualRoomCodes.has(code) && _roomHasOtherMoveOut(propId, code, y, m, t.id)) dualRoomCodes.add(code);
+  });
+  // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
+  // have inserted the same room's move-in payment twice. Group by room
+  // code, keep one per room (prefer an already-tagged row, since that's
+  // more likely the "real" one with its formula/remark correctly set),
+  // delete the rest — but only for a NON-dual room, where more than one
+  // row really is just an accidental duplicate rather than two tenants'
+  // legitimately separate shares.
   const roomDupIds = [];
   const byRoom = new Map();
   byRoomRaw.forEach((rows, code)=>{
+    if(dualRoomCodes.has(code)){ byRoom.set(code, rows); return; }
     const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
     rows.forEach(r=>{ if(r.id!==keep.id) roomDupIds.push(r.id); });
-    byRoom.set(code, keep);
+    byRoom.set(code, [keep]);
   });
   if(roomDupIds.length){
     const {error: delErr} = await sb.from('rental_payments').delete().in('id', roomDupIds);
@@ -5048,7 +5136,10 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
   let inserted = roomDupIds.length>0 ? 1 : 0;
   for(const t of tenants){
     const code = (t.room_code||'').toUpperCase();
-    const existing = byRoom.get(code);
+    const isDual = dualRoomCodes.has(code);
+    const pr0 = computeFirstMonthProRate(t, y, m);
+    const expectedAmt = pr0 ? pr0.roomShare : Number(t.room_rental||0);
+    const existing = _pickExistingForEvent(byRoom.get(code), expectedAmt, 'first_month_prorate', isDual);
     if(existing){
       // A row already exists for this room this month — reconcile it if
       // it's a stale/untagged auto-placeholder left over from before this
@@ -5056,7 +5147,6 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
       // already correctly tagged, or one carrying a DIFFERENT deliberate
       // payment_kind (e.g. a real advance-covered receipt) — only an
       // untagged row is safe to assume is a leftover placeholder.
-      const pr0 = computeFirstMonthProRate(t, y, m);
       if(pr0 && pr0.total>0 && !existing.payment_kind){
         // Always (re)tag an untagged row once we know it's a pro-rate month
         // for this tenant — even when the amount already happens to be
@@ -5072,7 +5162,7 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
       }
       continue;
     }
-    const pr = computeFirstMonthProRate(t, y, m);
+    const pr = pr0;
     if(pr && pr.total>0){
       // Partial month — insert one pro-rate row per component (room +
       // same-property carpark), so carpark's share shows as its own line.
@@ -5115,7 +5205,7 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
   }
   // Cross-property carpark pro-rate: tenants whose carpark (1 or 2) belongs to THIS
   // property but their room is on a different property.
-  const _insertCrossCarpark = async (cpByLot, t, lot, cpFull) => {
+  const _insertCrossCarpark = async (cpByLot, t, lot, cpFull, isDual) => {
     const s   = parseISODateLocal(t.agreement_start);
     const sd  = s.getDate(), dim = new Date(s.getFullYear(), s.getMonth()+1, 0).getDate();
     const days    = dim - sd + 1;
@@ -5126,7 +5216,7 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
       ? `🆕 New move-in (full ${monStr}): Carpark RM ${cpFull}`
       : `🆕 Move-in pro-rate ${sd}–${dim} ${monStr}: RM ${cpFull}/${dim}×${days} = RM ${cpShare}`;
     const kind = sd===1 ? null : 'first_month_prorate';
-    const existing = cpByLot.get(lot);
+    const existing = _pickExistingForEvent(cpByLot.get(lot), cpShare, 'first_month_prorate', isDual);
     if(existing){
       // Reconcile an untagged leftover row the same way room rows are —
       // always (re)tag once we know this is a pro-rate month for this
@@ -5147,7 +5237,10 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
       amount: cpShare, paid_on: t.agreement_start, remark,
       payment_kind: kind,
     });
-    if(!error){ inserted++; cpByLot.set(lot, {room_code:lot, amount:cpShare, payment_kind:kind}); }
+    if(!error){
+      inserted++;
+      cpByLot.set(lot, [...(cpByLot.get(lot)||[]), {room_code:lot, amount:cpShare, payment_kind:kind}]);
+    }
   };
 
   const crossCpTenants = (state.tenants||[]).filter(t=>{
@@ -5160,19 +5253,32 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
   if(crossCpTenants.length){
     const { data: cpPays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
       .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','carpark');
-    // SELF-HEAL: same dedup as the room payments above, grouped by lot.
     const cpByLotRaw = new Map();
     (cpPays||[]).forEach(p=>{
       const lot = normCarpark(p.room_code);
       if(!cpByLotRaw.has(lot)) cpByLotRaw.set(lot, []);
       cpByLotRaw.get(lot).push(p);
     });
+    // DUAL LOTS: a carpark lot where a DIFFERENT tenant's carpark is moving
+    // out this same month — see _lotHasOtherCarparkMoveOut above.
+    const dualLots = new Set();
+    crossCpTenants.forEach(t=>{
+      [[t.carpark, t.carpark_property_id || t.property_id], [t.carpark2, t.carpark2_property_id || t.property_id]].forEach(([lotRaw, cpPropId])=>{
+        if(!lotRaw || cpPropId!==propId) return;
+        const lot = normCarpark(lotRaw);
+        if(!dualLots.has(lot) && _lotHasOtherCarparkMoveOut(propId, lot, y, m, t.id)) dualLots.add(lot);
+      });
+    });
+    // SELF-HEAL: same dedup as the room payments above, grouped by lot —
+    // skipped for a dual lot, where more than one row is legitimately two
+    // different tenants' shares, not an accidental duplicate.
     const cpDupIds = [];
     const cpByLot = new Map();
     cpByLotRaw.forEach((rows, lot)=>{
+      if(dualLots.has(lot)){ cpByLot.set(lot, rows); return; }
       const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
       rows.forEach(r=>{ if(r.id!==keep.id) cpDupIds.push(r.id); });
-      cpByLot.set(lot, keep);
+      cpByLot.set(lot, [keep]);
     });
     if(cpDupIds.length){
       const {error: cpDelErr} = await sb.from('rental_payments').delete().in('id', cpDupIds);
@@ -5180,9 +5286,9 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
     }
     for(const t of crossCpTenants){
       if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId)
-        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark),  Number(t.carpark_rental||0));
+        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark),  Number(t.carpark_rental||0), dualLots.has(normCarpark(t.carpark)));
       if(t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId)
-        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0));
+        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0), dualLots.has(normCarpark(t.carpark2)));
     }
   }
 
@@ -5221,22 +5327,35 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
   if(!tenants.length) return false;
   const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','room');
-  // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
-  // have inserted the same room's move-out pro-rate payment twice. Group
-  // by room code, keep one per room (prefer an already-tagged row), delete
-  // the rest.
   const byRoomRaw = new Map();
   (pays||[]).forEach(p=>{
     const code = (p.room_code||'').toUpperCase();
     if(!byRoomRaw.has(code)) byRoomRaw.set(code, []);
     byRoomRaw.get(code).push(p);
   });
+  // DUAL ROOMS: see _roomHasOtherMoveIn above — a room with a DIFFERENT
+  // tenant moving in this same month legitimately needs two rows, so its
+  // code must be excluded from the "collapse to one" self-heal below. This
+  // is the exact scenario that silently dropped the departing tenant's
+  // share before: the move-in side would tag/claim the room's one row for
+  // itself, and this function would then see it as "already tagged" and
+  // skip it entirely instead of posting the departing tenant's own share.
+  const dualRoomCodes = new Set();
+  tenants.forEach(t=>{
+    const code = (t.room_code||'').toUpperCase();
+    if(!dualRoomCodes.has(code) && _roomHasOtherMoveIn(propId, code, y, m, t.id)) dualRoomCodes.add(code);
+  });
+  // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
+  // have inserted the same room's move-out pro-rate payment twice. Group
+  // by room code, keep one per room (prefer an already-tagged row), delete
+  // the rest — but only for a NON-dual room (see above).
   const roomDupIds = [];
   const byRoom = new Map();
   byRoomRaw.forEach((rows, code)=>{
+    if(dualRoomCodes.has(code)){ byRoom.set(code, rows); return; }
     const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
     rows.forEach(r=>{ if(r.id!==keep.id) roomDupIds.push(r.id); });
-    byRoom.set(code, keep);
+    byRoom.set(code, [keep]);
   });
   if(roomDupIds.length){
     const {error: delErr} = await sb.from('rental_payments').delete().in('id', roomDupIds);
@@ -5247,7 +5366,8 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
     const code = (t.room_code||'').toUpperCase();
     const lp = computeLastMonthProRate(t);
     if(!lp || lp.total<=0) continue;
-    const existing = byRoom.get(code);
+    const isDual = dualRoomCodes.has(code);
+    const existing = _pickExistingForEvent(byRoom.get(code), lp.roomShare, 'last_month_prorate', isDual);
     if(existing){
       // Reconcile a stale/untagged auto-placeholder row. Never touch a row
       // that's already correctly tagged, or one carrying a DIFFERENT
@@ -5267,7 +5387,10 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
     }
     const rows = _proRateInsertRows(t, lp, y, m, true);
     const {error} = await sb.from('rental_payments').insert(rows);
-    if(!error){ inserted++; byRoom.set(code, {room_code:code, amount:lp.roomShare, payment_kind:'last_month_prorate'}); }
+    if(!error){
+      inserted++;
+      byRoom.set(code, [...(byRoom.get(code)||[]), {room_code:code, amount:lp.roomShare, payment_kind:'last_month_prorate'}]);
+    }
   }
 
   // Cross-property carpark move-out: a tenant whose ROOM is on a different
@@ -5280,12 +5403,12 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
   // sitting there (often carrying the NEXT tenant's rate, not even the
   // departing one's) was left untouched forever instead of being corrected
   // down to the real pro-rated amount.
-  const _insertCrossCarparkOut = async (cpByLot, t, lot, cpFull) => {
+  const _insertCrossCarparkOut = async (cpByLot, t, lot, cpFull, isDual) => {
     const share = _carparkProRateShare(t, cpFull, true, y, m);
     if(!share || share.share<=0) return; // full month occupied — nothing to pro-rate
     const monStr = MONTHS[m-1];
     const remark = `🚪 Move-out pro-rate 1–${share.days} ${monStr}: RM ${cpFull}/${share.dim}×${share.days} = RM ${share.share}`;
-    const existing = cpByLot.get(lot);
+    const existing = _pickExistingForEvent(cpByLot.get(lot), share.share, 'last_month_prorate', isDual);
     if(existing){
       // Reconcile an untagged leftover/stray row the same way the room
       // rows and the move-in carpark rows already do — only ever touch a
@@ -5304,7 +5427,10 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
       amount: share.share, paid_on: t.move_out_date || t.agreement_end, remark,
       payment_kind: 'last_month_prorate',
     });
-    if(!error){ inserted++; cpByLot.set(lot, {room_code:lot, amount:share.share, payment_kind:'last_month_prorate'}); }
+    if(!error){
+      inserted++;
+      cpByLot.set(lot, [...(cpByLot.get(lot)||[]), {room_code:lot, amount:share.share, payment_kind:'last_month_prorate'}]);
+    }
   };
   const crossCpTenantsOut = (state.tenants||[]).filter(t=>{
     if(t.property_id === propId) return false;
@@ -5317,21 +5443,36 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
   if(crossCpTenantsOut.length){
     const { data: cpPays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
       .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','carpark');
-    // SELF-HEAL: same dedup as the room payments above, grouped by lot —
-    // also what reconciles today's existing stray/wrong carpark rows, not
-    // just prevents new ones.
     const cpByLotRaw = new Map();
     (cpPays||[]).forEach(p=>{
       const lot = normCarpark(p.room_code);
       if(!cpByLotRaw.has(lot)) cpByLotRaw.set(lot, []);
       cpByLotRaw.get(lot).push(p);
     });
+    // DUAL LOTS: a carpark lot where a DIFFERENT tenant's carpark is moving
+    // IN this same month — see _lotHasOtherCarparkMoveIn above. This is
+    // exactly the L4-241 scenario: without this check, the move-in side's
+    // already-tagged row would get mistaken for a "duplicate" of this
+    // stray/untagged row and the stray row deleted outright, instead of
+    // being reconciled into the departing tenant's own pro-rated share.
+    const dualLots = new Set();
+    crossCpTenantsOut.forEach(t=>{
+      [[t.carpark, t.carpark_property_id || t.property_id], [t.carpark2, t.carpark2_property_id || t.property_id]].forEach(([lotRaw, cpPropId])=>{
+        if(!lotRaw || cpPropId!==propId) return;
+        const lot = normCarpark(lotRaw);
+        if(!dualLots.has(lot) && _lotHasOtherCarparkMoveIn(propId, lot, y, m, t.id)) dualLots.add(lot);
+      });
+    });
+    // SELF-HEAL: same dedup as the room payments above, grouped by lot —
+    // also what reconciles today's existing stray/wrong carpark rows, not
+    // just prevents new ones. Skipped for a dual lot (see above).
     const cpDupIds = [];
     const cpByLot = new Map();
     cpByLotRaw.forEach((rowsArr, lot)=>{
+      if(dualLots.has(lot)){ cpByLot.set(lot, rowsArr); return; }
       const keep = rowsArr.length>1 ? (rowsArr.find(r=>r.payment_kind) || rowsArr[0]) : rowsArr[0];
       rowsArr.forEach(r=>{ if(r.id!==keep.id) cpDupIds.push(r.id); });
-      cpByLot.set(lot, keep);
+      cpByLot.set(lot, [keep]);
     });
     if(cpDupIds.length){
       const {error: cpDelErr} = await sb.from('rental_payments').delete().in('id', cpDupIds);
@@ -5339,9 +5480,9 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
     }
     for(const t of crossCpTenantsOut){
       if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId)
-        await _insertCrossCarparkOut(cpByLot, t, normCarpark(t.carpark),  Number(t.carpark_rental||0));
+        await _insertCrossCarparkOut(cpByLot, t, normCarpark(t.carpark),  Number(t.carpark_rental||0), dualLots.has(normCarpark(t.carpark)));
       if(t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId)
-        await _insertCrossCarparkOut(cpByLot, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0));
+        await _insertCrossCarparkOut(cpByLot, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0), dualLots.has(normCarpark(t.carpark2)));
     }
   }
 
