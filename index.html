@@ -5893,10 +5893,10 @@ function _installAriaAutoMirror(){
   obs.observe(document.body, {childList:true, subtree:true});
 }
 // Rebuilds the Income Report property dropdown's option labels to show
-// that month's Admin Check / Manager Verify sign-off status per unit (✅/⬜),
-// so the status is visible while picking a unit instead of only after
-// opening it. Depends on the currently-selected #rptMonth — call again
-// whenever that month changes. Preserves the current selection.
+// that month's Admin Check / Manager Verify sign-off status per unit, so the
+// status is visible while picking a unit instead of only after opening it.
+// Depends on the currently-selected #rptMonth — call again whenever that
+// month changes. Preserves the current selection.
 function _fillRptPropWithStatus(){
   const el = $('#rptProp'); if(!el) return;
   const mv = $('#rptMonth')?.value;
@@ -5907,7 +5907,7 @@ function _fillRptPropWithStatus(){
     const r = _findReportStatus(p.id, y, m);
     const a = r && r.admin_checked_at    ? '✅' : '⬜';
     const b = r && r.manager_verified_at ? '✅' : '⬜';
-    return `<option value="${p.id}">${esc(p.condo)} · ${esc(p.unit)} — A${a} M${b}</option>`;
+    return `<option value="${p.id}">${esc(p.condo)} · ${esc(p.unit)} — admin${a} manager${b}</option>`;
   }).join('') || '<option value="">— no properties —</option>';
   if(cur) el.value = cur;
 }
