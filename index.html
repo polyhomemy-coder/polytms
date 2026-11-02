@@ -5091,6 +5091,18 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
     if(isNaN(s)) return false;
     return s.getFullYear()===y && (s.getMonth()+1)===m;
   };
+  // A cross-property carpark can start LATER than the tenant's own room
+  // (e.g. room move-in 1 Oct, carpark only picked up 1 Nov) — when the
+  // tenant has an explicit carpark_start_date/carpark2_start_date on file,
+  // that date — not the room's agreement_start — is what decides which
+  // month the carpark's first-month row belongs to. Falls back to the
+  // room's own move-in month only when no carpark start date was ever set
+  // (the original, still-default behavior for a carpark that's always
+  // gone with the room).
+  const _crossCpTriggersThisMonth = (t, which) => {
+    const startField = which===1 ? t.carpark_start_date : t.carpark2_start_date;
+    return startField ? _carparkStartsInMonth(startField, y, m) : monthMatch(t);
+  };
   const tenants = (state.tenants||[]).filter(t=>{
     if(t.active===false) return false;
     if(t.property_id !== propId) return false;
@@ -5215,8 +5227,8 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
   }
   // Cross-property carpark pro-rate: tenants whose carpark (1 or 2) belongs to THIS
   // property but their room is on a different property.
-  const _insertCrossCarpark = async (cpByLot, t, lot, cpFull, isDual) => {
-    const s   = parseISODateLocal(t.agreement_start);
+  const _insertCrossCarpark = async (cpByLot, t, lot, cpFull, isDual, startDateOverride) => {
+    const s   = parseISODateLocal(startDateOverride || t.agreement_start);
     const sd  = s.getDate(), dim = new Date(s.getFullYear(), s.getMonth()+1, 0).getDate();
     const days    = dim - sd + 1;
     const cpShare = sd===1 ? cpFull : Math.ceil(cpFull * (days/dim));
@@ -5244,7 +5256,7 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
     const {error} = await sb.from('rental_payments').insert({
       property_id: propId, year: y, month: m,
       item_type: 'carpark', room_code: lot,
-      amount: cpShare, paid_on: t.agreement_start, remark,
+      amount: cpShare, paid_on: startDateOverride || t.agreement_start, remark,
       payment_kind: kind,
     });
     if(!error){
@@ -5256,9 +5268,9 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
   const crossCpTenants = (state.tenants||[]).filter(t=>{
     if(t.active===false) return false;
     if(t.property_id === propId) return false;
-    const hasCross1 = t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId;
-    const hasCross2 = t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId;
-    return (hasCross1 || hasCross2) && monthMatch(t);
+    const hasCross1 = t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId && _crossCpTriggersThisMonth(t,1);
+    const hasCross2 = t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId && _crossCpTriggersThisMonth(t,2);
+    return hasCross1 || hasCross2;
   });
   if(crossCpTenants.length){
     const { data: cpPays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
@@ -5295,10 +5307,10 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
       if(cpDelErr) toast(cpDelErr.message,'bad'); else inserted++;
     }
     for(const t of crossCpTenants){
-      if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId)
-        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark),  Number(t.carpark_rental||0), dualLots.has(normCarpark(t.carpark)));
-      if(t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId)
-        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0), dualLots.has(normCarpark(t.carpark2)));
+      if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId && _crossCpTriggersThisMonth(t,1))
+        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark),  Number(t.carpark_rental||0), dualLots.has(normCarpark(t.carpark)), t.carpark_start_date);
+      if(t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId && _crossCpTriggersThisMonth(t,2))
+        await _insertCrossCarpark(cpByLot, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0), dualLots.has(normCarpark(t.carpark2)), t.carpark2_start_date);
     }
   }
 
