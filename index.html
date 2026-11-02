@@ -5170,6 +5170,9 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
     const code = (t.room_code||'').toUpperCase();
     if(!dualRoomCodes.has(code) && _roomHasOtherMoveOut(propId, code, y, m, t.id)) dualRoomCodes.add(code);
   });
+  // Room codes this function actually has a move-in EVENT for this month —
+  // the only codes it has any business reconciling.
+  const tenantRoomCodes = new Set(tenants.map(t=>(t.room_code||'').toUpperCase()));
   // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
   // have inserted the same room's move-in payment twice. Group by room
   // code, keep one per room (prefer an already-tagged row, since that's
@@ -5177,10 +5180,21 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
   // delete the rest — but only for a NON-dual room, where more than one
   // row really is just an accidental duplicate rather than two tenants'
   // legitimately separate shares.
+  // CRITICAL SCOPE GUARD: only ever collapse a room code that this month
+  // actually has a move-in event for (tenantRoomCodes) or a dual-move
+  // exception (dualRoomCodes). A room with NO move-in event this month —
+  // an ongoing tenant simply paying in two separate installments, or a late
+  // top-up payment — must never be touched here at all. Without this guard,
+  // an admin manually adding a 2nd legitimate payment row for an unrelated,
+  // unaffected room (e.g. Kings Bay 17C-11-08 Room N: RM200 + a later RM400
+  // "late payment") would see it silently deleted on the next report view,
+  // because this loop saw "2 rows, no dual-tenant exception" and collapsed
+  // to 1 — with no awareness that this room had no pro-rate event to
+  // reconcile in the first place.
   const roomDupIds = [];
   const byRoom = new Map();
   byRoomRaw.forEach((rows, code)=>{
-    if(dualRoomCodes.has(code)){ byRoom.set(code, rows); return; }
+    if(dualRoomCodes.has(code) || !tenantRoomCodes.has(code)){ byRoom.set(code, rows); return; }
     const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
     rows.forEach(r=>{ if(r.id!==keep.id) roomDupIds.push(r.id); });
     byRoom.set(code, [keep]);
@@ -5326,13 +5340,21 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
         if(!dualLots.has(lot) && _lotHasOtherCarparkMoveOut(propId, lot, y, m, t.id)) dualLots.add(lot);
       });
     });
+    // Lots this function actually has a move-in event for this month.
+    const triggerLots = new Set();
+    crossCpTenants.forEach(t=>{
+      if(t.carpark  && _crossCpTriggersThisMonth(t,1)) triggerLots.add(normCarpark(t.carpark));
+      if(t.carpark2 && _crossCpTriggersThisMonth(t,2)) triggerLots.add(normCarpark(t.carpark2));
+    });
     // SELF-HEAL: same dedup as the room payments above, grouped by lot —
-    // skipped for a dual lot, where more than one row is legitimately two
-    // different tenants' shares, not an accidental duplicate.
+    // skipped for a dual lot (legitimately two different tenants' shares)
+    // AND for any lot with no move-in event this month (an ongoing cross-
+    // property carpark renter simply paying in installments, same scope
+    // guard as the room-payment dedup above — see its comment for why).
     const cpDupIds = [];
     const cpByLot = new Map();
     cpByLotRaw.forEach((rows, lot)=>{
-      if(dualLots.has(lot)){ cpByLot.set(lot, rows); return; }
+      if(dualLots.has(lot) || !triggerLots.has(lot)){ cpByLot.set(lot, rows); return; }
       const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
       rows.forEach(r=>{ if(r.id!==keep.id) cpDupIds.push(r.id); });
       cpByLot.set(lot, [keep]);
@@ -5407,14 +5429,21 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
     const code = (t.room_code||'').toUpperCase();
     if(!dualRoomCodes.has(code) && _roomHasOtherMoveIn(propId, code, y, m, t.id)) dualRoomCodes.add(code);
   });
+  // Room codes this function actually has a move-out EVENT for this month.
+  const tenantRoomCodes = new Set(tenants.map(t=>(t.room_code||'').toUpperCase()));
   // SELF-HEAL: a past race (now fixed by the in-flight guard above) could
   // have inserted the same room's move-out pro-rate payment twice. Group
   // by room code, keep one per room (prefer an already-tagged row), delete
   // the rest — but only for a NON-dual room (see above).
+  // CRITICAL SCOPE GUARD: same as _ensureFirstMonthProRateExpensesForImpl —
+  // only collapse a code that has an actual move-out event this month
+  // (tenantRoomCodes) or a dual-move exception. A room with no move-out
+  // event is out of scope entirely; collapsing its rows silently deleted an
+  // ongoing tenant's legitimate 2nd/3rd payment for the month.
   const roomDupIds = [];
   const byRoom = new Map();
   byRoomRaw.forEach((rows, code)=>{
-    if(dualRoomCodes.has(code)){ byRoom.set(code, rows); return; }
+    if(dualRoomCodes.has(code) || !tenantRoomCodes.has(code)){ byRoom.set(code, rows); return; }
     const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
     rows.forEach(r=>{ if(r.id!==keep.id) roomDupIds.push(r.id); });
     byRoom.set(code, [keep]);
@@ -5525,13 +5554,24 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
         if(!dualLots.has(lot) && _lotHasOtherCarparkMoveIn(propId, lot, y, m, t.id)) dualLots.add(lot);
       });
     });
+    // Lots this function actually has a move-out event for this month.
+    const triggerLots = new Set();
+    crossCpTenantsOut.forEach(t=>{
+      [[t.carpark, t.carpark_property_id || t.property_id], [t.carpark2, t.carpark2_property_id || t.property_id]].forEach(([lotRaw, cpPropId])=>{
+        if(!lotRaw || cpPropId!==propId) return;
+        triggerLots.add(normCarpark(lotRaw));
+      });
+    });
     // SELF-HEAL: same dedup as the room payments above, grouped by lot —
     // also what reconciles today's existing stray/wrong carpark rows, not
-    // just prevents new ones. Skipped for a dual lot (see above).
+    // just prevents new ones. Skipped for a dual lot (see above) AND for any
+    // lot with no move-out event this month (same scope guard as the
+    // room-payment dedup — an ongoing cross-property carpark renter simply
+    // paying in installments must never have a row silently collapsed away).
     const cpDupIds = [];
     const cpByLot = new Map();
     cpByLotRaw.forEach((rowsArr, lot)=>{
-      if(dualLots.has(lot)){ cpByLot.set(lot, rowsArr); return; }
+      if(dualLots.has(lot) || !triggerLots.has(lot)){ cpByLot.set(lot, rowsArr); return; }
       const keep = rowsArr.length>1 ? (rowsArr.find(r=>r.payment_kind) || rowsArr[0]) : rowsArr[0];
       rowsArr.forEach(r=>{ if(r.id!==keep.id) cpDupIds.push(r.id); });
       cpByLot.set(lot, [keep]);
