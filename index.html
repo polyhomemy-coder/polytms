@@ -5892,6 +5892,25 @@ function _installAriaAutoMirror(){
   });
   obs.observe(document.body, {childList:true, subtree:true});
 }
+// Rebuilds the Income Report property dropdown's option labels to show
+// that month's Admin Check / Manager Verify sign-off status per unit (✅/⬜),
+// so the status is visible while picking a unit instead of only after
+// opening it. Depends on the currently-selected #rptMonth — call again
+// whenever that month changes. Preserves the current selection.
+function _fillRptPropWithStatus(){
+  const el = $('#rptProp'); if(!el) return;
+  const mv = $('#rptMonth')?.value;
+  const [y, m] = mv ? mv.split('-').map(Number) : [state.year, state.month];
+  const filteredProps = (state.properties||[]).filter(p=>_propPassesGlobalFilter(p));
+  const cur = el.value;
+  el.innerHTML = filteredProps.map(p=>{
+    const r = _findReportStatus(p.id, y, m);
+    const a = r && r.admin_checked_at    ? '✅' : '⬜';
+    const b = r && r.manager_verified_at ? '✅' : '⬜';
+    return `<option value="${p.id}">${esc(p.condo)} · ${esc(p.unit)} — A${a} M${b}</option>`;
+  }).join('') || '<option value="">— no properties —</option>';
+  if(cur) el.value = cur;
+}
 function fillPropertySelectors(){
   // Apply global sidebar filter so dropdowns only show matching properties
   const filteredProps = (state.properties||[]).filter(p=>_propPassesGlobalFilter(p));
@@ -5933,6 +5952,9 @@ function fillPropertySelectors(){
   // report month dropdown
   buildMonthOptions($('#rptMonth'));
   if(!$('#rptIssue').value) $('#rptIssue').valueAsDate=new Date();
+  // Overwrite rptProp's plain labels (just set above) with sign-off-aware
+  // ones for the now-known report month.
+  _fillRptPropWithStatus();
 }
 
 // ============================================================
@@ -16501,7 +16523,7 @@ function renderReportSignoff(){
         admin_checked_at: alreadyDone ? null : new Date().toISOString(),
         admin_checked_by: alreadyDone ? null : 'admin',
       });
-      await loadReportStatus(); renderReportSignoff(); buildReport();
+      await loadReportStatus(); renderReportSignoff(); _fillRptPropWithStatus(); buildReport();
       toast(alreadyDone ? 'Admin check removed' : '✓ Admin check done');
     } catch(e){ toast(e.message,'bad'); }
     finally { _acq.disabled=false; _acq.style.opacity=''; }
@@ -16520,7 +16542,7 @@ function renderReportSignoff(){
         manager_verified_at: alreadyDone ? null : new Date().toISOString(),
         manager_verified_by: alreadyDone ? null : 'manager',
       });
-      await loadReportStatus(); renderReportSignoff(); buildReport();
+      await loadReportStatus(); renderReportSignoff(); _fillRptPropWithStatus(); buildReport();
       toast(alreadyDone ? 'Manager verify removed' : '🔍 Manager verify done');
     } catch(e){ toast(e.message,'bad'); }
     finally { _mvq.disabled=false; _mvq.style.opacity=''; }
@@ -16716,6 +16738,13 @@ function bindReportAutoPreview(){
     const el = $('#'+id); if(!el) return;
     el.addEventListener('change', ()=>{ if(onReportTab()) buildReport(); });
   });
+
+  // Changing the report month changes which Admin/Manager sign-off state
+  // applies to each unit — refresh the property dropdown's status labels to
+  // match. (Changing the property itself doesn't need this: every option's
+  // label already reflects its own unit's status for the current month.)
+  const rptMonthEl = $('#rptMonth');
+  if(rptMonthEl) rptMonthEl.addEventListener('change', _fillRptPropWithStatus);
 
   // When property or month changes, apply the saved autoCom/autoClean state
   // for that unit+month BEFORE buildReport reads it. This resets the selects
