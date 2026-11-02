@@ -5269,6 +5269,82 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
     const {error} = await sb.from('rental_payments').insert(rows);
     if(!error){ inserted++; byRoom.set(code, {room_code:code, amount:lp.roomShare, payment_kind:'last_month_prorate'}); }
   }
+
+  // Cross-property carpark move-out: a tenant whose ROOM is on a different
+  // property than their CARPARK needs their carpark's final pro-rated
+  // share posted here, under the carpark's OWN property — the move-IN side
+  // of this already exists above in ensureFirstMonthProRateExpensesFor's
+  // _insertCrossCarpark/crossCpTenants, but there was never an equivalent
+  // for move-out, so a departing cross-property carpark tenant's share was
+  // never auto-reconciled: whatever stray/full-rate row happened to be
+  // sitting there (often carrying the NEXT tenant's rate, not even the
+  // departing one's) was left untouched forever instead of being corrected
+  // down to the real pro-rated amount.
+  const _insertCrossCarparkOut = async (cpByLot, t, lot, cpFull) => {
+    const share = _carparkProRateShare(t, cpFull, true, y, m);
+    if(!share || share.share<=0) return; // full month occupied — nothing to pro-rate
+    const monStr = MONTHS[m-1];
+    const remark = `🚪 Move-out pro-rate 1–${share.days} ${monStr}: RM ${cpFull}/${share.dim}×${share.days} = RM ${share.share}`;
+    const existing = cpByLot.get(lot);
+    if(existing){
+      // Reconcile an untagged leftover/stray row the same way the room
+      // rows and the move-in carpark rows already do — only ever touch a
+      // row with no deliberate payment_kind of its own.
+      if(!existing.payment_kind){
+        const {error} = await sb.from('rental_payments').update({
+          amount: share.share, remark, payment_kind: 'last_month_prorate',
+        }).eq('id', existing.id);
+        if(!error) inserted++;
+      }
+      return;
+    }
+    const {error} = await sb.from('rental_payments').insert({
+      property_id: propId, year: y, month: m,
+      item_type: 'carpark', room_code: lot,
+      amount: share.share, paid_on: t.move_out_date || t.agreement_end, remark,
+      payment_kind: 'last_month_prorate',
+    });
+    if(!error){ inserted++; cpByLot.set(lot, {room_code:lot, amount:share.share, payment_kind:'last_month_prorate'}); }
+  };
+  const crossCpTenantsOut = (state.tenants||[]).filter(t=>{
+    if(t.property_id === propId) return false;
+    const hasCross1 = t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId;
+    const hasCross2 = t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId;
+    if(!hasCross1 && !hasCross2) return false;
+    const lp = computeLastMonthProRate(t);
+    return lp && lp.moveOutYear===y && lp.moveOutMonth===m;
+  });
+  if(crossCpTenantsOut.length){
+    const { data: cpPays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
+      .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','carpark');
+    // SELF-HEAL: same dedup as the room payments above, grouped by lot —
+    // also what reconciles today's existing stray/wrong carpark rows, not
+    // just prevents new ones.
+    const cpByLotRaw = new Map();
+    (cpPays||[]).forEach(p=>{
+      const lot = normCarpark(p.room_code);
+      if(!cpByLotRaw.has(lot)) cpByLotRaw.set(lot, []);
+      cpByLotRaw.get(lot).push(p);
+    });
+    const cpDupIds = [];
+    const cpByLot = new Map();
+    cpByLotRaw.forEach((rowsArr, lot)=>{
+      const keep = rowsArr.length>1 ? (rowsArr.find(r=>r.payment_kind) || rowsArr[0]) : rowsArr[0];
+      rowsArr.forEach(r=>{ if(r.id!==keep.id) cpDupIds.push(r.id); });
+      cpByLot.set(lot, keep);
+    });
+    if(cpDupIds.length){
+      const {error: cpDelErr} = await sb.from('rental_payments').delete().in('id', cpDupIds);
+      if(cpDelErr) toast(cpDelErr.message,'bad'); else inserted++;
+    }
+    for(const t of crossCpTenantsOut){
+      if(t.carpark  && Number(t.carpark_rental||0)>0  && (t.carpark_property_id  || t.property_id)===propId)
+        await _insertCrossCarparkOut(cpByLot, t, normCarpark(t.carpark),  Number(t.carpark_rental||0));
+      if(t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===propId)
+        await _insertCrossCarparkOut(cpByLot, t, normCarpark(t.carpark2), Number(t.carpark2_rental||0));
+    }
+  }
+
   return inserted > 0;
 }
 async function ensureLastMonthProRateExpenses(){
