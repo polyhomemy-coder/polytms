@@ -9448,21 +9448,21 @@ function recontractTenant(id){
       // 12-month recontract = full month's rental × 20%, anything shorter
       // scales down linearly, longer scales up. Forced to 0 for R2R Own
       // Unit — Polyhome doesn't charge itself a retention commission.
-      // Carparks are charged the same way — and a carpark that belongs to a
-      // DIFFERENT property than the room (cross-property carpark) gets its
-      // own fee posted to ITS OWN property's report, same as cross-property
-      // rent commission/income already works elsewhere in this app, rather
-      // than silently folding into the room property's expense.
+      // A carpark is treated exactly like a room for retention-fee purposes
+      // — its own separate expense row, filed on ITS OWN property (which
+      // may be a different unit than the tenant's room, same as any other
+      // cross-property carpark income/commission already works elsewhere
+      // in this app). Posting room and carpark(s) as SEPARATE rows — rather
+      // than folding a same-property carpark into the room's row — keeps
+      // each item independently correctable if, say, the carpark later
+      // gets reassigned to a different tenant on its own renewal schedule.
       const cpProp1 = t.carpark_property_id  || t.property_id;
       const cpProp2 = t.carpark2_property_id || t.property_id;
       const feeOf = rental => isOwnR2R ? 0 : +((rental / 12) * months * 0.2).toFixed(2);
-      const roomFee     = feeOf(newRental);
-      const sameCpFee   = (hasCarpark  && cpProp1===t.property_id) ? feeOf(newCp)  : 0;
-      const sameCp2Fee  = (hasCarpark2 && cpProp2===t.property_id) ? feeOf(newCp2) : 0;
-      const crossCpFee  = (hasCarpark  && cpProp1!==t.property_id) ? feeOf(newCp)  : 0;
-      const crossCp2Fee = (hasCarpark2 && cpProp2!==t.property_id) ? feeOf(newCp2) : 0;
-      const fee = roomFee + sameCpFee + sameCp2Fee; // posted to the room's own property
-      const totalFee = fee + crossCpFee + crossCp2Fee;
+      const roomFee  = feeOf(newRental);
+      const cpFee    = hasCarpark  ? feeOf(newCp)  : 0;
+      const cp2Fee   = hasCarpark2 ? feeOf(newCp2) : 0;
+      const totalFee = roomFee + cpFee + cp2Fee;
 
       // 1) Update the tenant — extend end, record the new term's own start
       //    date, + apply any price changes.
@@ -9473,47 +9473,31 @@ function recontractTenant(id){
       const {error: tErr} = await sb.from('tenants').update(tPatch).eq('id', t.id);
       if(tErr) throw tErr;
 
-      // 2) Post the retention fee — always for R2R Own Unit (as a RM 0
-      // record so the renewal is still on file), otherwise only when
-      // there's actually a rental on file to charge against. Same-property
-      // room + carpark(s) are combined into one expense row on the room's
-      // property; a cross-property carpark gets its own separate row on
-      // ITS OWN property.
-      if(fee > 0 || isOwnR2R){
-        const cpCodes = [sameCpFee>0?t.carpark:null, sameCp2Fee>0?t.carpark2:null].filter(Boolean);
-        const label = cpCodes.length ? `Room ${t.room_code||'?'} + Carpark ${cpCodes.join(', ')}` : `Room ${t.room_code||'?'}`;
-        const desc = `Tenant Retention Fee (${label}) — ${t.name} · +${months} mo`;
+      // 2) Post the retention fee — one row per rentable item (room,
+      // carpark, carpark2), each on its own property. Always posted for
+      // R2R Own Unit (as a RM 0 record so the renewal is on file),
+      // otherwise only when there's actually a rental on file to charge.
+      const feeRows = [];
+      if(roomFee > 0 || isOwnR2R){
+        feeRows.push({property_id: t.property_id, amount: roomFee,
+          description: `Tenant Retention Fee (Room ${t.room_code||'?'}) — ${t.name} · +${months} mo`});
+      }
+      if(cpFee > 0){
+        feeRows.push({property_id: cpProp1, amount: cpFee,
+          description: `Tenant Retention Fee (Carpark ${t.carpark||'?'}) — ${t.name} · +${months} mo`});
+      }
+      if(cp2Fee > 0){
+        feeRows.push({property_id: cpProp2, amount: cp2Fee,
+          description: `Tenant Retention Fee (Carpark ${t.carpark2||'?'}) — ${t.name} · +${months} mo`});
+      }
+      for(const row of feeRows){
         const {error: eErr} = await sb.from('expenses').insert({
-          property_id: t.property_id,
+          ...row,
           year: state.year, month: state.month,
           category: 'rent_commission',
-          description: desc,
-          amount: fee,
           expense_date: todayISODateLocal(),
         });
         if(eErr) throw eErr;
-      }
-      if(crossCpFee > 0){
-        const {error: e1Err} = await sb.from('expenses').insert({
-          property_id: cpProp1,
-          year: state.year, month: state.month,
-          category: 'rent_commission',
-          description: `Tenant Retention Fee (Carpark ${t.carpark||'?'}) — ${t.name} · +${months} mo`,
-          amount: crossCpFee,
-          expense_date: todayISODateLocal(),
-        });
-        if(e1Err) throw e1Err;
-      }
-      if(crossCp2Fee > 0){
-        const {error: e2Err} = await sb.from('expenses').insert({
-          property_id: cpProp2,
-          year: state.year, month: state.month,
-          category: 'rent_commission',
-          description: `Tenant Retention Fee (Carpark ${t.carpark2||'?'}) — ${t.name} · +${months} mo`,
-          amount: crossCp2Fee,
-          expense_date: todayISODateLocal(),
-        });
-        if(e2Err) throw e2Err;
       }
       await loadTenants();
       // The old agreement_end may have fallen mid-this-month, which would
@@ -9552,25 +9536,20 @@ function recontractTenant(id){
       // room AND carpark(s). Forced to 0 for R2R Own Unit — Polyhome
       // doesn't charge itself a retention commission.
       const feeOf = rental => isOwnR2R ? 0 : +((rental/12) * mo * 0.2).toFixed(2);
-      const roomFee     = feeOf(r);
-      const sameCpFee   = (hasCarpark  && cpProp1===t.property_id) ? feeOf(cp)  : 0;
-      const sameCp2Fee  = (hasCarpark2 && cpProp2===t.property_id) ? feeOf(cp2) : 0;
-      const crossCpFee  = (hasCarpark  && cpProp1!==t.property_id) ? feeOf(cp)  : 0;
-      const crossCp2Fee = (hasCarpark2 && cpProp2!==t.property_id) ? feeOf(cp2) : 0;
-      const fee = roomFee + sameCpFee + sameCp2Fee;
-      const totalFee = fee + crossCpFee + crossCp2Fee;
+      const roomFee  = feeOf(r);
+      const cpFee    = hasCarpark  ? feeOf(cp)  : 0;
+      const cp2Fee   = hasCarpark2 ? feeOf(cp2) : 0;
+      const totalFee = roomFee + cpFee + cp2Fee;
       const priceChanged = (r!==oldRental) || (hasCarpark && cp!==oldCarpark) || (hasCarpark2 && cp2!==oldCarpark2);
       const priceLines = priceChanged
         ? `<div class="mt-1 text-emerald-700"><b>Price change:</b> Room RM ${fmt(oldRental)} → <b>RM ${fmt(r)}</b>${hasCarpark?' · Carpark RM '+fmt(oldCarpark)+' → <b>RM '+fmt(cp)+'</b>':''}${hasCarpark2?' · Carpark 2 RM '+fmt(oldCarpark2)+' → <b>RM '+fmt(cp2)+'</b>':''}</div>`
         : '<div class="mt-1 text-slate-500">No price change.</div>';
-      const cpCodes = [sameCpFee>0?t.carpark:null, sameCp2Fee>0?t.carpark2:null].filter(Boolean);
-      const label = cpCodes.length ? `Room ${esc(t.room_code||'?')} + Carpark ${esc(cpCodes.join(', '))}` : `Room ${esc(t.room_code||'?')}`;
       const feeLine = isOwnR2R
         ? `<div class="text-slate-500 text-[11px] mt-0.5">R2R Own Unit — no retention fee charged to yourself.</div>`
-        : `<div class="text-slate-500 text-[11px] mt-0.5">Room: RM ${fmt(r)} ÷ 12 × ${mo||0} mo × 20% = RM ${fmt(roomFee)}${hasCarpark?`<br>Carpark ${esc(t.carpark||'')}: RM ${fmt(cp)} ÷ 12 × ${mo||0} mo × 20% = RM ${fmt(sameCpFee+crossCpFee)}${crossCpFee>0?' (posted to its own property)':''}`:''}${hasCarpark2?`<br>Carpark ${esc(t.carpark2||'')}: RM ${fmt(cp2)} ÷ 12 × ${mo||0} mo × 20% = RM ${fmt(sameCp2Fee+crossCp2Fee)}${crossCp2Fee>0?' (posted to its own property)':''}`:''}</div>`;
+        : `<div class="text-slate-500 text-[11px] mt-0.5">Room ${esc(t.room_code||'?')}: RM ${fmt(r)} ÷ 12 × ${mo||0} mo × 20% = RM ${fmt(roomFee)} (own row)${hasCarpark?`<br>Carpark ${esc(t.carpark||'')}: RM ${fmt(cp)} ÷ 12 × ${mo||0} mo × 20% = RM ${fmt(cpFee)} (own row${cpProp1!==t.property_id?', its own property':''})`:''}${hasCarpark2?`<br>Carpark ${esc(t.carpark2||'')}: RM ${fmt(cp2)} ÷ 12 × ${mo||0} mo × 20% = RM ${fmt(cp2Fee)} (own row${cpProp2!==t.property_id?', its own property':''})`:''}</div>`;
       prev.innerHTML = `
-        <div class="font-bold mb-1">Auto-posted Expense (pro-rated)</div>
-        <div><b>Tenant Retention Fee (${label})</b> = <b class="text-[#F4811F]">RM ${fmt(totalFee)}</b></div>
+        <div class="font-bold mb-1">Auto-posted Expense${(hasCarpark||hasCarpark2)?'s (pro-rated, one row per item)':' (pro-rated)'}</div>
+        <div><b>Tenant Retention Fee total</b> = <b class="text-[#F4811F]">RM ${fmt(totalFee)}</b></div>
         ${feeLine}
         <div class="text-slate-500">Filed under <b>Rent Commission</b> for ${esc(MONTHS_FULL[state.month-1]+' '+state.year)}.</div>
         ${priceLines}`;
