@@ -2365,6 +2365,13 @@
             </select>
           </div>
         </div>
+        <div class="mt-2">
+          <label class="label">Cleaning auto?</label>
+          <select id="rptAutoClean" class="input">
+            <option value="1">Yes (use property schedule)</option>
+            <option value="0">No (use expenses)</option>
+          </select>
+        </div>
         <label class="label mt-3">Layout</label>
         <div id="viewToggle" class="flex gap-1 bg-[#E8F8FA] rounded-xl p-1">
           <button data-view="mobile"  class="view-tab flex-1 px-3 py-2 rounded-lg text-sm font-bold">📱 Mobile</button>
@@ -3896,6 +3903,9 @@ async function ensureCleaningExpenses(){
     // Skip if this property's report for this month is locked — never write
     // through the lock with auto-materialized rows.
     if(isReportLocked(p.id, y, m)) continue;
+    // Skip if the admin has turned off Cleaning Auto for this property+month
+    // (via the Income Report's "Cleaning auto?" dropdown or a prior delete).
+    if(_cleanAutoIsOff(p.id, y, m)) continue;
     // Skip if already has any cleaning expense for this month
     const has = state.expenses.some(e=>
       e.property_id===p.id && e.category==='cleaning'
@@ -4514,6 +4524,27 @@ async function _downloadDesktopPDF(propId, y, m){
 // "Cleaning" rows beyond the property's own configured times-per-month
 // (two concurrent callers both counting "0 of 2 exist yet" before either
 // insert landed, so both inserted their own 2, for 4 total).
+// Per property+month autoClean override — mirrors _rcAutoComKey/_rcAutoComIsOff
+// below. When the admin deletes a cleaning row (e.g. the cleaner skipped a
+// visit that month), "Cleaning Auto" is forced OFF for that property+month so
+// the self-heal logic stops topping it back up to the configured times-per-
+// month, letting the admin's manual edit stick.
+function _cleanAutoKey(propId, y, m){ return `polyTMS_clean_auto_off_${propId}_${y}_${m}`; }
+function _cleanAutoIsOff(propId, y, m){
+  const dbRow = _findReportStatus(propId, y, m);
+  if(dbRow && dbRow.autoclean_off) return true;
+  try { return localStorage.getItem(_cleanAutoKey(propId,y,m))==='1'; } catch(_){ return false; }
+}
+function _cleanAutoSetOff(propId, y, m){
+  try { localStorage.setItem(_cleanAutoKey(propId,y,m),'1'); } catch(_){}
+  setReportStatus(propId, y, m, {autoclean_off: true}).catch(e=>console.warn('[autoclean_off]',e));
+}
+function _applyCleanAutoOverride(propId, y, m){
+  const sel = $('#rptAutoClean');
+  if(!sel) return;
+  sel.value = _cleanAutoIsOff(propId, y, m) ? '0' : '1';
+}
+
 const _cleanInFlight = new Map();
 async function ensureCleaningExpensesFor(propId, y, m){
   const key = propId+'_'+y+'_'+m;
@@ -4527,6 +4558,10 @@ async function _ensureCleaningExpensesForImpl(propId, y, m){
   const p = (state.properties||[]).find(x=>x.id===propId);
   if(!p || p.active===false) return false;
   if(isReportLocked(propId, y, m)) return false;
+  // Never auto-insert/top-up when the admin has turned off Cleaning Auto
+  // for this property+month (set automatically on manual delete — see
+  // delExpense — or via the Income Report's "Cleaning auto?" dropdown).
+  if(_cleanAutoIsOff(propId, y, m)) return false;
   const times  = Number(p.cleaning_times_per_month||0);
   const charge = Number(p.cleaning_charge_per_time||0);
   if(times<=0 || charge<=0) return false;
@@ -14330,6 +14365,30 @@ async function delExpense(id){
     return;
   }
 
+  // Special warning for cleaning rows — deleting one turns off Cleaning Auto
+  // for that property+month, so the next report view/visit doesn't silently
+  // top it back up to the property's configured times-per-month.
+  if(r && r.category==='cleaning'){
+    const prop = state.properties.find(p=>p.id===r.property_id);
+    const propLabel = prop ? `${prop.condo} ${prop.unit}` : 'this unit';
+    const monthLabel = MONTHS[r.month-1]+' '+r.year;
+    const ok = await confirmModal(
+      `⚠️ Deleting this Cleaning expense will:\n\n` +
+      `• Remove "${r.description||'this row'}" permanently\n` +
+      `• Turn OFF "Cleaning Auto" for ${propLabel} — ${monthLabel} in the Income Report\n\n` +
+      `The Income Report will switch to "No (use expenses)" and no longer auto-top-up cleaning for this property + month.\n\nProceed?`,
+      {confirmText:'OK, Delete', danger:true}
+    );
+    if(!ok) return;
+    try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); }
+    const {error}=await sb.from('expenses').delete().eq('id',id); if(error)return toast(error.message,'bad');
+    _cleanAutoSetOff(r.property_id, r.year, r.month);
+    _applyCleanAutoOverride(r.property_id, r.year, r.month);
+    await loadExpenses();
+    renderTab('expenses'); toast('Deleted — Cleaning Auto turned OFF for '+propLabel+' '+monthLabel);
+    return;
+  }
+
   if(!await confirmModal('Delete this expense?',{confirmText:'Delete',danger:true}))return;
   if(r){ try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); } }
   const {error}=await sb.from('expenses').delete().eq('id',id); if(error)return toast(error.message,'bad');
@@ -15908,18 +15967,21 @@ async function buildReport(){
   const mv = $('#rptMonth').value;
   if(!propId||!mv){ $('#rptStatus').textContent='Pick property + month to preview.'; return; }
   const [y,m]=mv.split('-').map(Number);
-  // Always apply the saved autoCom override for this property+month before reading
-  // the dropdown — critical for fresh sessions where the select hasn't been touched.
+  // Always apply the saved autoCom/autoClean override for this property+month
+  // before reading the dropdowns — critical for fresh sessions where the
+  // select hasn't been touched.
   _applyAutoComOverride(propId, y, m);
+  _applyCleanAutoOverride(propId, y, m);
   const issue = $('#rptIssue').value || todayISODateLocal();
   const autoFee = $('#rptAutoFee').value==='1';
   const autoCom = $('#rptAutoCom').value==='1';
+  const autoClean = $('#rptAutoClean').value==='1';
   $('#rptStatus').textContent='Generating…';
   // Auto-materialize cleaning + balance-forward for this property+month so
   // the report reflects them immediately, even when the user picks a month
   // they haven't visited in the Expenses tab yet.
   let materialized = false;
-  materialized = (await ensureCleaningExpensesFor(propId, y, m)) || materialized;
+  if(autoClean) materialized = (await ensureCleaningExpensesFor(propId, y, m)) || materialized;
   // Backfill pro-rate payment rows for ALL move-in / move-out tenants on
   // this property+month — including ones created before the auto-pro-rate
   // feature existed. This is what makes the 2nd, 3rd, … tenant's pro-rate
@@ -16603,14 +16665,15 @@ function bindReportAutoPreview(){
     el.addEventListener('change', buildReportDebounced);
   });
   // Other inputs (issue date, fee toggles): respond immediately
-  ['rptIssue','rptAutoFee','rptAutoCom'].forEach(id=>{
+  ['rptIssue','rptAutoFee','rptAutoCom','rptAutoClean'].forEach(id=>{
     const el = $('#'+id); if(!el) return;
     el.addEventListener('change', ()=>{ if(onReportTab()) buildReport(); });
   });
 
-  // When property or month changes, apply the saved autoCom state for that
-  // unit+month BEFORE buildReport reads it. This resets the select correctly
-  // (ON for fresh months, OFF for months where commission was deleted).
+  // When property or month changes, apply the saved autoCom/autoClean state
+  // for that unit+month BEFORE buildReport reads it. This resets the selects
+  // correctly (ON for fresh months, OFF for months where commission/cleaning
+  // was deleted).
   ['rptProp','rptMonth'].forEach(id=>{
     const el = $('#'+id); if(!el) return;
     el.addEventListener('change', ()=>{
@@ -16619,6 +16682,7 @@ function bindReportAutoPreview(){
       if(!propId || !mv) return;
       const [y, m] = mv.split('-').map(Number);
       _applyAutoComOverride(propId, y, m);
+      _applyCleanAutoOverride(propId, y, m);
       renderAnnotations();
     }, true); // capture phase so it fires before the buildReport listener
   });
@@ -16659,6 +16723,29 @@ function bindReportAutoPreview(){
         // Also clear in DB so other browsers stop blocking auto-insert
         setReportStatus(propId, y, m, {autocom_off: false}).catch(e=>console.warn('[autocom_off clear]',e));
         toast('Rent-Comm Auto ON — commission will be restored for this unit & month ✓');
+      }
+    });
+  }
+
+  // ── Cleaning Auto toggle: persist per property+month ──────────────────────
+  // Same pattern as Rent-Comm Auto above — OFF saves the override (no
+  // auto-topped-up cleaning rows for this unit+month), ON clears it so the
+  // self-heal logic resumes maintaining the property's configured count.
+  const autoCleanSel = $('#rptAutoClean');
+  if(autoCleanSel){
+    autoCleanSel.addEventListener('change', async ()=>{
+      const propId = $('#rptProp')?.value;
+      const mv     = $('#rptMonth')?.value;
+      if(!propId || !mv) return;
+      const [y, m] = mv.split('-').map(Number);
+      const isOn = autoCleanSel.value === '1';
+
+      if(!isOn){
+        _cleanAutoSetOff(propId, y, m);
+      } else {
+        try { localStorage.removeItem(_cleanAutoKey(propId, y, m)); } catch(_){}
+        setReportStatus(propId, y, m, {autoclean_off: false}).catch(e=>console.warn('[autoclean_off clear]',e));
+        toast('Cleaning Auto ON — cleaning rows will be restored for this unit & month ✓');
       }
     });
   }
