@@ -16664,8 +16664,15 @@ function bindReportAutoPreview(){
     const el = $('#'+id); if(!el) return;
     el.addEventListener('change', buildReportDebounced);
   });
-  // Other inputs (issue date, fee toggles): respond immediately
-  ['rptIssue','rptAutoFee','rptAutoCom','rptAutoClean'].forEach(id=>{
+  // Other inputs (issue date, fee toggle): respond immediately. rptAutoCom
+  // and rptAutoClean are deliberately NOT here — they have their own
+  // dedicated listeners below that must set/clear the override flags BEFORE
+  // triggering a rebuild. Having both a generic listener AND a dedicated one
+  // on the same element/event raced: the generic one (registered first) ran
+  // buildReport() — which re-applies the OLD flag state and snaps the
+  // dropdown back to it — before the dedicated listener ever got a chance to
+  // persist the new flag state. That's what made "No → Yes" appear stuck.
+  ['rptIssue','rptAutoFee'].forEach(id=>{
     const el = $('#'+id); if(!el) return;
     el.addEventListener('change', ()=>{ if(onReportTab()) buildReport(); });
   });
@@ -16691,8 +16698,11 @@ function bindReportAutoPreview(){
   // When turned OFF → save the override (no auto commission for this unit+month)
   // When turned ON  → clear the override AND deletion flags so commission
   //                   rows re-appear in the report and DB.
-  // NOTE: flag save/clear is done SYNCHRONOUSLY at the top so buildReport
-  // (triggered by the other 'change' listener) reads the correct state.
+  // This listener owns the full flow itself (set/clear flags THEN rebuild) —
+  // it must NOT share the 'change' event with a separate generic listener,
+  // since registration order would decide which runs first and a rebuild
+  // that reads the flag before it's cleared just re-applies the old state
+  // (see the comment above the generic-listener forEach).
   const autoComSel = $('#rptAutoCom');
   if(autoComSel){
     autoComSel.addEventListener('change', async ()=>{
@@ -16706,10 +16716,14 @@ function bindReportAutoPreview(){
         // Synchronously persist OFF — buildReport will read autoCom=false
         _rcAutoComSetOff(propId, y, m);
       } else {
-        // Synchronously clear all flags ONLY — do NOT call ensureRentCommissionExpensesFor
-        // or buildReport here. The 'change' listener above already triggers buildReport(),
-        // which internally calls ensureRentCommissionExpensesFor. Running both in parallel
-        // causes two concurrent DB inserts that both see no existing row → duplicate rows.
+        // Synchronously clear the LOCAL cache (state.reportStatus) too, not
+        // just localStorage — _rcAutoComIsOff checks the DB-backed cache
+        // FIRST and short-circuits on it, so if a stale {autocom_off:true}
+        // row is still sitting in state.reportStatus from a previous load,
+        // clearing only localStorage below would have no visible effect
+        // until the async setReportStatus() round-trip finishes.
+        const existing = _findReportStatus(propId, y, m);
+        if(existing) existing.autocom_off = false;
         try { localStorage.removeItem(_rcAutoComKey(propId, y, m)); } catch(_){}
         const prefix = `polyTMS_rc_del_${propId}_${y}_${m}_`;
         try {
@@ -16720,17 +16734,20 @@ function bindReportAutoPreview(){
           }
           keys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){} });
         } catch(_){}
-        // Also clear in DB so other browsers stop blocking auto-insert
+        // Persist to DB in the background — local state is already correct.
         setReportStatus(propId, y, m, {autocom_off: false}).catch(e=>console.warn('[autocom_off clear]',e));
         toast('Rent-Comm Auto ON — commission will be restored for this unit & month ✓');
       }
+      if(onReportTab()) buildReport();
     });
   }
 
   // ── Cleaning Auto toggle: persist per property+month ──────────────────────
   // Same pattern as Rent-Comm Auto above — OFF saves the override (no
-  // auto-topped-up cleaning rows for this unit+month), ON clears it so the
-  // self-heal logic resumes maintaining the property's configured count.
+  // auto-topped-up cleaning rows for this unit+month), ON clears it (local
+  // cache synchronously, DB in the background) so the self-heal logic
+  // resumes maintaining the property's configured count, then this listener
+  // triggers the rebuild itself once the flags are correct.
   const autoCleanSel = $('#rptAutoClean');
   if(autoCleanSel){
     autoCleanSel.addEventListener('change', async ()=>{
@@ -16743,10 +16760,13 @@ function bindReportAutoPreview(){
       if(!isOn){
         _cleanAutoSetOff(propId, y, m);
       } else {
+        const existing = _findReportStatus(propId, y, m);
+        if(existing) existing.autoclean_off = false;
         try { localStorage.removeItem(_cleanAutoKey(propId, y, m)); } catch(_){}
         setReportStatus(propId, y, m, {autoclean_off: false}).catch(e=>console.warn('[autoclean_off clear]',e));
         toast('Cleaning Auto ON — cleaning rows will be restored for this unit & month ✓');
       }
+      if(onReportTab()) buildReport();
     });
   }
   // View toggle (Desktop / Mobile)
