@@ -4691,7 +4691,15 @@ async function computeMonthNett(P, year, month){
     sb.from('expenses').select('*').eq('property_id',P.id).eq('year',year).eq('month',month),
     sb.from('extra_incomes').select('*').eq('property_id',P.id).eq('year',year).eq('month',month),
   ]);
-  const payments = pay.data||[], aircon = air.data||[];
+  // Only 'room'/'carpark' rows are actual rent — a row like 'penalty' (see
+  // openSplitPenaltyModal) is real cash collected from the tenant, but NOT
+  // part of the owner's rental income (it's a late-fee kept out of the
+  // report), so it must stay excluded here the same way buildReportLineMap
+  // already excludes it from the report itself — otherwise nett (and the
+  // Balance-Forward chain built on it) would silently count money the
+  // report never shows.
+  const payments = (pay.data||[]).filter(p=>p.item_type==='room'||p.item_type==='carpark');
+  const aircon = air.data||[];
   const expenses = exp.data||[], extras = ext.data||[];
   // Per-payment income: stored amount EXCEPT for `advance_covered_full` rows
   // where the cash received is the prior-month pro-rate but the income to
@@ -7740,7 +7748,9 @@ function renderDashboardMetrics(){
   // reconciles with those — sourced from already-loaded state instead of
   // a fresh DB fetch per property, for a fast synchronous render.
   const r2rIncome = r2rProps.reduce((sum,p)=>{
-    const propPayments = state.payments.filter(x=>x.property_id===p.id);
+    // Excludes a 'penalty' row (see openSplitPenaltyModal) the same way
+    // computeMonthNett now does — real cash, but not rental income.
+    const propPayments = state.payments.filter(x=>x.property_id===p.id && (x.item_type==='room'||x.item_type==='carpark'));
     // advance_covered_full rows: cash received is the PRIOR month's
     // pro-rate, but the income recognized this month is the full room+
     // carpark rental (the advance already covers this month).
@@ -11361,16 +11371,19 @@ function renderPayments(){
           : `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">≠ Expected ${fmt(expected)}</span>`;
       }
     }
+    const penaltyLabel = r.item_type==='penalty'
+      ? `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">⚠ Penalty — excluded from Income Report</span>` : '';
     return `<tr class="${grpCls}">
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
       <td class="font-semibold">${p ? esc(p.unit) : ''}</td>
-      <td class="font-bold">Room ${esc(r.room_code)}${splitChip}</td>
+      <td class="font-bold">Room ${esc(r.room_code)}${splitChip}${penaltyLabel}</td>
       <td class="num">${fmt(r.amount)}</td>
       <td>${fmtDate(r.paid_on)}</td>
       <td>${esc(r.remark||'')}</td>
       <td class="text-right whitespace-nowrap">
         ${_editAllowed('income','ledger') ? `
         <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openPaymentModal('${r.id}')">Edit</button>
+        ${r.item_type==='room' ? `<button class="px-2 py-1 rounded bg-amber-50 text-amber-700 text-xs font-semibold" onclick="openSplitPenaltyModal('${r.id}')" title="Split out a late-payment penalty so only the real rent counts toward income">✂ Split Penalty</button>` : ''}
         <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delPayment('${r.id}')">Del</button>` : ''}
       </td>
     </tr>`;
@@ -13756,6 +13769,70 @@ async function delPayment(id){
   await loadPayments();
   await syncDerivedExpenses();
   renderTab('payments'); toast('Deleted');
+}
+
+// Splits a consolidated "rent + penalty" payment into two rows: the real
+// rent (shrinks the existing room row) and the penalty/late fee (a new row
+// tagged item_type:'penalty'). That tag is what keeps the penalty out of
+// the Income Report and nett/Rent-Collection-Status math — the report's
+// buildReportLineMap, computeMonthNett, and _tenantMonthRentStatus all only
+// ever look at item_type 'room'/'carpark', so a 'penalty' row is invisible
+// to them by construction while still showing up as a normal line in the
+// Payments Ledger (and its exports) for bookkeeping.
+function openSplitPenaltyModal(id){
+  const r = state.payments.find(x=>x.id===id);
+  if(!r) return;
+  try { requireReportEditable(r.property_id, r.year, r.month); }
+  catch(e){ return toast(e.message,'bad'); }
+  const total = Number(r.amount||0);
+  openModal(`Split Penalty — Room ${esc(r.room_code||'?')}`, `
+    <div class="space-y-3">
+      <div class="rounded-xl bg-[#FFF4E5] border border-[#F8C893] px-3 py-2 text-xs leading-relaxed text-slate-700">
+        Splits this payment into the real rent (stays counted in the Income Report) and a late-payment penalty/late fee (kept out of the Income Report, but still recorded here in the Payments Ledger for your records).
+      </div>
+      <div><label class="label">Total Received (RM)</label>
+        <input class="input" disabled value="${fmt(total)}">
+      </div>
+      <div><label class="label">Penalty / Late Fee (RM) *</label>
+        <input type="number" step="0.01" min="0.01" max="${total}" id="sp_penalty" class="input" placeholder="e.g. 350">
+      </div>
+      <div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
+        Rent portion (goes to Income Report): <b id="sp_rent_preview">RM ${fmt(total)}</b>
+      </div>
+    </div>`,
+    async ()=>{
+      const penalty = Number($('#sp_penalty').value)||0;
+      if(!(penalty>0)) throw new Error('Enter a penalty amount greater than 0');
+      if(penalty>=total) throw new Error('Penalty must be less than the total received');
+      const rentPortion = +(total - penalty).toFixed(2);
+      const newRemark = (r.remark ? r.remark+' · ' : '') + `✂ Penalty of RM ${fmt(penalty)} split out`;
+      const {error: upErr} = await sb.from('rental_payments').update({
+        amount: rentPortion, remark: newRemark,
+      }).eq('id', r.id);
+      if(upErr) throw upErr;
+      const {error: insErr} = await sb.from('rental_payments').insert({
+        property_id: r.property_id, year: r.year, month: r.month,
+        item_type: 'penalty', room_code: r.room_code,
+        amount: penalty, paid_on: r.paid_on,
+        remark: `⚠ Late payment penalty (split from RM ${fmt(total)} total)`,
+      });
+      if(insErr) throw insErr;
+      await loadPayments();
+      await syncDerivedExpenses();
+      renderTab('payments');
+      toast(`✓ Split: RM ${fmt(rentPortion)} rent + RM ${fmt(penalty)} penalty`);
+    },
+    'Split'
+  );
+  setTimeout(()=>{
+    const inp = document.getElementById('sp_penalty');
+    const preview = document.getElementById('sp_rent_preview');
+    if(!inp || !preview) return;
+    inp.addEventListener('input', ()=>{
+      const pen = Number(inp.value)||0;
+      preview.textContent = 'RM ' + fmt(Math.max(0, total - pen));
+    });
+  }, 50);
 }
 
 async function prefillPayments(){
