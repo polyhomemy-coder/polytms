@@ -5096,7 +5096,17 @@ async function _ensureFirstMonthProRateExpensesForImpl(propId, y, m){
     if(t.property_id !== propId) return false;
     return monthMatch(t);
   });
-  if(!tenants.length) return false;
+  // NOTE: deliberately NOT returning early when `tenants` (same-property
+  // room move-ins) is empty — this function also handles the cross-
+  // property carpark section further below, which applies to a tenant
+  // whose CARPARK is here but whose ROOM is on a different property, so
+  // `tenants` can legitimately be empty while there's still real carpark
+  // work to do. An early return here used to skip that section entirely,
+  // silently making it dead code for any property-month with cross-
+  // property-only carpark activity (no same-property room move-in) — which
+  // is exactly the L4-241 case: both tenants' rooms are elsewhere, so this
+  // property never has any room-side move-in to report, and the function
+  // was exiting before ever reaching the carpark logic below.
   const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','room');
   const byRoomRaw = new Map();
@@ -5324,7 +5334,12 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
     const lp = computeLastMonthProRate(t);
     return lp && lp.moveOutYear===y && lp.moveOutMonth===m;
   });
-  if(!tenants.length) return false;
+  // NOTE: deliberately NOT returning early when `tenants` is empty — same
+  // reasoning as the matching comment in _ensureFirstMonthProRateExpenses
+  // ForImpl. This is precisely why the L4-241 fix never actually ran: Meta
+  // A-13-10 has no same-property room move-out that month (both tenants'
+  // rooms are elsewhere), so this used to exit before ever reaching the
+  // cross-property carpark section below.
   const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','room');
   const byRoomRaw = new Map();
