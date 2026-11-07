@@ -13521,10 +13521,21 @@ function parseTenantBookingText(raw){
     result.no_of_staying = 1;
   }
 
-  // Emergency contact
+  // Emergency contact. The phone number is commonly inline on the heading
+  // itself ("Emergency Contact : +60184006229") rather than on its own
+  // "Contact:" line below — section() consumes that heading line without
+  // adding it to `em` (it's what matched startRe), so a value living only
+  // there was never seen by fg(em, ...) and silently came out blank. Try
+  // the heading line's own value first, then fall back to a separate
+  // "Contact:" line inside the section for formats that use one.
+  result.emergency_contact = get(lines, /emergency\s*contact\s*[:：]\s*(.+)/i) ||
+                             (em.length ? fg(em, /contact\s*[:：]\s*(.+)/i) : '');
   if(em.length){
-    result.emergency_name    = fg(em, /^name\s*[:：]\s*(.+)/i);
-    result.emergency_contact = fg(em, /contact\s*[:：]\s*(.+)/i);
+    result.emergency_name = fg(em, /^name\s*[:：]\s*(.+)/i);
+    // Fold "Relationship: Boss" into the name as "Nalvin (boss)" — there's
+    // no separate relationship field on the tenant form.
+    const relationship = fg(em, /relationship\s*[:：]\s*(.+)/i);
+    if(result.emergency_name && relationship) result.emergency_name += ` (${relationship.toLowerCase()})`;
   }
 
   return result;
