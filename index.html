@@ -12095,6 +12095,11 @@ async function commitInlinePayment(tr){
       x.active!==false
     );
     const {kind, amtToRecord, finalRem} = await _detectRoomPaymentKind(tenant, pid, amt, rem);
+    // Stamp who manually keyed this row in — a receipt import already
+    // self-identifies via "Imported from <filename>" in its remark, but a
+    // row typed straight into the ledger (this inline Add Row, or the Add/
+    // Edit Payment modal) had no record of which admin/manager entered it.
+    const who = _signoffNameLabel();
     // Confirming a move-out pro-rate here should settle the existing
     // unconfirmed auto-placeholder (see _proRateInsertRows), not add a
     // second row for the same event — same reconciliation as saveAllReceipts.
@@ -12107,13 +12112,15 @@ async function commitInlinePayment(tr){
       : null;
     const { error } = placeholder
       ? await sb.from('rental_payments').update({
-          amount: amtToRecord, paid_on: date || null, remark: finalRem,
+          amount: amtToRecord, paid_on: date || null,
+          remark: (finalRem ? finalRem+' · ' : '') + `Confirmed by ${who}`,
           payment_kind: kind, prorate_unconfirmed: false,
         }).eq('id', placeholder.id)
       : await sb.from('rental_payments').insert({
           property_id: pid, year: state.year, month: state.month,
           item_type: 'room', room_code: code, amount: amtToRecord,
-          paid_on: date || null, remark: finalRem,
+          paid_on: date || null,
+          remark: (finalRem ? finalRem+' · ' : '') + `Logged by ${who}`,
           payment_kind: kind,
         });
     if(error) throw error;
@@ -14228,6 +14235,13 @@ function openPaymentModal(id){
         payload.amount = amtToRecord;
         payload.remark = finalRem;
         payload.payment_kind = kind;
+      }
+      // Stamp who manually added this row — same attribution as the inline
+      // Add Row quick-add. Only on a brand-new row, not every edit, so
+      // fixing a typo later doesn't keep appending another "Logged by".
+      if(!id){
+        const who = _signoffNameLabel();
+        payload.remark = payload.remark ? payload.remark+' · Logged by '+who : 'Logged by '+who;
       }
       // Saving an edit on a row that was an unconfirmed move-out pro-rate
       // placeholder (see _proRateInsertRows) is itself the confirmation —
