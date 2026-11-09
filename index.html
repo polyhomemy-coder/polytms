@@ -2226,6 +2226,7 @@
       </div>
 
       <div id="recvStatus" class="mt-2 help flex-shrink-0"></div>
+      <button id="recvAddMoreBtn" onclick="document.getElementById('recvFiles').click()" class="hidden mt-1 flex-shrink-0 self-start text-xs font-bold text-[color:var(--brand)] hover:underline">+ Add more receipts</button>
 
       <!-- Review table -->
       <div id="recvReview" class="mt-3 hidden flex-1 flex flex-col min-h-0">
@@ -2243,8 +2244,22 @@
              interactive at once. -->
         <div class="mt-2 flex-1 flex gap-3 min-h-0">
           <div class="flex flex-col border border-[color:var(--line)] rounded-xl overflow-hidden flex-shrink-0" style="width:36%">
-            <div id="recvPreviewLabel" class="px-3 py-2 border-b border-[color:var(--line)] bg-[#F7FDFE] text-xs font-bold text-[color:var(--muted)] truncate">Click 👁 View on a row to preview it here</div>
-            <iframe id="recvPreviewFrame" class="flex-1" style="width:100%;border:0"></iframe>
+            <div class="flex items-center gap-2 px-3 py-2 border-b border-[color:var(--line)] bg-[#F7FDFE] flex-shrink-0">
+              <div id="recvPreviewLabel" class="text-xs font-bold text-[color:var(--muted)] truncate flex-1">Click 👁 View on a row to preview it here</div>
+              <!-- Only shown for an image receipt — a PDF's zoom comes from
+                   Chrome's own built-in PDF viewer toolbar inside the iframe,
+                   but a plain <img> has no such control of its own. -->
+              <div id="recvZoomControls" class="hidden items-center gap-1 flex-shrink-0">
+                <button onclick="recvZoom(-1)" class="w-6 h-6 rounded bg-white border border-[color:var(--line)] text-sm font-bold leading-none" title="Zoom out">−</button>
+                <span id="recvZoomPct" class="text-[11px] font-semibold text-[color:var(--muted)] w-9 text-center">100%</span>
+                <button onclick="recvZoom(1)" class="w-6 h-6 rounded bg-white border border-[color:var(--line)] text-sm font-bold leading-none" title="Zoom in">+</button>
+                <button onclick="recvZoom(0)" class="px-1.5 h-6 rounded bg-white border border-[color:var(--line)] text-[10px] font-bold" title="Reset zoom">Reset</button>
+              </div>
+            </div>
+            <div class="flex-1 overflow-auto bg-[#F1F5F9]">
+              <iframe id="recvPreviewFrame" style="width:100%;height:100%;border:0"></iframe>
+              <img id="recvPreviewImg" class="hidden" style="width:100%;display:block"/>
+            </div>
           </div>
           <div class="flex-1 overflow-auto border border-[color:var(--line)] rounded-xl min-w-0">
             <table class="data w-full" id="recvTable"></table>
@@ -17387,8 +17402,14 @@ function openReceiptUpload(){
   $('#recvStatus').textContent='';
   $('#recvReview').classList.add('hidden');
   $('#recvTable').innerHTML='';
+  $('#dropZone').classList.remove('hidden');
+  $('#recvAddMoreBtn').classList.add('hidden');
   const pf = $('#recvPreviewFrame');
-  if(pf){ if(pf._blobUrl){ URL.revokeObjectURL(pf._blobUrl); pf._blobUrl=null; } pf.src='about:blank'; }
+  if(pf){ if(pf._blobUrl){ URL.revokeObjectURL(pf._blobUrl); pf._blobUrl=null; } pf.src='about:blank'; pf.classList.remove('hidden'); }
+  const pi = $('#recvPreviewImg');
+  if(pi){ pi.src=''; pi.classList.add('hidden'); }
+  const zc = $('#recvZoomControls');
+  if(zc){ zc.classList.add('hidden'); zc.classList.remove('flex'); }
   const pl = $('#recvPreviewLabel');
   if(pl) pl.textContent = 'Click 👁 View on a row to preview it here';
   // Show which month receipts will be filed under
@@ -17565,6 +17586,11 @@ async function processReceiptFiles(files){
   }
   $('#recvStatus').innerHTML = `<span class="font-semibold text-emerald-600">✓ Processed ${valid.length} receipt(s). Review below and click Save All.</span>`;
   $('#recvReview').classList.remove('hidden');
+  // The big dropzone's only job was getting files in — once there's a batch
+  // to review, it just eats vertical space the list/preview panes could use
+  // instead. A small text link still gets you back to the file picker.
+  $('#dropZone').classList.add('hidden');
+  $('#recvAddMoreBtn').classList.remove('hidden');
 }
 
 // Recomputes just the "X ready · Y unmatched · ..." summary line, without
@@ -17645,17 +17671,21 @@ function _recvRowHtml(i){
     <div class="text-[11px]">${detCell}</div>
   </div>`;
 
+  // Thick divider between the "Receipt" group (check/skip/#/view/file) and
+  // the "Data Entry" group (property/room/amount/meta) — see the matching
+  // group-header row in renderRecvTable().
+  const groupDivider = 'border-left:3px solid var(--brand)';
   return `<tr id="recvRow${i}" class="${rowBg} ${r.skip?'opacity-40':''}">
-    <td class="!p-2 text-sm text-slate-400">${i+1}.</td>
-    <td class="!p-2 text-center">${viewBtn}</td>
-    <td class="!p-2 text-center">
-      <button class="px-2 py-1 rounded bg-slate-100 text-sm" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
-    </td>
     <td class="!p-2 text-center">
       <button class="w-7 h-7 rounded-lg border ${r.checked?'bg-emerald-500 border-emerald-500 text-white':'bg-white border-[color:var(--line)] text-transparent'} text-sm font-bold leading-none" onclick="toggleRecvChecked(${i})" title="${r.checked?'Checked — click to un-check':'Mark this row as reviewed/correct'}">✓</button>
     </td>
+    <td class="!p-2 text-center">
+      <button class="px-2 py-1 rounded bg-slate-100 text-sm" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
+    </td>
+    <td class="!p-2 text-sm text-slate-400">${i+1}.</td>
+    <td class="!p-2 text-center">${viewBtn}</td>
     <td class="!p-2 text-sm text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,20))}${r.filename.length>20?'…':''}${tamperChip}</td>
-    <td class="!p-1" style="min-width:200px">
+    <td class="!p-1" style="min-width:200px;${groupDivider}">
       <select class="input !py-1.5 !text-sm !font-bold !w-full" onchange="updRecv(${i},'property_id',this.value,true)">
         <option value="">— pick property —</option>
         ${state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
@@ -17675,9 +17705,21 @@ function _reRenderRecvRow(i){
 }
 function renderRecvTable(){
   const rows = _recvRows.map((r,i)=>_recvRowHtml(i)).join('');
-  $('#recvTable').innerHTML = `<thead><tr>
-    <th>#</th><th></th><th></th><th></th><th>File</th><th>Property</th><th>Room</th><th class="num">Amount</th><th>Type / Date</th>
-  </tr></thead><tbody>${rows || '<tr><td colspan="9" class="text-center py-6 text-slate-400">Drop files above to begin</td></tr>'}</tbody>`;
+  // Group header row: "Receipt" (check/skip/#/view/file) vs "Data Entry"
+  // (property/room/amount/meta), split by the same bold divider the body
+  // rows draw on the Property cell — makes the review table read as "here's
+  // the source document" on the left, "here's what we're about to save" on
+  // the right, instead of one undifferentiated row of fields.
+  $('#recvTable').innerHTML = `<thead>
+    <tr>
+      <th colspan="5" class="text-center" style="font-size:11px">🧾 RECEIPT</th>
+      <th colspan="4" class="text-center" style="font-size:11px;border-left:3px solid var(--brand)">✏️ DATA ENTRY</th>
+    </tr>
+    <tr>
+      <th></th><th></th><th>#</th><th></th><th>File</th>
+      <th style="border-left:3px solid var(--brand)">Property</th><th>Room</th><th class="num">Amount</th><th>Type / Date</th>
+    </tr>
+  </thead><tbody>${rows || '<tr><td colspan="9" class="text-center py-6 text-slate-400">Drop files above to begin</td></tr>'}</tbody>`;
   _updateRecvCounts();
 }
 function onRecvCondoChange(i, condo){
@@ -17690,6 +17732,17 @@ function onRecvCondoChange(i, condo){
 // used to highlight that row in the list so it's obvious which listing
 // entry the visible receipt belongs to while cross-checking the two.
 let _recvPreviewIndex = -1;
+let _recvZoomPct = 100;
+// A PDF gets Chrome's own built-in viewer (iframe) — it has its own zoom
+// controls already. An image file has none, so it's shown via a plain <img>
+// instead, with the zoom buttons above driving its width directly.
+function recvZoom(dir){
+  _recvZoomPct = dir===0 ? 100 : Math.max(25, Math.min(400, _recvZoomPct + dir*25));
+  const img = $('#recvPreviewImg');
+  if(img) img.style.width = _recvZoomPct+'%';
+  const pct = $('#recvZoomPct');
+  if(pct) pct.textContent = _recvZoomPct+'%';
+}
 function viewReceipt(i){
   const r = _recvRows[i]; if(!r || !r._file) return;
   // Loads into the persistent left-hand pane instead of a popup — no
@@ -17697,13 +17750,30 @@ function viewReceipt(i){
   // usable side by side so a row's Property/Room/Amount can be checked
   // directly against the receipt.
   const frame = $('#recvPreviewFrame');
+  const img = $('#recvPreviewImg');
+  const zoomCtrls = $('#recvZoomControls');
   if(frame._blobUrl) URL.revokeObjectURL(frame._blobUrl);
   const url = URL.createObjectURL(r._file);
   frame._blobUrl = url;
-  // #navpanes=0&pagemode=none asks Chrome's built-in PDF viewer to open
-  // without the left-hand page-thumbnail sidebar — just the document. A
-  // harmless no-op for an image file (no such sidebar exists there anyway).
-  frame.src = url + '#navpanes=0&pagemode=none';
+  const isPdf = /\.pdf$/i.test(r._file.name) || r._file.type==='application/pdf';
+  if(isPdf){
+    frame.classList.remove('hidden');
+    img.classList.add('hidden');
+    img.src = '';
+    zoomCtrls.classList.add('hidden'); zoomCtrls.classList.remove('flex');
+    // #navpanes=0&pagemode=none asks Chrome's built-in PDF viewer to open
+    // without the left-hand page-thumbnail sidebar — just the document.
+    frame.src = url + '#navpanes=0&pagemode=none';
+  } else {
+    frame.classList.add('hidden');
+    frame.src = 'about:blank';
+    img.classList.remove('hidden');
+    img.src = url;
+    _recvZoomPct = 100;
+    img.style.width = '100%';
+    $('#recvZoomPct').textContent = '100%';
+    zoomCtrls.classList.remove('hidden'); zoomCtrls.classList.add('flex');
+  }
   const label = $('#recvPreviewLabel');
   if(label) label.textContent = r.filename;
   const prevIndex = _recvPreviewIndex;
