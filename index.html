@@ -401,6 +401,13 @@
      highlight silently never shows no matter what class the row gets. */
   table.data tr.recv-checked td{background:#ECFDF5}
   table.data tr.recv-checked:hover td{background:#D1FAE5}
+  /* Receipt review row missing a required field (property/room/amount), or
+     flagged tamper/same-receipt — same td-targeting reasoning as above. */
+  table.data tr.recv-row-bad td{background:#FFF1F2}
+  table.data tr.recv-row-bad:hover td{background:#FFE4E6}
+  /* Receipt review row with a possible split-payment pending confirmation. */
+  table.data tr.recv-row-warn td{background:#FFFBEB}
+  table.data tr.recv-row-warn:hover td{background:#FEF3C7}
   /* Unit group separator — tenants, collection, payment ledger */
   .unit-grp-sep td {
     border-top: 2px solid #CBD5E1 !important;
@@ -17426,7 +17433,15 @@ function _readSeenHashes(){
 function _rememberHash(hash, info){
   try {
     const h = _readSeenHashes();
-    if(!h[hash]) h[hash] = { firstSeen: new Date().toISOString(), filename: info.filename||'', amount: info.amount||0 };
+    if(!h[hash]) h[hash] = {
+      firstSeen: new Date().toISOString(), filename: info.filename||'', amount: info.amount||0,
+      // The month this receipt was actually saved under — re-uploading the
+      // SAME receipt again within that SAME month is a normal correction
+      // (e.g. redoing a deleted/mis-entered row), not reuse; only a later,
+      // DIFFERENT month reusing the exact same file is the fraud signal
+      // this check exists for. See _scanReceiptForTampering.
+      year: info.year, month: info.month,
+    };
     localStorage.setItem(_RECEIPT_HASHES_KEY, JSON.stringify(h));
   } catch(_){}
 }
@@ -17466,13 +17481,29 @@ async function _scanReceiptForTampering(file){
   let hash = null;
   try {
     hash = await _sha256OfFile(file);
+    out.hash = hash;
     const seen = _readSeenHashes();
-    if(seen[hash]){
+    const prev = seen[hash];
+    // Re-uploading the exact same receipt within the SAME month it was
+    // already saved under is a normal correction (e.g. redoing a row that
+    // got deleted), not reuse — only flag when it resurfaces in a
+    // DIFFERENT month, which is the actual fraud signal (a tenant reusing
+    // one real payment's receipt to also claim a later month). An entry
+    // with no year/month on file (saved before this distinction existed)
+    // is treated as unverifiable rather than guessed at either way.
+    if(prev && prev.year!=null && prev.month!=null && (prev.year!==state.year || prev.month!==state.month)){
       out.tamper = true;
-      const prev = seen[hash];
-      out.tamperReasons.push(`identical file already uploaded (${prev.filename||'unknown'} on ${prev.firstSeen ? new Date(prev.firstSeen).toLocaleDateString('en-MY') : 'earlier'})`);
+      const monLabel = (MONTHS_FULL && MONTHS_FULL[prev.month-1]) ? `${MONTHS_FULL[prev.month-1]} ${prev.year}` : `${prev.month}/${prev.year}`;
+      out.tamperReasons.push(`identical file already uploaded (${prev.filename||'unknown'}, filed under ${monLabel})`);
     }
-    _rememberHash(hash, { filename: file.name });
+    // Deliberately NOT remembered here — this runs the moment a file is
+    // dropped into the review queue, before anything is actually saved.
+    // Remembering it at this point flagged a perfectly normal workflow
+    // (drop files, decide they're not ready, close without saving, drop the
+    // SAME files again later) as a tamper duplicate, even though nothing
+    // had ever been recorded. Only saveAllReceipts() remembers a hash now,
+    // once the receipt is genuinely saved — so this warning only fires for
+    // a receipt that duplicates an ALREADY-RECORDED payment.
   } catch(_){}
   // 2) PDF metadata check
   const pdf = await _checkPdfMetadata(file);
@@ -17546,8 +17577,11 @@ function _updateRecvCounts(){
 // big batch feel like the whole screen "reloaded" on every edit.
 function _recvRowHtml(i){
   const r = _recvRows[i];
-  const bad = !r.property_id && !r.skip;
-  const dupBg = r.dup==='same' ? 'bg-rose-50' : (r.dup==='split' && !r.confirmed ? 'bg-amber-50' : '');
+  // Missing ANY of the three fields a row needs to actually save (property,
+  // room, a real amount) — not just property_id as before, which let a row
+  // with a blank Amount (shown as a placeholder, not a real 0) sail through
+  // unhighlighted. Clears itself the moment every field is filled in.
+  const incomplete = !r.skip && (!r.property_id || !r.room || !(Number(r.amount)>0));
   let detCell = '<span class="inline-flex items-center gap-1 text-sm text-emerald-700">✓ New</span>';
   if(r.dup==='same'){
     const amt = Number(r.amount||0).toFixed(2);
@@ -17567,15 +17601,21 @@ function _recvRowHtml(i){
   const tamperChip = r.tamper
     ? `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FEE2E2;color:#991B1B;font-weight:700" title="${esc((r.tamperReasons||[]).join(' · '))}">⚠ TAMPER: ${esc((r.tamperReasons||[]).slice(0,1).join(''))}${(r.tamperReasons||[]).length>1?' (+'+((r.tamperReasons||[]).length-1)+' more)':''}</span></div>`
     : '';
-  // Checked always wins the row background, even over a tamper/unmatched/
-  // duplicate warning — the warning text itself (in the Detection/File
-  // cells) stays visible either way, but a checked row should be
-  // unambiguously green so it's obvious at a glance which rows are done.
+  // Priority: incomplete (missing property/room/amount — can't be saved at
+  // all yet) beats everything, including ✓ checked, since a checked-but-
+  // incomplete row still needs fixing. Otherwise checked wins (green) over
+  // a tamper/duplicate warning — that warning text stays visible in the
+  // Detection/File cells regardless. Below that, tamper/same-receipt and
+  // split-pending each get their own color.
   // Note: table.data td{background:#fff} (see CSS) paints over any color
-  // set directly on the <tr>, so this MUST be a real CSS class targeting
-  // the <td>s (table.data tr.recv-checked td) — a Tailwind bg-* utility on
-  // the <tr> itself is a silent no-op here, same as bad/dupBg below.
-  const rowBg = r.checked ? 'recv-checked' : (r.tamper ? 'bg-rose-50' : (bad ? 'bg-rose-50' : dupBg));
+  // set directly on the <tr>, so each state needs a real CSS class
+  // targeting the <td>s (table.data tr.recv-X td) — a Tailwind bg-* utility
+  // placed on the <tr> itself is a silent no-op in this table.
+  const rowBg = incomplete ? 'recv-row-bad'
+    : r.checked ? 'recv-checked'
+    : (r.tamper || r.dup==='same') ? 'recv-row-bad'
+    : (r.dup==='split' && !r.confirmed) ? 'recv-row-warn'
+    : '';
   const viewBtn = r._file
     ? `<button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-sm" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
     : '';
@@ -17639,7 +17679,10 @@ function viewReceipt(i){
   if(frame._blobUrl) URL.revokeObjectURL(frame._blobUrl);
   const url = URL.createObjectURL(r._file);
   frame._blobUrl = url;
-  frame.src = url;
+  // #navpanes=0&pagemode=none asks Chrome's built-in PDF viewer to open
+  // without the left-hand page-thumbnail sidebar — just the document. A
+  // harmless no-op for an image file (no such sidebar exists there anyway).
+  frame.src = url + '#navpanes=0&pagemode=none';
   $('#recvPreviewOverlay').classList.remove('hidden'); $('#recvPreviewOverlay').classList.add('flex');
 }
 function closeReceiptPreview(){
@@ -17832,6 +17875,9 @@ async function saveAllReceipts(){
   }
   const {error} = await sb.from('rental_payments').insert(rows);
   if(error) return toast(error.message,'bad');
+  // Only now — once genuinely saved — does this receipt's hash count as
+  // "already uploaded" for a future tamper check (see _scanReceiptForTampering).
+  ready.forEach(r=>{ if(r.hash) _rememberHash(r.hash, {filename: r.filename, year: state.year, month: state.month}); });
   toast('Saved '+rows.length+' payment(s)');
   closeReceiptUpload();
   await loadPayments();
