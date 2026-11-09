@@ -2191,7 +2191,7 @@
 
   <!-- RECEIPT UPLOAD MODAL =================================== -->
   <div id="recvOverlay" class="fixed inset-0 z-40 modal-bg hidden items-start justify-center p-4 overflow-auto">
-    <div class="card my-4" style="width:92vw;max-width:1220px">
+    <div class="card my-4" style="width:96vw;max-width:1464px">
       <div class="flex items-start justify-between">
         <div>
           <h3 class="section-title">📤 Upload Tenant Payment Receipts</h3>
@@ -17562,7 +17562,7 @@ function _recvRowHtml(i){
       <button class="w-7 h-7 rounded-lg border ${r.checked?'bg-emerald-500 border-emerald-500 text-white':'bg-white border-[color:var(--line)] text-transparent'} text-sm font-bold leading-none" onclick="toggleRecvChecked(${i})" title="${r.checked?'Checked — click to un-check':'Mark this row as reviewed/correct'}">✓</button>
     </td>
     <td class="!p-2 text-sm text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,22))}${r.filename.length>22?'…':''}${tamperChip}</td>
-    <td class="!p-1" style="min-width:170px">
+    <td class="!p-1" style="min-width:220px">
       <select class="input !py-1.5 !text-sm !font-bold !w-full" onchange="updRecv(${i},'property_id',this.value,true)">
         <option value="">— pick property —</option>
         ${state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
