@@ -15126,8 +15126,12 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
         const denom = roomFull + (hasCp?cpFull:0) + (hasCp2?cp2Full:0);
         if(denom>0 && (hasCp||hasCp2)){
           roomShare = Math.ceil(amt * (roomFull/denom));
-          const cpShare  = hasCp  ? Math.ceil(amt*(cpFull /denom)) : 0;
-          const cp2Share = hasCp2 ? Math.ceil(amt*(cp2Full/denom)) : 0;
+          // Capped at the full contract carpark rental — same reasoning as
+          // the room-side cap further down (this is an approximate fallback
+          // split to begin with, so capping at the full month's rate rather
+          // than a precise pro-rated one is an acceptable ceiling here).
+          const cpShare  = hasCp  ? Math.min(Math.ceil(amt*(cpFull /denom)), cpFull)  : 0;
+          const cp2Share = hasCp2 ? Math.min(Math.ceil(amt*(cp2Full/denom)), cp2Full) : 0;
           // Same formula note treatment as the exact-match branches above —
           // this proportional split was previously silent, showing a bare
           // carpark figure with no explanation of how it was derived.
@@ -15186,6 +15190,23 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
         // cross-property carparks: share excluded from room line; claimed by
         // the owning property's report in the cross-property scan below.
       }
+    }
+    // Cap at the tenant's CONTRACT room rental — none of the branches above
+    // should ever exceed it (pro-rate/advance-covered/exact-match are all
+    // already derived from contract fields, so this is a no-op for them),
+    // but the plain fallthrough case (no branch matched at all) left
+    // roomShare at the raw, uncapped amount received. A tenant who paid
+    // more than their contract rent (late fee bundled in, advance for next
+    // month, plain overpayment) used to have that whole excess silently
+    // flow into this month's recognized income and management fee — now it
+    // stays out until someone decides what the extra actually is (e.g. via
+    // ✂ Split Penalty in the Payments Ledger, which already exists for
+    // exactly this).
+    if(t && Number(t.room_rental||0)>0 && roomShare > Number(t.room_rental)){
+      const rl = ensureLine('room', code);
+      const extra = roomShare - Number(t.room_rental);
+      rl.proRateNote = (rl.proRateNote ? rl.proRateNote+' · ' : '') + `⚠ RM${extra} extra received — not recognized as income yet, see Payments Ledger`;
+      roomShare = Number(t.room_rental);
     }
     ensureLine('room', code).rental += roomShare;
   });
@@ -15250,11 +15271,6 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
   payments.filter(p=>p.item_type==='carpark').forEach(p=>{
     const cpLine = ensureLine('carpark', p.room_code);
     const cpAmt = Number(p.amount||0);
-    // Same unconfirmed-move-out-prorate exclusion as the room pass above —
-    // only the CREDITED total is zeroed; cpAmt itself stays the real stored
-    // amount so the move-in-vs-move-out note heuristic below (which compares
-    // against it) still picks the right formula.
-    cpLine.rental += p.prorate_unconfirmed ? 0 : cpAmt;
     // Use the SAME date-aware, cross-property-aware lookup the report's
     // Tenancy column already uses — a plain .find() over allTenants can
     // grab the WRONG tenant (e.g. a stale one who previously referenced
@@ -15262,9 +15278,18 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
     // this lot on file, silently producing a pro-rate calc that can never
     // match the stored amount.
     const t = frozenTenant(findCarparkTenant(allTenants||tenants, p.room_code, P.id, year, month));
+    const cpFull = t ? (normCarpark(t.carpark2||'')===normCarpark(p.room_code) ? Number(t.carpark2_rental||0) : Number(t.carpark_rental||0)) : 0;
+    // Same unconfirmed-move-out-prorate exclusion as the room pass above —
+    // only the CREDITED total is zeroed; cpAmt itself stays the real stored
+    // amount so the move-in-vs-move-out note heuristic below (which compares
+    // against it) still picks the right formula. Also capped at the
+    // tenant's contract carpark rental — see the matching room-side cap
+    // above for why (a legitimate pro-rated cpAmt is always <= cpFull
+    // already, so this only ever bites an actual overpayment).
+    const cpCredit = cpFull>0 ? Math.min(cpAmt, cpFull) : cpAmt;
+    cpLine.rental += p.prorate_unconfirmed ? 0 : cpCredit;
     if(!t) return;
     const isCp2 = normCarpark(t.carpark2||'')===normCarpark(p.room_code);
-    const cpFull = isCp2 ? Number(t.carpark2_rental||0) : Number(t.carpark_rental||0);
     const fm = _carparkProRateShare(t, cpFull, false, year, month);
     const lm = _carparkProRateShare(t, cpFull, true, year, month);
     // Show the formula whenever the tenant's OWN dates say this month is a
@@ -15291,6 +15316,9 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
       cpLine.proRateLabel = '🚪 Move-out';
     }
     if(p.prorate_unconfirmed && cpLine.proRateNote) cpLine.proRateNote += ' · ⏳ unconfirmed';
+    if(cpFull>0 && cpAmt > cpFull){
+      cpLine.proRateNote = (cpLine.proRateNote ? cpLine.proRateNote+' · ' : '') + `⚠ RM${cpAmt-cpFull} extra received — not recognized as income yet`;
+    }
   });
 
   // AIRCON top-ups always sit on the room line.
