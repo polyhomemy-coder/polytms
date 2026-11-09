@@ -11820,11 +11820,13 @@ function renderPayments(){
       <td class="num">${fmt(r.amount)}</td>
       <td>${fmtDate(r.paid_on)}</td>
       <td>${esc(r.remark||'')}</td>
-      <td class="text-right whitespace-nowrap">
+      <td class="text-right">
         ${_editAllowed('income','ledger') ? `
-        <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openPaymentModal('${r.id}')">Edit</button>
-        ${isOverpaid ? `<button class="px-2 py-1 rounded bg-amber-50 text-amber-700 text-xs font-semibold" onclick="openSplitPenaltyModal('${r.id}')" title="Split out a late-payment penalty so only the real rent counts toward income">✂ Split Penalty</button>` : ''}
-        <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delPayment('${r.id}')">Del</button>` : ''}
+        <div class="flex flex-wrap justify-end gap-1">
+          <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold whitespace-nowrap" onclick="openPaymentModal('${r.id}')">Edit</button>
+          ${isOverpaid ? `<button class="px-2 py-1 rounded bg-amber-50 text-amber-700 text-xs font-semibold whitespace-nowrap" onclick="openSplitPenaltyModal('${r.id}')" title="Split out a late-payment penalty so only the real rent counts toward income">✂ Split</button>` : ''}
+          <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold whitespace-nowrap" onclick="delPayment('${r.id}')">Del</button>
+        </div>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -11868,7 +11870,7 @@ function renderPayments(){
       <col style="width:120px">
       <col style="width:130px">
       <col style="width:auto">
-      <col style="width:120px">
+      <col style="width:150px">
     </colgroup>
     <thead><tr>
       <th>#</th><th>Condo</th><th>Unit</th><th>Room</th><th class="num">Amount Received</th><th>Paid On</th><th>Remark</th><th></th>
