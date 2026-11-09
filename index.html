@@ -2191,7 +2191,7 @@
 
   <!-- RECEIPT UPLOAD MODAL =================================== -->
   <div id="recvOverlay" class="fixed inset-0 z-40 modal-bg hidden items-start justify-center p-4 overflow-auto">
-    <div class="card w-full max-w-6xl my-8">
+    <div class="card my-4" style="width:96vw;max-width:1800px">
       <div class="flex items-start justify-between">
         <div>
           <h3 class="section-title">📤 Upload Tenant Payment Receipts</h3>
@@ -2220,10 +2220,10 @@
             <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="saveAllReceipts()">💾 Save All</button>
           </div>
         </div>
-        <div class="overflow-auto mt-2 border border-[color:var(--line)] rounded-xl">
+        <div class="overflow-auto mt-2 border border-[color:var(--line)] rounded-xl" style="max-height:68vh">
           <table class="data w-full" id="recvTable"></table>
         </div>
-        <p class="help mt-2">Rows in red need your attention — unit not matched to any property. Pick one from the dropdown or click the ✕ to skip.</p>
+        <p class="help mt-2">Rows in red need your attention — unit not matched to any property. Pick one from the dropdown or click the ✕ to skip. Click the ✓ box on the left once you've checked a row's details are correct.</p>
       </div>
     </div>
   </div>
@@ -17492,69 +17492,91 @@ async function processReceiptFiles(files){
   $('#recvReview').classList.remove('hidden');
 }
 
-function renderRecvTable(){
-  // propOpts replaced by propPickerHTML
+// Recomputes just the "X ready · Y unmatched · ..." summary line, without
+// touching the table body — called after both a full render and a single-row
+// update, so neither path leaves the counts stale.
+function _updateRecvCounts(){
   const activeRows = _recvRows.filter(r=>!r.skip);
   const matched = activeRows.filter(r=>r.property_id && r.dup!=='same' && !(r.dup==='split' && !r.confirmed)).length;
   const unmatched = activeRows.filter(r=>!r.property_id).length;
   const sameDup = _recvRows.filter(r=>r.dup==='same').length;
   const splitPending = _recvRows.filter(r=>!r.skip && r.dup==='split' && !r.confirmed).length;
-  $('#recvCount').innerHTML = `<b>${matched}</b> ready · <b class="${unmatched?'text-rose-600':''}">${unmatched}</b> unmatched · <b class="${sameDup?'text-amber-600':''}">${sameDup}</b> duplicate · <b class="${splitPending?'text-amber-600':''}">${splitPending}</b> split pending · ${_recvRows.filter(r=>r.skip).length} skipped`;
+  const checked = activeRows.filter(r=>r.checked).length;
+  $('#recvCount').innerHTML = `<b class="${checked<activeRows.length?'text-amber-600':'text-emerald-700'}">${checked}/${activeRows.length}</b> checked · <b>${matched}</b> ready · <b class="${unmatched?'text-rose-600':''}">${unmatched}</b> unmatched · <b class="${sameDup?'text-amber-600':''}">${sameDup}</b> duplicate · <b class="${splitPending?'text-amber-600':''}">${splitPending}</b> split pending · ${_recvRows.filter(r=>r.skip).length} skipped`;
+}
+// Builds one row's <tr> markup. Shared by the full-table render and by
+// single-row updates (updRecv/toggleSkip/toggleSplitConfirm/toggleRecvChecked)
+// so editing one row never has to rebuild the other 40+ rows around it —
+// that full rebuild on every keystroke's onchange was what made reviewing a
+// big batch feel like the whole screen "reloaded" on every edit.
+function _recvRowHtml(i){
+  const r = _recvRows[i];
+  const bad = !r.property_id && !r.skip;
+  const dupBg = r.dup==='same' ? 'bg-rose-50' : (r.dup==='split' && !r.confirmed ? 'bg-amber-50' : '');
+  let detCell = '<span class="inline-flex items-center gap-1 text-xs text-emerald-700">✓ New</span>';
+  if(r.dup==='same'){
+    const amt = Number(r.amount||0).toFixed(2);
+    detCell = `<span class="inline-flex items-center gap-1 text-xs font-semibold text-rose-700" title="Existing payment of RM${amt} already recorded for ${esc(r.room||'')}">⚠ Same receipt detected</span>`;
+  } else if(r.dup==='split'){
+    const existing = (r.existingAmounts||[]).map(a=>'RM'+Number(a).toFixed(2)).join(', ');
+    const onTxt = r.confirmed ? 'Added as split' : 'Add as split payment';
+    const btnCls = r.confirmed
+      ? 'bg-emerald-600 text-white'
+      : 'bg-amber-500 text-white';
+    detCell = `<div class="flex flex-col items-start gap-1">
+      <span class="text-xs font-semibold text-amber-700" title="Existing: ${esc(existing)}">⚠ Split payment?</span>
+      <button class="px-2 py-0.5 rounded text-xs ${btnCls}" onclick="toggleSplitConfirm(${i})">${onTxt}</button>
+    </div>`;
+  }
+  // ----- Tamper chip (always rendered if any tamper signal fired) -----
+  const tamperChip = r.tamper
+    ? `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FEE2E2;color:#991B1B;font-weight:700" title="${esc((r.tamperReasons||[]).join(' · '))}">⚠ TAMPER: ${esc((r.tamperReasons||[]).slice(0,1).join(''))}${(r.tamperReasons||[]).length>1?' (+'+((r.tamperReasons||[]).length-1)+' more)':''}</span></div>`
+    : '';
+  const rowBg = r.tamper ? 'bg-rose-50' : (bad?'bg-rose-50':dupBg);
+  const viewBtn = r._file
+    ? `<button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
+    : '';
 
-  const rows = _recvRows.map((r,i)=>{
-    const bad = !r.property_id && !r.skip;
-    const dupBg = r.dup==='same' ? 'bg-rose-50' : (r.dup==='split' && !r.confirmed ? 'bg-amber-50' : '');
-    let detCell = '<span class="inline-flex items-center gap-1 text-xs text-emerald-700">✓ New</span>';
-    if(r.dup==='same'){
-      const amt = Number(r.amount||0).toFixed(2);
-      detCell = `<span class="inline-flex items-center gap-1 text-xs font-semibold text-rose-700" title="Existing payment of RM${amt} already recorded for ${esc(r.room||'')}">⚠ Same receipt detected</span>`;
-    } else if(r.dup==='split'){
-      const existing = (r.existingAmounts||[]).map(a=>'RM'+Number(a).toFixed(2)).join(', ');
-      const onTxt = r.confirmed ? 'Added as split' : 'Add as split payment';
-      const btnCls = r.confirmed
-        ? 'bg-emerald-600 text-white'
-        : 'bg-amber-500 text-white';
-      detCell = `<div class="flex flex-col items-start gap-1">
-        <span class="text-xs font-semibold text-amber-700" title="Existing: ${esc(existing)}">⚠ Split payment?</span>
-        <button class="px-2 py-0.5 rounded text-xs ${btnCls}" onclick="toggleSplitConfirm(${i})">${onTxt}</button>
-      </div>`;
-    }
-    // ----- Tamper chip (always rendered if any tamper signal fired) -----
-    const tamperChip = r.tamper
-      ? `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FEE2E2;color:#991B1B;font-weight:700" title="${esc((r.tamperReasons||[]).join(' · '))}">⚠ TAMPER: ${esc((r.tamperReasons||[]).slice(0,1).join(''))}${(r.tamperReasons||[]).length>1?' (+'+((r.tamperReasons||[]).length-1)+' more)':''}</span></div>`
-      : '';
-    const rowBg = r.tamper ? 'bg-rose-50' : (bad?'bg-rose-50':dupBg);
-    const viewBtn = r._file
-      ? `<button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
-      : '';
-
-    return `<tr class="${rowBg} ${r.skip?'opacity-40':''}">
-      <td class="!p-2 text-xs text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,22))}${r.filename.length>22?'…':''}${tamperChip}</td>
-      <td class="!p-1" style="min-width:160px">
-        <select class="input !py-1 !text-xs !w-full" onchange="updRecv(${i},'property_id',this.value,true)">
-          <option value="">— pick property —</option>
-          ${state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
-        </select>
-      </td>
-      <td class="!p-1"><input class="input !py-1 !text-xs" value="${esc(r.room||'')}" onchange="updRecv(${i},'room',this.value)" maxlength="8" style="width:58px" placeholder="Room"/></td>
-      <td class="!p-1">
-        <select class="input !py-1 !text-xs" onchange="updRecv(${i},'item_type',this.value)">
-          <option value="room" ${r.item_type==='room'?'selected':''}>Room</option>
-          <option value="carpark" ${r.item_type==='carpark'?'selected':''}>Carpark</option>
-        </select>
-      </td>
-      <td class="!p-1"><input type="number" step="0.01" class="input !py-1 !text-xs" value="${r.amount??''}" onchange="updRecv(${i},'amount',this.value)" style="width:90px" placeholder="Amount"/></td>
-      <td class="!p-1"><input type="date" class="input !py-1 !text-xs" value="${r.date||''}" onchange="updRecv(${i},'date',this.value)" style="width:130px"/></td>
-      <td class="!p-2">${detCell}</td>
-      <td class="text-right !p-2" style="white-space:nowrap">
-        ${viewBtn}
-        <button class="px-2 py-1 rounded bg-slate-100 text-xs ml-1" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
-      </td>
-    </tr>`;
-  }).join('');
+  return `<tr id="recvRow${i}" class="${rowBg} ${r.skip?'opacity-40':''}">
+    <td class="!p-2 text-center">
+      <button class="w-6 h-6 rounded-lg border ${r.checked?'bg-emerald-500 border-emerald-500 text-white':'bg-white border-[color:var(--line)] text-transparent'} text-xs font-bold leading-none" onclick="toggleRecvChecked(${i})" title="${r.checked?'Checked — click to un-check':'Mark this row as reviewed/correct'}">✓</button>
+    </td>
+    <td class="!p-2 text-xs text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,22))}${r.filename.length>22?'…':''}${tamperChip}</td>
+    <td class="!p-1" style="min-width:160px">
+      <select class="input !py-1 !text-xs !w-full" onchange="updRecv(${i},'property_id',this.value,true)">
+        <option value="">— pick property —</option>
+        ${state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
+      </select>
+    </td>
+    <td class="!p-1"><input class="input !py-1 !text-xs" value="${esc(r.room||'')}" onchange="updRecv(${i},'room',this.value)" maxlength="8" style="width:58px" placeholder="Room"/></td>
+    <td class="!p-1">
+      <select class="input !py-1 !text-xs" onchange="updRecv(${i},'item_type',this.value)">
+        <option value="room" ${r.item_type==='room'?'selected':''}>Room</option>
+        <option value="carpark" ${r.item_type==='carpark'?'selected':''}>Carpark</option>
+      </select>
+    </td>
+    <td class="!p-1"><input type="number" step="0.01" class="input !py-1 !text-xs" value="${r.amount??''}" onchange="updRecv(${i},'amount',this.value)" style="width:90px" placeholder="Amount"/></td>
+    <td class="!p-1"><input type="date" class="input !py-1 !text-xs" value="${r.date||''}" onchange="updRecv(${i},'date',this.value)" style="width:130px"/></td>
+    <td class="!p-2">${detCell}</td>
+    <td class="text-right !p-2" style="white-space:nowrap">
+      ${viewBtn}
+      <button class="px-2 py-1 rounded bg-slate-100 text-xs ml-1" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
+    </td>
+  </tr>`;
+}
+// Replaces ONLY row i's DOM node, instead of the whole table — see
+// _recvRowHtml's comment for why.
+function _reRenderRecvRow(i){
+  const el = document.getElementById('recvRow'+i);
+  if(el) el.outerHTML = _recvRowHtml(i);
+  _updateRecvCounts();
+}
+function renderRecvTable(){
+  const rows = _recvRows.map((r,i)=>_recvRowHtml(i)).join('');
   $('#recvTable').innerHTML = `<thead><tr>
-    <th>File</th><th>Property</th><th>Room</th><th>Type</th><th class="num">Amount</th><th>Date</th><th>Detection</th><th></th>
-  </tr></thead><tbody>${rows || '<tr><td colspan="8" class="text-center py-6 text-slate-400">Drop files above to begin</td></tr>'}</tbody>`;
+    <th></th><th>File</th><th>Property</th><th>Room</th><th>Type</th><th class="num">Amount</th><th>Date</th><th>Detection</th><th></th>
+  </tr></thead><tbody>${rows || '<tr><td colspan="9" class="text-center py-6 text-slate-400">Drop files above to begin</td></tr>'}</tbody>`;
+  _updateRecvCounts();
 }
 function onRecvCondoChange(i, condo){
   // When condo changes, clear the unit selection and re-render so unit dropdown populates
@@ -17582,18 +17604,25 @@ function updRecv(i, field, value, isProp){
   // Any change to the key classifier fields should re-check for dup/split
   if(['amount','room','property_id','item_type','date'].includes(field)){
     r.confirmed = false;            // reset confirm; user must re-approve
+    r.checked = false;              // and re-review — the edited value hasn't been verified yet
     classifyReceiptDup(r);
     if(r.dup==='same' && !r.skip) r.skip = true;
     else if(r.dup!=='same' && r.skip && r._autoSkipped) r.skip = false;
   }
-  // Always re-render so detection badge + counts stay in sync
-  renderRecvTable();
+  // Re-render just this row so detection badge stays in sync — not the
+  // whole table (see _recvRowHtml's comment).
+  _reRenderRecvRow(i);
 }
-function toggleSkip(i){ _recvRows[i].skip = !_recvRows[i].skip; renderRecvTable(); }
+function toggleSkip(i){ _recvRows[i].skip = !_recvRows[i].skip; _reRenderRecvRow(i); }
 function toggleSplitConfirm(i){
   const r = _recvRows[i]; if(!r) return;
   r.confirmed = !r.confirmed;
-  renderRecvTable();
+  _reRenderRecvRow(i);
+}
+function toggleRecvChecked(i){
+  const r = _recvRows[i]; if(!r) return;
+  r.checked = !r.checked;
+  _reRenderRecvRow(i);
 }
 
 async function saveAllReceipts(){
@@ -17609,6 +17638,17 @@ async function saveAllReceipts(){
     if(blockedSplits) return toast(`${blockedSplits} split-payment receipt(s) need confirmation before saving`,'warn');
     if(blockedSames)  return toast(`All receipts are duplicates of existing payments — nothing to save`,'warn');
     return toast('Nothing to save — fix property/room/amount first','warn');
+  }
+  // Soft gate, not a hard block — lets you still save a batch you trust
+  // without having tapped ✓ on every single row, but confirms first so a
+  // row nobody actually looked at doesn't slip through unnoticed.
+  const uncheckedCount = ready.filter(r=>!r.checked).length;
+  if(uncheckedCount){
+    const ok = await confirmModal(
+      `${uncheckedCount} of ${ready.length} row(s) haven't been marked ✓ checked yet.\n\nSave all ${ready.length} anyway?`,
+      {confirmText:'Save Anyway', cancelText:'Go Back', danger:false}
+    );
+    if(!ok) return;
   }
   // ----- BATCH advance-covered detection -----
   // Pre-scan the whole batch for 2nd-month advance-covered candidates (cash
