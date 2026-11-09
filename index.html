@@ -2131,6 +2131,12 @@
         <div class="help">Every individual payment row for this month — edit/delete here.</div>
         <div class="flex gap-2 items-center flex-wrap">
           <select id="paySelProp" class="input !w-auto !text-xs"></select>
+          <select id="paySourceFilter" class="input !w-auto !text-xs" onchange="renderPayments()" title="Filter by how each row was entered">
+            <option value="">All sources</option>
+            <option value="manual">✍️ Manual key in</option>
+            <option value="upload">📤 Upload receipt</option>
+            <option value="auto">🔄 Move-in/out auto-generated</option>
+          </select>
           <button id="btnLedgerUpload" class="px-4 py-2 rounded-xl text-sm font-bold bg-[#EEF7F8] text-[color:var(--brand)] border border-[color:var(--line)]" onclick="openReceiptUpload()">📤 Upload Receipts</button>
           <button id="btnLedgerPrefill" class="btn-accent px-4 py-2 rounded-xl text-sm font-bold" onclick="prefillPayments()">⚡ Prefill from tenancy</button>
           <button class="px-4 py-2 rounded-xl text-sm font-bold bg-[#DCFCE7] text-[#065F46] border border-[#86EFAC] hover:bg-[#BBF7D0]" onclick="exportPaymentsXlsx()">📊 Export Excel</button>
@@ -11787,8 +11793,33 @@ async function waSendAll(){
 })();
 
 // ----- PAYMENTS LEDGER -----
+// Classifies a rental_payments row by how it came to exist — purely from
+// fields already on the row (remark text + payment_kind), so this works
+// retroactively on every historical row too, not just ones saved after this
+// existed. Checked in this order because a receipt that CONFIRMS an
+// auto-generated pro-rate placeholder (see saveAllReceipts) still carries
+// that pro-rate's payment_kind, but its remark starts with "Imported from"
+// — that has to win, or a receipt-backed row would misclassify as "auto".
+//   upload — saveAllReceipts() (remark always starts "Imported from ...")
+//   manual — commitInlinePayment/openPaymentModal (remark carries the
+//            "Logged by"/"Confirmed by" attribution added for new rows;
+//            anything else not otherwise identified falls back here too —
+//            covers plain/blank-remark manual rows from before that existed)
+//   auto   — _autoCreateFirstMonthProRate/_autoCreateLastMonthProRate,
+//            the periodic self-heal, _ensureCrossPropertyCarparkPayment,
+//            openAddCarparkModal — identified by payment_kind or their
+//            shared 🆕/🚪/🅿️ remark prefix
+function _paymentSourceOf(r){
+  const rem = r.remark||'';
+  if(/^Imported from /.test(rem)) return 'upload';
+  if(/\b(Logged|Confirmed) by /.test(rem)) return 'manual';
+  if(r.payment_kind==='first_month_prorate' || r.payment_kind==='last_month_prorate' || r.payment_kind==='advance_covered_full') return 'auto';
+  if(/^[🆕🚪🅿️]/.test(rem)) return 'auto';
+  return 'manual';
+}
 function renderPayments(){
   const pid = $('#paySelProp').value;
+  const sourceFilter = $('#paySourceFilter')?.value || '';
   // ----------------------------------------------------------------------
   // The Payment Ledger shows both room and carpark rows. Most months a
   // tenant pays ONE consolidated amount covering room + carpark, and the
@@ -11801,6 +11832,7 @@ function renderPayments(){
   // ----------------------------------------------------------------------
   let list = pid ? state.payments.filter(p=>p.property_id===pid)
     : state.payments.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
+  if(sourceFilter) list = list.filter(r=>_paymentSourceOf(r)===sourceFilter);
   // Show all payment types including standalone carpark entries
   // (cross-property carpark renters need to appear here so they can be viewed and deleted)
   // Sort: property, then rooms (canonical M > I > J > C > A > N > other)
@@ -11963,8 +11995,10 @@ function renderPayments(){
 // what's currently shown on screen in the Payments Ledger.
 function _paymentLedgerExportRows(){
   const pid = $('#paySelProp')?.value || '';
+  const sourceFilter = $('#paySourceFilter')?.value || '';
   let list = pid ? state.payments.filter(p=>p.property_id===pid)
     : state.payments.filter(r=>{ const p=state.properties.find(x=>x.id===r.property_id); return _propPassesGlobalFilter(p); });
+  if(sourceFilter) list = list.filter(r=>_paymentSourceOf(r)===sourceFilter);
   return [...list].sort((a,b)=>{
     const pa = state.properties.find(x=>x.id===a.property_id);
     const pb = state.properties.find(x=>x.id===b.property_id);
