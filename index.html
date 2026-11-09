@@ -2228,6 +2228,20 @@
     </div>
   </div>
 
+  <!-- RECEIPT PREVIEW (View button) — an in-page popup instead of a new
+       browser tab; a bare window.open(url,'_blank') for a blob: URL opens a
+       full tab in most browsers regardless of window-feature hints, so this
+       renders the file in its own overlay above the upload modal instead. -->
+  <div id="recvPreviewOverlay" class="fixed inset-0 z-50 modal-bg hidden items-center justify-center p-4">
+    <div class="card flex flex-col" style="width:90vw;max-width:900px;height:90vh">
+      <div class="flex items-center justify-between">
+        <h3 class="section-title">🧾 Receipt Preview</h3>
+        <button onclick="closeReceiptPreview()" aria-label="Close" class="text-2xl leading-none text-[color:var(--muted)] hover:text-[color:var(--ink)]">×</button>
+      </div>
+      <iframe id="recvPreviewFrame" class="mt-3 flex-1" style="width:100%;border:1px solid var(--line);border-radius:12px"></iframe>
+    </div>
+  </div>
+
   <!-- WHATSAPP BROADCAST MODAL =============================== -->
   <div id="waOverlay" class="fixed inset-0 z-40 modal-bg hidden items-start justify-center p-4 overflow-auto">
     <div class="card w-full max-w-5xl my-8">
@@ -17547,11 +17561,11 @@ function _recvRowHtml(i){
   const tamperChip = r.tamper
     ? `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FEE2E2;color:#991B1B;font-weight:700" title="${esc((r.tamperReasons||[]).join(' · '))}">⚠ TAMPER: ${esc((r.tamperReasons||[]).slice(0,1).join(''))}${(r.tamperReasons||[]).length>1?' (+'+((r.tamperReasons||[]).length-1)+' more)':''}</span></div>`
     : '';
-  // Tamper/unmatched/duplicate warnings stay visually prominent even on a
-  // checked row (checking it doesn't resolve those), but otherwise a
-  // checked row gets a light green highlight across the whole row, not
-  // just the ✓ button, so reviewed rows are obvious at a glance.
-  const rowBg = r.tamper ? 'bg-rose-50' : (bad ? 'bg-rose-50' : (dupBg || (r.checked ? 'bg-emerald-50' : '')));
+  // Checked always wins the row background, even over a tamper/unmatched/
+  // duplicate warning — the warning text itself (in the Detection/File
+  // cells) stays visible either way, but a checked row should be
+  // unambiguously green so it's obvious at a glance which rows are done.
+  const rowBg = r.checked ? 'bg-emerald-50' : (r.tamper ? 'bg-rose-50' : (bad ? 'bg-rose-50' : dupBg));
   const viewBtn = r._file
     ? `<button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-sm" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
     : '';
@@ -17606,17 +17620,25 @@ function onRecvCondoChange(i, condo){
 }
 function viewReceipt(i){
   const r = _recvRows[i]; if(!r || !r._file) return;
+  // window.open(url,'_blank',<features>) still opens a full new browser tab
+  // in most browsers for a blob: URL regardless of width/height hints — an
+  // in-page overlay is the only way to actually get popup-window behavior,
+  // so the receipt renders in its own overlay above the upload modal
+  // instead (works for both PDFs and images via the iframe).
+  const frame = $('#recvPreviewFrame');
+  if(frame._blobUrl) URL.revokeObjectURL(frame._blobUrl);
   const url = URL.createObjectURL(r._file);
-  // A named target + size/position features makes the browser open an
-  // actual small popup window instead of a new tab, and re-clicking View
-  // on another row reuses that same window (navigates it) instead of
-  // piling up a new one each time.
-  const w = 760, h = 880;
-  const left = Math.max(0, Math.round((screen.width  - w) / 2));
-  const top  = Math.max(0, Math.round((screen.height - h) / 2));
-  window.open(url, 'recvReceiptPreview', `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
-  // Revoke after short delay so the window has time to load
-  setTimeout(()=> URL.revokeObjectURL(url), 10000);
+  frame._blobUrl = url;
+  frame.src = url;
+  $('#recvPreviewOverlay').classList.remove('hidden'); $('#recvPreviewOverlay').classList.add('flex');
+}
+function closeReceiptPreview(){
+  $('#recvPreviewOverlay').classList.add('hidden'); $('#recvPreviewOverlay').classList.remove('flex');
+  const frame = $('#recvPreviewFrame');
+  if(frame){
+    if(frame._blobUrl){ URL.revokeObjectURL(frame._blobUrl); frame._blobUrl = null; }
+    frame.src = 'about:blank';
+  }
 }
 function updRecv(i, field, value, isProp){
   const r = _recvRows[i]; if(!r) return;
