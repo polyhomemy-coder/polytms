@@ -5409,7 +5409,7 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
   // A-13-10 has no same-property room move-out that month (both tenants'
   // rooms are elsewhere), so this used to exit before ever reaching the
   // cross-property carpark section below.
-  const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
+  const { data: pays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind,prorate_unconfirmed')
     .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','room');
   const byRoomRaw = new Map();
   (pays||[]).forEach(p=>{
@@ -5444,7 +5444,12 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
   const byRoom = new Map();
   byRoomRaw.forEach((rows, code)=>{
     if(dualRoomCodes.has(code) || !tenantRoomCodes.has(code)){ byRoom.set(code, rows); return; }
-    const keep = rows.length>1 ? (rows.find(r=>r.payment_kind) || rows[0]) : rows[0];
+    // Prefer a row a human already confirmed (receipt/manual entry) over an
+    // auto-computed unconfirmed placeholder, so a race between the two
+    // never discards the one with actual evidence behind it.
+    const keep = rows.length>1
+      ? (rows.find(r=>r.payment_kind && !r.prorate_unconfirmed) || rows.find(r=>r.payment_kind) || rows[0])
+      : rows[0];
     rows.forEach(r=>{ if(r.id!==keep.id) roomDupIds.push(r.id); });
     byRoom.set(code, [keep]);
   });
@@ -5469,8 +5474,12 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
       // untagged row stays permanently missing its formula note, since the
       // display only shows it for rows tagged 'last_month_prorate'.
       if(!existing.payment_kind){
+        // An untagged row that already exists is itself evidence of a real
+        // payment (manual entry or receipt import, not an auto-placeholder —
+        // every row THIS self-heal creates is always tagged) — confirmed.
         const {error} = await sb.from('rental_payments').update({
           amount: lp.roomShare, remark: _lastMonthProRateRemark(lp), payment_kind: 'last_month_prorate',
+          prorate_unconfirmed: false,
         }).eq('id', existing.id);
         if(!error) inserted++;
       }
@@ -5507,6 +5516,7 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
       if(!existing.payment_kind){
         const {error} = await sb.from('rental_payments').update({
           amount: share.share, remark, payment_kind: 'last_month_prorate',
+          prorate_unconfirmed: false,
         }).eq('id', existing.id);
         if(!error) inserted++;
       }
@@ -5517,6 +5527,9 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
       item_type: 'carpark', room_code: lot,
       amount: share.share, paid_on: t.move_out_date || t.agreement_end, remark,
       payment_kind: 'last_month_prorate',
+      // Pure computation, no receipt/manual-entry evidence yet — see
+      // _proRateInsertRows for the same reasoning on the room side.
+      prorate_unconfirmed: true,
     });
     if(!error){
       inserted++;
@@ -5532,7 +5545,7 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
     return lp && lp.moveOutYear===y && lp.moveOutMonth===m;
   });
   if(crossCpTenantsOut.length){
-    const { data: cpPays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind')
+    const { data: cpPays } = await sb.from('rental_payments').select('id,room_code,amount,payment_kind,prorate_unconfirmed')
       .eq('property_id',propId).eq('year',y).eq('month',m).eq('item_type','carpark');
     const cpByLotRaw = new Map();
     (cpPays||[]).forEach(p=>{
@@ -5572,7 +5585,9 @@ async function _ensureLastMonthProRateExpensesForImpl(propId, y, m){
     const cpByLot = new Map();
     cpByLotRaw.forEach((rowsArr, lot)=>{
       if(dualLots.has(lot) || !triggerLots.has(lot)){ cpByLot.set(lot, rowsArr); return; }
-      const keep = rowsArr.length>1 ? (rowsArr.find(r=>r.payment_kind) || rowsArr[0]) : rowsArr[0];
+      const keep = rowsArr.length>1
+        ? (rowsArr.find(r=>r.payment_kind && !r.prorate_unconfirmed) || rowsArr.find(r=>r.payment_kind) || rowsArr[0])
+        : rowsArr[0];
       rowsArr.forEach(r=>{ if(r.id!==keep.id) cpDupIds.push(r.id); });
       cpByLot.set(lot, [keep]);
     });
@@ -9102,12 +9117,20 @@ function _proRateInsertRows(t, pr, y, m, isLast){
   const dateStr = isLast ? (t.move_out_date || t.agreement_end) : t.agreement_start;
   const span = isLast ? `1–${pr.moveOutDay}` : `${pr.startDay}–${pr.daysInMonth}`;
   const label = (isLast ? '🚪 Move-out' : '🆕 Move-in') + ` pro-rate ${span} ${MONTHS[m-1]}`;
+  // Move-out pro-rate is only ever auto-computed here, with no evidence yet
+  // that the departing tenant actually paid it (unlike move-in, which the
+  // office always collects before handing over the unit) — so every fresh
+  // row this builder creates for a move-out starts unconfirmed, excluded
+  // from the Income Report's totals until a matching receipt or manual
+  // entry confirms it (see buildReportLineMap / saveAllReceipts /
+  // _detectRoomPaymentKind). Move-in rows are unaffected (isLast=false).
+  const unconfirmed = isLast;
   const rows = [{
     property_id: t.property_id, year: y, month: m,
     item_type: 'room', room_code: t.room_code,
     amount: pr.roomShare, paid_on: dateStr,
     remark: `${label}: RM ${pr.roomFull}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.roomShare}`,
-    payment_kind: kind,
+    payment_kind: kind, prorate_unconfirmed: unconfirmed,
   }];
   if(pr.sameCarpark && pr.carparkShare>0){
     rows.push({
@@ -9115,7 +9138,7 @@ function _proRateInsertRows(t, pr, y, m, isLast){
       item_type: 'carpark', room_code: normCarpark(t.carpark),
       amount: pr.carparkShare, paid_on: dateStr,
       remark: `${label}: RM ${pr.carparkFull}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.carparkShare}`,
-      payment_kind: kind,
+      payment_kind: kind, prorate_unconfirmed: unconfirmed,
     });
   }
   if(pr.sameCarpark2 && pr.carpark2Share>0){
@@ -9124,7 +9147,7 @@ function _proRateInsertRows(t, pr, y, m, isLast){
       item_type: 'carpark', room_code: normCarpark(t.carpark2),
       amount: pr.carpark2Share, paid_on: dateStr,
       remark: `${label}: RM ${pr.carpark2Full}/${pr.daysInMonth}×${pr.daysOccupied} = RM ${pr.carpark2Share}`,
-      payment_kind: kind,
+      payment_kind: kind, prorate_unconfirmed: unconfirmed,
     });
   }
   return rows;
@@ -9200,6 +9223,9 @@ async function _ensureCrossPropertyCarparkPayment(t, carparkField, propField, re
     item_type: 'carpark', room_code: normLot,
     amount, paid_on: dateStr, remark,
     payment_kind: paymentKind,
+    // Same reasoning as _proRateInsertRows: a move-out pro-rate carpark
+    // share has no confirmed-receipt evidence at this point, only computed.
+    prorate_unconfirmed: isMoveOut && isProRate,
   });
   if(error){ toast('Cross-property carpark payment failed: '+error.message, 'bad'); return; }
   toast(`Carpark ${lot} (cross-property) RM ${fmt(amount)} auto-recorded for ${monStr}`);
@@ -9312,10 +9338,13 @@ async function _autoCreateLastMonthProRate(t){
     // to its pro-rate share, and same for the carpark's own line (creating
     // it if this used to be a combined pre-split payment).
     if(existing.amount > pr.roomShare + 0.005){
+      // Splitting an actual payment the tenant already made (evidenced),
+      // not inventing one — confirmed from the start.
       const {error} = await sb.from('rental_payments').update({
         amount: pr.roomShare,
         remark: _lastMonthProRateRemark(pr),
         payment_kind: 'last_month_prorate',
+        prorate_unconfirmed: false,
       }).eq('id', existing.id);
       if(error){ toast('Move-out pro-rate adjustment failed: '+error.message,'bad'); return; }
       toast(`🚪 Payment adjusted to pro-rate RM ${fmt(pr.roomShare)} for ${monStr} (${pr.daysOccupied}/${pr.daysInMonth} days)`);
@@ -9325,13 +9354,17 @@ async function _autoCreateLastMonthProRate(t){
         p.property_id===t.property_id && p.year===pr.moveOutYear && p.month===pr.moveOutMonth &&
         p.item_type==='carpark' && normCarpark(p.room_code)===normCarpark(t.carpark)
       );
+      // Same splitting-a-real-payment reasoning as the room row above —
+      // override _proRateInsertRows' default unconfirmed:true, since this
+      // carpark share is being carved out of money the tenant already paid,
+      // not computed from nothing.
       const cpRows = _proRateInsertRows(t, pr, pr.moveOutYear, pr.moveOutMonth, true).filter(r=>r.item_type==='carpark');
       if(existingCp){
         if(existingCp.amount > pr.carparkShare + 0.005){
-          await sb.from('rental_payments').update({amount: pr.carparkShare, remark: cpRows[0]?.remark, payment_kind:'last_month_prorate'}).eq('id', existingCp.id);
+          await sb.from('rental_payments').update({amount: pr.carparkShare, remark: cpRows[0]?.remark, payment_kind:'last_month_prorate', prorate_unconfirmed:false}).eq('id', existingCp.id);
         }
       } else if(cpRows.length){
-        await sb.from('rental_payments').insert(cpRows[0]);
+        await sb.from('rental_payments').insert({...cpRows[0], prorate_unconfirmed:false});
       }
     }
     // Either carpark may be assigned to a DIFFERENT property than the
@@ -9715,6 +9748,14 @@ function openAddCarparkModal(id){
   const fRent  = slot===1 ? 'carpark_rental' : 'carpark2_rental';
   const fDep   = slot===1 ? 'carpark_deposit' : 'carpark2_deposit';
   const fStart = slot===1 ? 'carpark_start_date' : 'carpark2_start_date';
+  const fProp  = slot===1 ? 'carpark_property_id' : 'carpark2_property_id';
+  // This modal has no field to SET carpark_property_id (it's meant for a
+  // carpark at the tenant's own property, per the help text below) — but if
+  // it's already on file as a different property (e.g. set earlier via the
+  // regular Edit Tenant form, or left over from a previous slot-2 carpark),
+  // the payment must still land there, not on the room's own property,
+  // or the carpark's income gets posted to the wrong unit's report.
+  const cpPropId = t[fProp] || t.property_id;
   const today = todayISODateLocal();
   const existingNote = !slot1Free
     ? `<div class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 mb-1">Already has: <b>Carpark ${esc(t.carpark)}</b> · RM ${fmt(t.carpark_rental)}/mo</div>`
@@ -9743,7 +9784,9 @@ function openAddCarparkModal(id){
       if(!start) throw new Error('Enter the start date');
       if(!(rental>0)) throw new Error('Enter the carpark rental');
       const [sy, sm, sd] = start.split('-').map(Number);
-      requireReportEditable(t.property_id, sy, sm);
+      // Check the lock on the property the carpark's payment will actually
+      // post to — not always the room's own property (see cpPropId above).
+      requireReportEditable(cpPropId, sy, sm);
 
       const daysInMonth  = new Date(sy, sm, 0).getDate();
       const daysOccupied = daysInMonth - sd + 1;
@@ -9764,7 +9807,7 @@ function openAddCarparkModal(id){
         ? `🅿️ Carpark ${lot} added mid-tenancy, starts ${fmtDate(start)}: RM ${rental}/${daysInMonth}×${daysOccupied} = RM ${amount}`
         : `🅿️ Carpark ${lot} added mid-tenancy, starts ${fmtDate(start)} (full month)`;
       const {error: pErr} = await sb.from('rental_payments').insert({
-        property_id: t.property_id, year: sy, month: sm,
+        property_id: cpPropId, year: sy, month: sm,
         item_type: 'carpark', room_code: normCarpark(lot),
         amount, paid_on: start, remark,
       });
@@ -11730,7 +11773,13 @@ function renderPayments(){
     if(r.payment_kind==='first_month_prorate'){
       splitChip = `<span class="ml-2 chip" style="background:#FFF0E6;color:#F4811F;font-size:10px">🆕 1st-month pro-rate</span>`;
     } else if(r.payment_kind==='last_month_prorate'){
-      splitChip = `<span class="ml-2 chip" style="background:#FFE4E6;color:#9F1239;font-size:10px">🚪 Move-out pro-rate</span>`;
+      // Auto-computed but not yet backed by a receipt/manual entry (see
+      // _proRateInsertRows) — flagged separately so admin knows this amount
+      // is excluded from the Income Report until confirmed. Uploading a
+      // receipt or editing this row with the matching amount clears it.
+      splitChip = r.prorate_unconfirmed
+        ? `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">🚪⏳ Move-out pro-rate — unconfirmed</span>`
+        : `<span class="ml-2 chip" style="background:#FFE4E6;color:#9F1239;font-size:10px">🚪 Move-out pro-rate</span>`;
     } else if(r.payment_kind==='advance_covered_full'){
       splitChip = `<span class="ml-2 chip" style="background:#E8F4FD;color:#1E5BB8;font-size:10px">🔄 Advance-covered (full month)</span>`;
     } else if(t && (t.carpark || t.carpark2)){
@@ -12031,12 +12080,27 @@ async function commitInlinePayment(tr){
       x.active!==false
     );
     const {kind, amtToRecord, finalRem} = await _detectRoomPaymentKind(tenant, pid, amt, rem);
-    const { error } = await sb.from('rental_payments').insert({
-      property_id: pid, year: state.year, month: state.month,
-      item_type: 'room', room_code: code, amount: amtToRecord,
-      paid_on: date || null, remark: finalRem,
-      payment_kind: kind,
-    });
+    // Confirming a move-out pro-rate here should settle the existing
+    // unconfirmed auto-placeholder (see _proRateInsertRows), not add a
+    // second row for the same event — same reconciliation as saveAllReceipts.
+    const placeholder = kind==='last_month_prorate'
+      ? state.payments.find(p=>
+          p.property_id===pid && p.year===state.year && p.month===state.month &&
+          (p.item_type||'room')==='room' &&
+          String(p.room_code||'').toUpperCase()===code &&
+          p.prorate_unconfirmed)
+      : null;
+    const { error } = placeholder
+      ? await sb.from('rental_payments').update({
+          amount: amtToRecord, paid_on: date || null, remark: finalRem,
+          payment_kind: kind, prorate_unconfirmed: false,
+        }).eq('id', placeholder.id)
+      : await sb.from('rental_payments').insert({
+          property_id: pid, year: state.year, month: state.month,
+          item_type: 'room', room_code: code, amount: amtToRecord,
+          paid_on: date || null, remark: finalRem,
+          payment_kind: kind,
+        });
     if(error) throw error;
     await loadPayments();
     // Re-sync management fee + next-month BF since rental income changed.
@@ -14145,6 +14209,13 @@ function openPaymentModal(id){
         payload.remark = finalRem;
         payload.payment_kind = kind;
       }
+      // Saving an edit on a row that was an unconfirmed move-out pro-rate
+      // placeholder (see _proRateInsertRows) is itself the confirmation —
+      // the admin looked at it and chose to keep/correct the amount — so
+      // it now counts toward the Income Report regardless of which branch
+      // above ran (including the alreadyTagged skip, which leaves
+      // payment_kind untouched but must still clear this flag).
+      if(id && r.prorate_unconfirmed) payload.prorate_unconfirmed = false;
       const q = id ? sb.from('rental_payments').update(payload).eq('id',id) : sb.from('rental_payments').insert(payload);
       const {error}=await q; if(error) throw error;
       await loadPayments();
@@ -14825,7 +14896,15 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
     ) || (tenants||[]).find(x=>
       (x.room_code||'').toUpperCase()===(code||'').toUpperCase()
     ));
-    const amt = Number(p.amount||0);
+    // An unconfirmed move-out pro-rate placeholder (auto-computed, no
+    // receipt/manual entry evidence yet — see _proRateInsertRows) must not
+    // count toward the Income Report's totals until confirmed. Forcing amt
+    // to 0 here safely zeroes every downstream room/carpark credit below
+    // (none of the exact-match branches fire with amt=0, so it falls
+    // through to the proportional-fallback branch, which is itself amt-
+    // scaled) while the pro-rate formula note still gets attached further
+    // down, so the row stays visible and explained, just not counted yet.
+    const amt = p.prorate_unconfirmed ? 0 : Number(p.amount||0);
     let roomShare = amt;
     let _lineProRateNote = null; // formula string to attach to the room line
     // Detect pro-rate primarily from the stored payment_kind tag, but ALSO
@@ -14947,7 +15026,7 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
       // worse than showing none.
       if(_lineProRateNote){
         const rl = ensureLine('room', code);
-        rl.proRateNote  = _lineProRateNote;
+        rl.proRateNote  = _lineProRateNote + (p.prorate_unconfirmed ? ' · ⏳ unconfirmed' : '');
         rl.proRateLabel = isLast ? '🚪 Move-out' : '🆕 Move-in';
       }
     } else if(p.payment_kind==='advance_covered_full' && t){
@@ -15043,7 +15122,11 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
   payments.filter(p=>p.item_type==='carpark').forEach(p=>{
     const cpLine = ensureLine('carpark', p.room_code);
     const cpAmt = Number(p.amount||0);
-    cpLine.rental += cpAmt;
+    // Same unconfirmed-move-out-prorate exclusion as the room pass above —
+    // only the CREDITED total is zeroed; cpAmt itself stays the real stored
+    // amount so the move-in-vs-move-out note heuristic below (which compares
+    // against it) still picks the right formula.
+    cpLine.rental += p.prorate_unconfirmed ? 0 : cpAmt;
     // Use the SAME date-aware, cross-property-aware lookup the report's
     // Tenancy column already uses — a plain .find() over allTenants can
     // grab the WRONG tenant (e.g. a stale one who previously referenced
@@ -15079,6 +15162,7 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
       cpLine.proRateNote  = `RM ${cpFull}/${lm.dim}×${lm.days}`;
       cpLine.proRateLabel = '🚪 Move-out';
     }
+    if(p.prorate_unconfirmed && cpLine.proRateNote) cpLine.proRateNote += ' · ⏳ unconfirmed';
   });
 
   // AIRCON top-ups always sit on the room line.
@@ -17198,11 +17282,17 @@ function classifyReceiptDup(r){
   const room = String(r.room||'').toUpperCase();
   const itemType = r.item_type||'room';
   const amt = Number(r.amount);
+  // Excludes an unconfirmed move-out pro-rate placeholder — its amount is
+  // only ever a computed guess, not an actual received payment, so a receipt
+  // that happens to match it is the CONFIRMATION this app is waiting for,
+  // not a duplicate to block. saveAllReceipts reconciles that match into the
+  // existing placeholder row instead of inserting a separate new one.
   const same = state.payments.filter(p=>
     p.property_id===r.property_id &&
     p.year===yy && p.month===mm &&
     (p.item_type||'room')===itemType &&
-    String(p.room_code||'').toUpperCase()===room
+    String(p.room_code||'').toUpperCase()===room &&
+    !p.prorate_unconfirmed
   );
   if(!same.length) return;
   r.existingAmounts = same.map(p=>Number(p.amount||0));
@@ -17564,14 +17654,33 @@ async function saveAllReceipts(){
                 {confirmText:'Record Pro-Rate',cancelText:'Cancel',danger:false}
               )){
                 kind = 'last_month_prorate';
-                rows.push({
-                  property_id:r.property_id, year:state.year, month:state.month,
-                  item_type:r.item_type||'room', room_code:code,
-                  amount: lp.total, paid_on: r.date||null,
-                  remark: `Imported from ${r.filename} · 🚪 Move-out pro-rate: RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days.`,
-                  payment_kind: 'last_month_prorate'
-                });
-                continue; // skip the generic push below — already pushed with pro-rate amount
+                const confirmRemark = `Imported from ${r.filename} · 🚪 Move-out pro-rate: RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days.`;
+                // An auto-computed unconfirmed placeholder for this exact
+                // tenant+room+month likely already exists (see
+                // _proRateInsertRows) — this receipt is the confirmation
+                // it's waiting for, so update that row in place rather than
+                // inserting a second one for the same event.
+                const placeholder = state.payments.find(p=>
+                  p.property_id===r.property_id && p.year===state.year && p.month===state.month &&
+                  (p.item_type||'room')===(r.item_type||'room') &&
+                  String(p.room_code||'').toUpperCase()===code &&
+                  p.prorate_unconfirmed
+                );
+                if(placeholder){
+                  await sb.from('rental_payments').update({
+                    amount: lp.total, paid_on: r.date||null, remark: confirmRemark,
+                    payment_kind: 'last_month_prorate', prorate_unconfirmed: false,
+                  }).eq('id', placeholder.id);
+                } else {
+                  rows.push({
+                    property_id:r.property_id, year:state.year, month:state.month,
+                    item_type:r.item_type||'room', room_code:code,
+                    amount: lp.total, paid_on: r.date||null,
+                    remark: confirmRemark,
+                    payment_kind: 'last_month_prorate'
+                  });
+                }
+                continue; // skip the generic push below — already handled above
               }
             }
           }
