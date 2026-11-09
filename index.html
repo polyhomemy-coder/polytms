@@ -411,6 +411,9 @@
   /* Row whose receipt is currently shown in the left-hand preview pane. */
   table.data tr.recv-previewing td{background:#EFF6FF}
   table.data tr.recv-previewing:hover td{background:#DBEAFE}
+  /* Tighter row height than the default table.data td padding (10px 12px)
+     so more receipts fit on screen at once without scrolling as much. */
+  #recvTable td{padding:4px 8px}
   /* Unit group separator — tenants, collection, payment ledger */
   .unit-grp-sep td {
     border-top: 2px solid #CBD5E1 !important;
@@ -2243,7 +2246,7 @@
              blur/overlay here on purpose — both panes stay visible and
              interactive at once. -->
         <div class="mt-2 flex-1 flex gap-3 min-h-0">
-          <div class="flex flex-col border border-[color:var(--line)] rounded-xl overflow-hidden flex-shrink-0" style="width:36%">
+          <div class="flex flex-col border border-[color:var(--line)] rounded-xl overflow-hidden flex-shrink-0" style="width:26%">
             <div class="flex items-center gap-2 px-3 py-2 border-b border-[color:var(--line)] bg-[#F7FDFE] flex-shrink-0">
               <div id="recvPreviewLabel" class="text-xs font-bold text-[color:var(--muted)] truncate flex-1">Click 👁 View on a row to preview it here</div>
               <!-- Only shown for an image receipt — a PDF's zoom comes from
@@ -2251,7 +2254,7 @@
                    but a plain <img> has no such control of its own. -->
               <div id="recvZoomControls" class="hidden items-center gap-1 flex-shrink-0">
                 <button onclick="recvZoom(-1)" class="w-6 h-6 rounded bg-white border border-[color:var(--line)] text-sm font-bold leading-none" title="Zoom out">−</button>
-                <span id="recvZoomPct" class="text-[11px] font-semibold text-[color:var(--muted)] w-9 text-center">100%</span>
+                <span id="recvZoomPct" class="text-[11px] font-semibold text-[color:var(--muted)] w-9 text-center">75%</span>
                 <button onclick="recvZoom(1)" class="w-6 h-6 rounded bg-white border border-[color:var(--line)] text-sm font-bold leading-none" title="Zoom in">+</button>
                 <button onclick="recvZoom(0)" class="px-1.5 h-6 rounded bg-white border border-[color:var(--line)] text-[10px] font-bold" title="Reset zoom">Reset</button>
               </div>
@@ -17656,18 +17659,20 @@ function _recvRowHtml(i){
     : i===_recvPreviewIndex ? 'recv-previewing'
     : '';
   const viewBtn = r._file
-    ? `<button class="px-2 py-1 rounded ${i===_recvPreviewIndex?'bg-[color:var(--brand)] text-white':'bg-[#EEF7F8] text-[color:var(--brand)]'} text-sm" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
+    ? `<button class="px-1.5 py-0.5 rounded ${i===_recvPreviewIndex?'bg-[color:var(--brand)] text-white':'bg-[#EEF7F8] text-[color:var(--brand)]'} text-xs" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
     : '';
   // Type + Date + Detection are secondary to Property/Room/Amount — folded
   // into one compact stacked cell instead of three full-width columns, per
   // the requested column order (View/Skip/Check/File/Property/Room/Amount
   // first, everything else condensed after).
-  const metaCell = `<div class="flex flex-col gap-1" style="min-width:120px">
-    <select class="input !py-0.5 !text-[11px] !w-full" onchange="updRecv(${i},'item_type',this.value)">
-      <option value="room" ${r.item_type==='room'?'selected':''}>Room</option>
-      <option value="carpark" ${r.item_type==='carpark'?'selected':''}>Carpark</option>
-    </select>
-    <input type="date" class="input !py-0.5 !text-[11px] !w-full" value="${r.date||''}" onchange="updRecv(${i},'date',this.value)"/>
+  const metaCell = `<div class="flex flex-col gap-0.5" style="min-width:150px">
+    <div class="flex gap-0.5">
+      <select class="input !py-0.5 !text-[11px]" style="width:70px" onchange="updRecv(${i},'item_type',this.value)">
+        <option value="room" ${r.item_type==='room'?'selected':''}>Room</option>
+        <option value="carpark" ${r.item_type==='carpark'?'selected':''}>Carpark</option>
+      </select>
+      <input type="date" class="input !py-0.5 !text-[11px] flex-1" value="${r.date||''}" onchange="updRecv(${i},'date',this.value)"/>
+    </div>
     <div class="text-[11px]">${detCell}</div>
   </div>`;
 
@@ -17676,24 +17681,24 @@ function _recvRowHtml(i){
   // group-header row in renderRecvTable().
   const groupDivider = 'border-left:3px solid var(--brand)';
   return `<tr id="recvRow${i}" class="${rowBg} ${r.skip?'opacity-40':''}">
-    <td class="!p-2 text-center">
-      <button class="w-7 h-7 rounded-lg border ${r.checked?'bg-emerald-500 border-emerald-500 text-white':'bg-white border-[color:var(--line)] text-transparent'} text-sm font-bold leading-none" onclick="toggleRecvChecked(${i})" title="${r.checked?'Checked — click to un-check':'Mark this row as reviewed/correct'}">✓</button>
+    <td class="!p-1 text-center">
+      <button class="w-6 h-6 rounded-lg border ${r.checked?'bg-emerald-500 border-emerald-500 text-white':'bg-white border-[color:var(--line)] text-transparent'} text-xs font-bold leading-none" onclick="toggleRecvChecked(${i})" title="${r.checked?'Checked — click to un-check':'Mark this row as reviewed/correct'}">✓</button>
     </td>
-    <td class="!p-2 text-center">
-      <button class="px-2 py-1 rounded bg-slate-100 text-sm" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
+    <td class="!p-1 text-center">
+      <button class="px-1.5 py-0.5 rounded bg-slate-100 text-xs" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
     </td>
-    <td class="!p-2 text-sm text-slate-400">${i+1}.</td>
-    <td class="!p-2 text-center">${viewBtn}</td>
-    <td class="!p-2 text-sm text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,20))}${r.filename.length>20?'…':''}${tamperChip}</td>
+    <td class="!p-1 text-sm text-slate-400">${i+1}.</td>
+    <td class="!p-1 text-center">${viewBtn}</td>
+    <td class="!p-1 text-sm text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,20))}${r.filename.length>20?'…':''}${tamperChip}</td>
     <td class="!p-1" style="min-width:200px;${groupDivider}">
-      <select class="input !py-1.5 !text-sm !font-bold !w-full" onchange="updRecv(${i},'property_id',this.value,true)">
+      <select class="input !py-1 !text-sm !font-bold !w-full" onchange="updRecv(${i},'property_id',this.value,true)">
         <option value="">— pick property —</option>
         ${state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
       </select>
     </td>
-    <td class="!p-1"><input class="input !py-1.5 !text-sm !font-bold" value="${esc(r.room||'')}" onchange="updRecv(${i},'room',this.value)" maxlength="8" style="width:64px" placeholder="Room"/></td>
-    <td class="!p-1"><input type="number" step="0.01" class="input !py-1.5 !text-sm !font-bold" value="${r.amount??''}" onchange="updRecv(${i},'amount',this.value)" style="width:100px" placeholder="Amount"/></td>
-    <td class="!p-2">${metaCell}</td>
+    <td class="!p-1"><input class="input !py-1 !text-sm !font-bold" value="${esc(r.room||'')}" onchange="updRecv(${i},'room',this.value)" maxlength="8" style="width:64px" placeholder="Room"/></td>
+    <td class="!p-1"><input type="number" step="0.01" class="input !py-1 !text-sm !font-bold" value="${r.amount??''}" onchange="updRecv(${i},'amount',this.value)" style="width:100px" placeholder="Amount"/></td>
+    <td class="!p-1">${metaCell}</td>
   </tr>`;
 }
 // Replaces ONLY row i's DOM node, instead of the whole table — see
@@ -17732,12 +17737,13 @@ function onRecvCondoChange(i, condo){
 // used to highlight that row in the list so it's obvious which listing
 // entry the visible receipt belongs to while cross-checking the two.
 let _recvPreviewIndex = -1;
-let _recvZoomPct = 100;
+const _RECV_DEFAULT_ZOOM = 75;
+let _recvZoomPct = _RECV_DEFAULT_ZOOM;
 // A PDF gets Chrome's own built-in viewer (iframe) — it has its own zoom
 // controls already. An image file has none, so it's shown via a plain <img>
 // instead, with the zoom buttons above driving its width directly.
 function recvZoom(dir){
-  _recvZoomPct = dir===0 ? 100 : Math.max(25, Math.min(400, _recvZoomPct + dir*25));
+  _recvZoomPct = dir===0 ? _RECV_DEFAULT_ZOOM : Math.max(25, Math.min(400, _recvZoomPct + dir*25));
   const img = $('#recvPreviewImg');
   if(img) img.style.width = _recvZoomPct+'%';
   const pct = $('#recvZoomPct');
@@ -17769,9 +17775,9 @@ function viewReceipt(i){
     frame.src = 'about:blank';
     img.classList.remove('hidden');
     img.src = url;
-    _recvZoomPct = 100;
-    img.style.width = '100%';
-    $('#recvZoomPct').textContent = '100%';
+    _recvZoomPct = _RECV_DEFAULT_ZOOM;
+    img.style.width = _recvZoomPct+'%';
+    $('#recvZoomPct').textContent = _recvZoomPct+'%';
     zoomCtrls.classList.remove('hidden'); zoomCtrls.classList.add('flex');
   }
   const label = $('#recvPreviewLabel');
