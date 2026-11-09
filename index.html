@@ -408,6 +408,9 @@
   /* Receipt review row with a possible split-payment pending confirmation. */
   table.data tr.recv-row-warn td{background:#FFFBEB}
   table.data tr.recv-row-warn:hover td{background:#FEF3C7}
+  /* Row whose receipt is currently shown in the left-hand preview pane. */
+  table.data tr.recv-previewing td{background:#EFF6FF}
+  table.data tr.recv-previewing:hover td{background:#DBEAFE}
   /* Unit group separator — tenants, collection, payment ledger */
   .unit-grp-sep td {
     border-top: 2px solid #CBD5E1 !important;
@@ -2204,8 +2207,8 @@
 
   <!-- RECEIPT UPLOAD MODAL =================================== -->
   <div id="recvOverlay" class="fixed inset-0 z-40 modal-bg hidden items-start justify-center p-4 overflow-auto">
-    <div class="card my-4" style="width:96vw;max-width:1464px">
-      <div class="flex items-start justify-between">
+    <div class="card my-2 flex flex-col" style="width:97vw;max-width:1800px;height:95vh">
+      <div class="flex items-start justify-between flex-shrink-0">
         <div>
           <h3 class="section-title">📤 Upload Tenant Payment Receipts</h3>
           <p class="help mt-1">Drop multiple bank-transfer receipts (PDF or image). I'll auto-extract <b>unit · room · amount · date</b> and let you review before saving.</p>
@@ -2215,43 +2218,40 @@
       </div>
 
       <!-- Dropzone + file picker -->
-      <div id="dropZone" class="mt-4 border-2 border-dashed border-[color:var(--brand)] rounded-2xl p-10 text-center bg-[#F7FDFE] cursor-pointer">
-        <div class="text-4xl">🧾</div>
-        <div class="mt-2 font-bold text-[color:var(--brand)]">Drop receipts here</div>
+      <div id="dropZone" class="mt-3 flex-shrink-0 border-2 border-dashed border-[color:var(--brand)] rounded-2xl p-5 text-center bg-[#F7FDFE] cursor-pointer">
+        <div class="text-2xl">🧾</div>
+        <div class="mt-1 font-bold text-[color:var(--brand)]">Drop receipts here</div>
         <div class="help mt-1">or click to browse · Supports PDF, JPG, PNG (you can select many at once)</div>
         <input id="recvFiles" type="file" multiple accept="application/pdf,image/*" class="hidden" />
       </div>
 
-      <div id="recvStatus" class="mt-3 help"></div>
+      <div id="recvStatus" class="mt-2 help flex-shrink-0"></div>
 
       <!-- Review table -->
-      <div id="recvReview" class="mt-4 hidden">
-        <div class="flex items-center justify-between flex-wrap gap-2">
+      <div id="recvReview" class="mt-3 hidden flex-1 flex flex-col min-h-0">
+        <div class="flex items-center justify-between flex-wrap gap-2 flex-shrink-0">
           <div class="font-extrabold">Review & Edit</div>
           <div class="flex gap-2 items-center">
             <span class="help" id="recvCount"></span>
             <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="saveAllReceipts()">💾 Save All</button>
           </div>
         </div>
-        <div class="overflow-x-auto mt-2 border border-[color:var(--line)] rounded-xl">
-          <table class="data w-full" id="recvTable"></table>
+        <!-- Side-by-side: receipt preview (left) + review list (right), so
+             a row's Property/Room/Amount can be checked directly against the
+             actual receipt without a popup covering the list. No background
+             blur/overlay here on purpose — both panes stay visible and
+             interactive at once. -->
+        <div class="mt-2 flex-1 flex gap-3 min-h-0">
+          <div class="flex flex-col border border-[color:var(--line)] rounded-xl overflow-hidden flex-shrink-0" style="width:36%">
+            <div id="recvPreviewLabel" class="px-3 py-2 border-b border-[color:var(--line)] bg-[#F7FDFE] text-xs font-bold text-[color:var(--muted)] truncate">Click 👁 View on a row to preview it here</div>
+            <iframe id="recvPreviewFrame" class="flex-1" style="width:100%;border:0"></iframe>
+          </div>
+          <div class="flex-1 overflow-auto border border-[color:var(--line)] rounded-xl min-w-0">
+            <table class="data w-full" id="recvTable"></table>
+          </div>
         </div>
-        <p class="help mt-2">Rows in red need your attention — unit not matched to any property. Pick one from the dropdown or click the ✕ to skip. Click the ✓ box on the left once you've checked a row's details are correct.</p>
+        <p class="help mt-2 flex-shrink-0">Rows in red need your attention — unit not matched to any property. Pick one from the dropdown or click the ✕ to skip. Click the ✓ box once you've checked a row's details are correct.</p>
       </div>
-    </div>
-  </div>
-
-  <!-- RECEIPT PREVIEW (View button) — an in-page popup instead of a new
-       browser tab; a bare window.open(url,'_blank') for a blob: URL opens a
-       full tab in most browsers regardless of window-feature hints, so this
-       renders the file in its own overlay above the upload modal instead. -->
-  <div id="recvPreviewOverlay" class="fixed inset-0 z-50 modal-bg hidden items-center justify-center p-4">
-    <div class="card flex flex-col" style="width:90vw;max-width:900px;height:90vh">
-      <div class="flex items-center justify-between">
-        <h3 class="section-title">🧾 Receipt Preview</h3>
-        <button onclick="closeReceiptPreview()" aria-label="Close" class="text-2xl leading-none text-[color:var(--muted)] hover:text-[color:var(--ink)]">×</button>
-      </div>
-      <iframe id="recvPreviewFrame" class="mt-3 flex-1" style="width:100%;border:1px solid var(--line);border-radius:12px"></iframe>
     </div>
   </div>
 
@@ -17383,9 +17383,14 @@ function classifyReceiptDup(r){
 let _recvRows = [];
 function openReceiptUpload(){
   _recvRows = [];
+  _recvPreviewIndex = -1;
   $('#recvStatus').textContent='';
   $('#recvReview').classList.add('hidden');
   $('#recvTable').innerHTML='';
+  const pf = $('#recvPreviewFrame');
+  if(pf){ if(pf._blobUrl){ URL.revokeObjectURL(pf._blobUrl); pf._blobUrl=null; } pf.src='about:blank'; }
+  const pl = $('#recvPreviewLabel');
+  if(pl) pl.textContent = 'Click 👁 View on a row to preview it here';
   // Show which month receipts will be filed under
   const mLbl = $('#recvMonthLbl');
   if(mLbl){
@@ -17395,7 +17400,11 @@ function openReceiptUpload(){
   }
   $('#recvOverlay').classList.remove('hidden'); $('#recvOverlay').classList.add('flex');
 }
-function closeReceiptUpload(){ $('#recvOverlay').classList.remove('flex'); $('#recvOverlay').classList.add('hidden'); }
+function closeReceiptUpload(){
+  $('#recvOverlay').classList.remove('flex'); $('#recvOverlay').classList.add('hidden');
+  const pf = $('#recvPreviewFrame');
+  if(pf && pf._blobUrl){ URL.revokeObjectURL(pf._blobUrl); pf._blobUrl=null; pf.src='about:blank'; }
+}
 
 // dropzone wiring
 (function wireDropzone(){
@@ -17611,41 +17620,50 @@ function _recvRowHtml(i){
   // set directly on the <tr>, so each state needs a real CSS class
   // targeting the <td>s (table.data tr.recv-X td) — a Tailwind bg-* utility
   // placed on the <tr> itself is a silent no-op in this table.
+  // Previewing (shown in the left pane right now) gets its own highlight so
+  // it's obvious which row the visible receipt belongs to — lower priority
+  // than incomplete/checked, since those still need to stay unambiguous.
   const rowBg = incomplete ? 'recv-row-bad'
     : r.checked ? 'recv-checked'
     : (r.tamper || r.dup==='same') ? 'recv-row-bad'
     : (r.dup==='split' && !r.confirmed) ? 'recv-row-warn'
+    : i===_recvPreviewIndex ? 'recv-previewing'
     : '';
   const viewBtn = r._file
-    ? `<button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-sm" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
+    ? `<button class="px-2 py-1 rounded ${i===_recvPreviewIndex?'bg-[color:var(--brand)] text-white':'bg-[#EEF7F8] text-[color:var(--brand)]'} text-sm" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
     : '';
+  // Type + Date + Detection are secondary to Property/Room/Amount — folded
+  // into one compact stacked cell instead of three full-width columns, per
+  // the requested column order (View/Skip/Check/File/Property/Room/Amount
+  // first, everything else condensed after).
+  const metaCell = `<div class="flex flex-col gap-1" style="min-width:120px">
+    <select class="input !py-0.5 !text-[11px] !w-full" onchange="updRecv(${i},'item_type',this.value)">
+      <option value="room" ${r.item_type==='room'?'selected':''}>Room</option>
+      <option value="carpark" ${r.item_type==='carpark'?'selected':''}>Carpark</option>
+    </select>
+    <input type="date" class="input !py-0.5 !text-[11px] !w-full" value="${r.date||''}" onchange="updRecv(${i},'date',this.value)"/>
+    <div class="text-[11px]">${detCell}</div>
+  </div>`;
 
   return `<tr id="recvRow${i}" class="${rowBg} ${r.skip?'opacity-40':''}">
     <td class="!p-2 text-sm text-slate-400">${i+1}.</td>
+    <td class="!p-2 text-center">${viewBtn}</td>
+    <td class="!p-2 text-center">
+      <button class="px-2 py-1 rounded bg-slate-100 text-sm" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
+    </td>
     <td class="!p-2 text-center">
       <button class="w-7 h-7 rounded-lg border ${r.checked?'bg-emerald-500 border-emerald-500 text-white':'bg-white border-[color:var(--line)] text-transparent'} text-sm font-bold leading-none" onclick="toggleRecvChecked(${i})" title="${r.checked?'Checked — click to un-check':'Mark this row as reviewed/correct'}">✓</button>
     </td>
-    <td class="!p-2 text-sm text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,22))}${r.filename.length>22?'…':''}${tamperChip}</td>
-    <td class="!p-1" style="min-width:220px">
+    <td class="!p-2 text-sm text-[color:var(--muted)]" title="${esc(r.filename)}">${esc(r.filename.slice(0,20))}${r.filename.length>20?'…':''}${tamperChip}</td>
+    <td class="!p-1" style="min-width:200px">
       <select class="input !py-1.5 !text-sm !font-bold !w-full" onchange="updRecv(${i},'property_id',this.value,true)">
         <option value="">— pick property —</option>
         ${state.properties.map(p=>`<option value="${p.id}" ${r.property_id===p.id?'selected':''}>${esc(p.condo)} · ${esc(p.unit)}</option>`).join('')}
       </select>
     </td>
     <td class="!p-1"><input class="input !py-1.5 !text-sm !font-bold" value="${esc(r.room||'')}" onchange="updRecv(${i},'room',this.value)" maxlength="8" style="width:64px" placeholder="Room"/></td>
-    <td class="!p-1">
-      <select class="input !py-1.5 !text-sm" onchange="updRecv(${i},'item_type',this.value)">
-        <option value="room" ${r.item_type==='room'?'selected':''}>Room</option>
-        <option value="carpark" ${r.item_type==='carpark'?'selected':''}>Carpark</option>
-      </select>
-    </td>
     <td class="!p-1"><input type="number" step="0.01" class="input !py-1.5 !text-sm !font-bold" value="${r.amount??''}" onchange="updRecv(${i},'amount',this.value)" style="width:100px" placeholder="Amount"/></td>
-    <td class="!p-1"><input type="date" class="input !py-1.5 !text-sm" value="${r.date||''}" onchange="updRecv(${i},'date',this.value)" style="width:140px"/></td>
-    <td class="!p-2">${detCell}</td>
-    <td class="text-right !p-2" style="white-space:nowrap">
-      ${viewBtn}
-      <button class="px-2 py-1 rounded bg-slate-100 text-sm ml-1" onclick="toggleSkip(${i})">${r.skip?'↩︎ Keep':'✕ Skip'}</button>
-    </td>
+    <td class="!p-2">${metaCell}</td>
   </tr>`;
 }
 // Replaces ONLY row i's DOM node, instead of the whole table — see
@@ -17658,8 +17676,8 @@ function _reRenderRecvRow(i){
 function renderRecvTable(){
   const rows = _recvRows.map((r,i)=>_recvRowHtml(i)).join('');
   $('#recvTable').innerHTML = `<thead><tr>
-    <th>#</th><th></th><th>File</th><th>Property</th><th>Room</th><th>Type</th><th class="num">Amount</th><th>Date</th><th>Detection</th><th></th>
-  </tr></thead><tbody>${rows || '<tr><td colspan="10" class="text-center py-6 text-slate-400">Drop files above to begin</td></tr>'}</tbody>`;
+    <th>#</th><th></th><th></th><th></th><th>File</th><th>Property</th><th>Room</th><th class="num">Amount</th><th>Type / Date</th>
+  </tr></thead><tbody>${rows || '<tr><td colspan="9" class="text-center py-6 text-slate-400">Drop files above to begin</td></tr>'}</tbody>`;
   _updateRecvCounts();
 }
 function onRecvCondoChange(i, condo){
@@ -17668,13 +17686,16 @@ function onRecvCondoChange(i, condo){
   r.property_id = null; r.condo = condo; r.property_unit = '';
   renderRecvTable();
 }
+// Which row's receipt is currently shown in the left-hand preview pane —
+// used to highlight that row in the list so it's obvious which listing
+// entry the visible receipt belongs to while cross-checking the two.
+let _recvPreviewIndex = -1;
 function viewReceipt(i){
   const r = _recvRows[i]; if(!r || !r._file) return;
-  // window.open(url,'_blank',<features>) still opens a full new browser tab
-  // in most browsers for a blob: URL regardless of width/height hints — an
-  // in-page overlay is the only way to actually get popup-window behavior,
-  // so the receipt renders in its own overlay above the upload modal
-  // instead (works for both PDFs and images via the iframe).
+  // Loads into the persistent left-hand pane instead of a popup — no
+  // background blur, both the receipt and the full list stay visible and
+  // usable side by side so a row's Property/Room/Amount can be checked
+  // directly against the receipt.
   const frame = $('#recvPreviewFrame');
   if(frame._blobUrl) URL.revokeObjectURL(frame._blobUrl);
   const url = URL.createObjectURL(r._file);
@@ -17683,15 +17704,12 @@ function viewReceipt(i){
   // without the left-hand page-thumbnail sidebar — just the document. A
   // harmless no-op for an image file (no such sidebar exists there anyway).
   frame.src = url + '#navpanes=0&pagemode=none';
-  $('#recvPreviewOverlay').classList.remove('hidden'); $('#recvPreviewOverlay').classList.add('flex');
-}
-function closeReceiptPreview(){
-  $('#recvPreviewOverlay').classList.add('hidden'); $('#recvPreviewOverlay').classList.remove('flex');
-  const frame = $('#recvPreviewFrame');
-  if(frame){
-    if(frame._blobUrl){ URL.revokeObjectURL(frame._blobUrl); frame._blobUrl = null; }
-    frame.src = 'about:blank';
-  }
+  const label = $('#recvPreviewLabel');
+  if(label) label.textContent = r.filename;
+  const prevIndex = _recvPreviewIndex;
+  _recvPreviewIndex = i;
+  if(prevIndex>=0) _reRenderRecvRow(prevIndex);
+  _reRenderRecvRow(i);
 }
 function updRecv(i, field, value, isProp){
   const r = _recvRows[i]; if(!r) return;
