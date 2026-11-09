@@ -11755,7 +11755,7 @@ function renderPayments(){
   });
 
   let _payLastPid = null, _payGrp = -1;
-  const rows = list.map(r=>{
+  const rows = list.map((r,i)=>{
     const p = state.properties.find(x=>x.id===r.property_id);
     const isPayNewGrp = r.property_id !== _payLastPid;
     if(isPayNewGrp){ _payLastPid = r.property_id; _payGrp++; }
@@ -11767,6 +11767,16 @@ function renderPayments(){
       x.property_id===r.property_id &&
       (x.room_code||'').trim().toUpperCase()===(r.room_code||'').trim().toUpperCase()
     );
+    // Split Penalty only makes sense when more cash came in than the room
+    // (+ same-property carpark) rent actually due — a pro-rate, an exact
+    // room+carpark split, or a plain on-amount payment all have nothing to
+    // split out, so the button stayed hidden for those rather than cluttering
+    // every single row (it used to show unconditionally on every room row).
+    const expectedFull = t ? (Number(t.room_rental||0)
+      + ((t.carpark  && Number(t.carpark_rental||0) >0 && (t.carpark_property_id  || t.property_id)===r.property_id) ? Number(t.carpark_rental||0)  : 0)
+      + ((t.carpark2 && Number(t.carpark2_rental||0)>0 && (t.carpark2_property_id || t.property_id)===r.property_id) ? Number(t.carpark2_rental||0) : 0)
+    ) : 0;
+    const isOverpaid = r.item_type==='room' && expectedFull>0 && Number(r.amount||0) > expectedFull + 0.5;
     let splitChip = '';
     // Pro-rate / advance-covered chips take precedence over the regular
     // matching chip — they explain the special-case row at a glance.
@@ -11803,6 +11813,7 @@ function renderPayments(){
     const penaltyLabel = r.item_type==='penalty'
       ? `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">⚠ Penalty — excluded from Income Report</span>` : '';
     return `<tr class="${grpCls}">
+      <td class="text-slate-400">${i+1}.</td>
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
       <td class="font-semibold">${p ? esc(p.unit) : ''}</td>
       <td class="font-bold">Room ${esc(r.room_code)}${splitChip}${penaltyLabel}</td>
@@ -11812,7 +11823,7 @@ function renderPayments(){
       <td class="text-right whitespace-nowrap">
         ${_editAllowed('income','ledger') ? `
         <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold" onclick="openPaymentModal('${r.id}')">Edit</button>
-        ${r.item_type==='room' ? `<button class="px-2 py-1 rounded bg-amber-50 text-amber-700 text-xs font-semibold" onclick="openSplitPenaltyModal('${r.id}')" title="Split out a late-payment penalty so only the real rent counts toward income">✂ Split Penalty</button>` : ''}
+        ${isOverpaid ? `<button class="px-2 py-1 rounded bg-amber-50 text-amber-700 text-xs font-semibold" onclick="openSplitPenaltyModal('${r.id}')" title="Split out a late-payment penalty so only the real rent counts toward income">✂ Split Penalty</button>` : ''}
         <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="delPayment('${r.id}')">Del</button>` : ''}
       </td>
     </tr>`;
@@ -11826,6 +11837,7 @@ function renderPayments(){
   const _payUntOpts = _unitOpts(state.properties, state.properties.find(p=>p.id===pid)?.condo||'', pid);
   const dateDefault = `${state.year}-${String(state.month).padStart(2,'0')}-01`;
   const addRow = !_editAllowed('income','ledger') ? '' : `<tr class="add-row pay-add-row">
+    <td></td>
     <td><select class="pay-add-condo input !text-xs !py-1 !px-2 !w-full" onchange="onInlineCondoChange(this,'pay-add-prop')">
       <option value="">— condo —</option>${_payCndOpts}
     </select></td>
@@ -11849,6 +11861,7 @@ function renderPayments(){
   const host = $('#payTable');
   host.classList.add('table-fixed');
   host.innerHTML = `<colgroup>
+      <col style="width:3%">
       <col style="width:13%">
       <col style="width:9%">
       <col style="width:220px">
@@ -11858,9 +11871,9 @@ function renderPayments(){
       <col style="width:120px">
     </colgroup>
     <thead><tr>
-      <th>Condo</th><th>Unit</th><th>Room</th><th class="num">Amount Received</th><th>Paid On</th><th>Remark</th><th></th>
-    </tr></thead><tbody>${rows || '<tr><td colspan="7" class="text-center text-slate-400 py-6">No room payments yet — add one below.</td></tr>'}
-    ${rows?`<tr><td colspan="3" class="text-right font-bold">TOTAL</td><td class="num font-extrabold">${fmt(tot)}</td><td colspan="3"></td></tr>`:''}
+      <th>#</th><th>Condo</th><th>Unit</th><th>Room</th><th class="num">Amount Received</th><th>Paid On</th><th>Remark</th><th></th>
+    </tr></thead><tbody>${rows || '<tr><td colspan="8" class="text-center text-slate-400 py-6">No room payments yet — add one below.</td></tr>'}
+    ${rows?`<tr><td colspan="4" class="text-right font-bold">TOTAL</td><td class="num font-extrabold">${fmt(tot)}</td><td colspan="3"></td></tr>`:''}
     ${addRow}
     </tbody>`;
 
@@ -12301,7 +12314,7 @@ function renderRentStatus(pid){
   const totPaid = rows.reduce((s,r)=>s+r.paid,0);
 
   let _rsLastPid = null, _rsGrp = -1;
-  const html = rows.map(r=>{
+  const html = rows.map((r,i)=>{
     const t=r.tenant;
     const isRsNewGrp = (r.prop?.id||'') !== _rsLastPid;
     if(isRsNewGrp){ _rsLastPid = r.prop?.id||''; _rsGrp++; }
@@ -12331,6 +12344,7 @@ function renderRentStatus(pid){
       proChips += `<div class="text-[10px] mt-0.5"><span class="chip" style="background:#FFE4E6;color:#9F1239">🚪 Last-month pro-rate RM ${lp.total} (${lp.daysOccupied}/${lp.daysInMonth}d)</span></div>`;
     }
     return `<tr class="${grpCls}">
+      <td class="text-slate-400">${i+1}.</td>
       <td class="font-semibold">${r.prop ? esc(r.prop.condo) : '—'}</td>
       <td class="font-semibold whitespace-nowrap">${r.prop ? esc(r.prop.unit) : ''}</td>
       <td class="text-center font-bold">${esc(t.room_code||'')}</td>
@@ -12348,7 +12362,7 @@ function renderRentStatus(pid){
     </tr>`;
   }).join('');
   const totalsRow = rows.length ? `<tr style="background:#E8F8FA">
-    <td colspan="4" class="text-right font-bold">TOTAL</td>
+    <td colspan="5" class="text-right font-bold">TOTAL</td>
     <td class="num font-extrabold">${fmt(totRoom)}</td>
     <td></td>
     <td class="num font-extrabold">${fmt(totCp)}</td>
@@ -12359,13 +12373,13 @@ function renderRentStatus(pid){
   </tr>`:'';
   const tbl = $('#rentStatusTable');
   if(tbl) tbl.innerHTML = `<thead><tr>
-    <th>Condo</th><th>Unit</th><th>Room</th><th>Tenant</th>
+    <th>#</th><th>Condo</th><th>Unit</th><th>Room</th><th>Tenant</th>
     <th class="num">Room Rental</th>
     <th>Carpark Lot</th><th class="num">Carpark Rental</th>
     <th>Move-in Date</th>
     <th class="num">Contract RM</th><th class="num">Paid RM</th>
     <th>Status</th><th></th>
-  </tr></thead><tbody>${html || `<tr><td colspan="12" class="text-center text-slate-400 py-8">${filter!=='all' ? `No tenants with status "${filter}" for this month.` : 'No active tenancies for this month. Add tenants in the Tenants tab.'}</td></tr>`}${totalsRow}</tbody>`;
+  </tr></thead><tbody>${html || `<tr><td colspan="13" class="text-center text-slate-400 py-8">${filter!=='all' ? `No tenants with status "${filter}" for this month.` : 'No active tenancies for this month. Add tenants in the Tenants tab.'}</td></tr>`}${totalsRow}</tbody>`;
 }
 
 // ----- AIRCON -----
