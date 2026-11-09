@@ -395,6 +395,12 @@
   #propTable td,#propTable th{padding:8px 8px}
   #propTable td:last-child{padding-right:6px}
   table.data tr.prop-grp-alt td{background:#F1F9FD}
+  /* Receipt review row marked ✓ checked — table.data td's own background:#fff
+     (above) paints over any color set on the <tr> itself, so this has to
+     target the <td> directly, same as prop-grp-alt/isewa-row above, or the
+     highlight silently never shows no matter what class the row gets. */
+  table.data tr.recv-checked td{background:#ECFDF5}
+  table.data tr.recv-checked:hover td{background:#D1FAE5}
   /* Unit group separator — tenants, collection, payment ledger */
   .unit-grp-sep td {
     border-top: 2px solid #CBD5E1 !important;
@@ -17565,7 +17571,11 @@ function _recvRowHtml(i){
   // duplicate warning — the warning text itself (in the Detection/File
   // cells) stays visible either way, but a checked row should be
   // unambiguously green so it's obvious at a glance which rows are done.
-  const rowBg = r.checked ? 'bg-emerald-50' : (r.tamper ? 'bg-rose-50' : (bad ? 'bg-rose-50' : dupBg));
+  // Note: table.data td{background:#fff} (see CSS) paints over any color
+  // set directly on the <tr>, so this MUST be a real CSS class targeting
+  // the <td>s (table.data tr.recv-checked td) — a Tailwind bg-* utility on
+  // the <tr> itself is a silent no-op here, same as bad/dupBg below.
+  const rowBg = r.checked ? 'recv-checked' : (r.tamper ? 'bg-rose-50' : (bad ? 'bg-rose-50' : dupBg));
   const viewBtn = r._file
     ? `<button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-sm" onclick="viewReceipt(${i})" title="View receipt">👁 View</button>`
     : '';
