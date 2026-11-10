@@ -14448,10 +14448,36 @@ function openPaymentModal(id){
   });
 }
 async function delPayment(id){
-  if(!await confirmModal('Delete this payment?',{confirmText:'Delete',danger:true}))return;
   const r = state.payments.find(x=>x.id===id);
-  if(r){ try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); } }
-  const {error}=await sb.from('rental_payments').delete().eq('id',id); if(error)return toast(error.message,'bad');
+  if(!r) return;
+  // A row created by the overpayment auto-split (see _detectRoomPaymentKind
+  // / saveAllReceipts) has a linked 'penalty' "extra" row for the same
+  // event — deleting just the main row and leaving its extra behind is
+  // exactly the half-done state that makes "delete this and redo cleanly"
+  // hard, so offer to take both in one action instead.
+  const linkedExtra = r.item_type!=='penalty' ? state.payments.find(p=>
+    p.id!==id && p.item_type==='penalty' &&
+    p.property_id===r.property_id && p.year===r.year && p.month===r.month &&
+    String(p.room_code||'').toUpperCase()===String(r.room_code||'').toUpperCase()
+  ) : null;
+  const msg = linkedExtra
+    ? `Delete this payment AND its linked RM${fmt(linkedExtra.amount)} extra row together?`
+    : 'Delete this payment?';
+  if(!await confirmModal(msg,{confirmText:'Delete',danger:true}))return;
+  try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); }
+  const idsToDelete = linkedExtra ? [id, linkedExtra.id] : [id];
+  const {error}=await sb.from('rental_payments').delete().in('id',idsToDelete); if(error)return toast(error.message,'bad');
+  // Deleting a first/last-month pro-rate (or advance-covered, or still-
+  // unconfirmed) row is exactly the kind of gap the self-heal is built to
+  // notice and fill — re-running it immediately recreates a fresh,
+  // correctly-computed UNCONFIRMED placeholder right away, so reopening the
+  // Payments Ledger already shows a clean slate ready for a redo (e.g.
+  // re-uploading the same receipt), instead of needing to visit the Income
+  // Report tab first to trigger it.
+  if(r.prorate_unconfirmed || ['first_month_prorate','last_month_prorate','advance_covered_full'].includes(r.payment_kind)){
+    await ensureFirstMonthProRateExpensesFor(r.property_id, r.year, r.month);
+    await ensureLastMonthProRateExpensesFor(r.property_id, r.year, r.month);
+  }
   await loadPayments();
   await syncDerivedExpenses();
   renderTab('payments'); toast('Deleted');
