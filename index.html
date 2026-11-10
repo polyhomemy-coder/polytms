@@ -14378,6 +14378,7 @@ function openPaymentModal(id){
         <select id="f_type" class="input">
           <option value="room" ${(r.item_type||'room')==='room'?'selected':''}>Room</option>
           <option value="carpark" ${r.item_type==='carpark'?'selected':''}>Carpark</option>
+          <option value="penalty" ${r.item_type==='penalty'?'selected':''}>Extra / Penalty</option>
         </select></div>
       <div><label class="label">Room / Carpark Code *</label><input id="f_room" class="input" value="${esc(r.room_code||'')}"></div>
       <div><label class="label">Amount (RM) *</label><input type="number" step="0.01" id="f_amt" class="input" value="${r.amount??''}"></div>
