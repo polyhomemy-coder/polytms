@@ -11902,8 +11902,22 @@ function renderPayments(){
           : `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">≠ Expected ${fmt(expected)}</span>`;
       }
     }
+    // A 'penalty' row includes both a true late-fee split (via ✂ Split,
+    // never meant to count) and an auto-carved-off "extra beyond what's due"
+    // row (via the overpayment auto-split above) — the latter is exactly
+    // what count_as_income lets you flip back on when it turns out the
+    // extra really is income (e.g. next month's advance you want to
+    // recognize now).
     const penaltyLabel = r.item_type==='penalty'
-      ? `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">⚠ Penalty — excluded from Income Report</span>` : '';
+      ? (r.count_as_income
+          ? `<span class="ml-2 chip" style="background:#DCFCE7;color:#065F46;font-size:10px">✓ Extra — included in Income Report</span>`
+          : `<span class="ml-2 chip" style="background:#FEF3C7;color:#92400E;font-size:10px">⚠ Extra/Penalty — excluded from Income Report</span>`)
+      : '';
+    const extraToggleBtn = r.item_type==='penalty'
+      ? (r.count_as_income
+          ? `<button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold whitespace-nowrap" onclick="toggleExtraIncome('${r.id}')" title="Stop counting this toward the Income Report">📤 Exclude</button>`
+          : `<button class="px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs font-semibold whitespace-nowrap" onclick="toggleExtraIncome('${r.id}')" title="Count this toward the Income Report after all">📥 Include</button>`)
+      : '';
     return `<tr class="${grpCls}">
       <td class="text-slate-400">${i+1}.</td>
       <td class="font-semibold">${p ? esc(p.condo) : '—'}</td>
@@ -11917,6 +11931,7 @@ function renderPayments(){
         <div class="flex flex-wrap justify-end gap-1">
           <button class="px-2 py-1 rounded bg-slate-100 text-xs font-semibold whitespace-nowrap" onclick="openPaymentModal('${r.id}')">Edit</button>
           ${isOverpaid ? `<button class="px-2 py-1 rounded bg-amber-50 text-amber-700 text-xs font-semibold whitespace-nowrap" onclick="openSplitPenaltyModal('${r.id}')" title="Split out a late-payment penalty so only the real rent counts toward income">✂ Split</button>` : ''}
+          ${extraToggleBtn}
           <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold whitespace-nowrap" onclick="delPayment('${r.id}')">Del</button>
         </div>` : ''}
       </td>
@@ -12115,10 +12130,24 @@ async function exportPaymentsPdf(){
 // payment_kind + amount + remark to actually save. Returns null fields
 // (kind:null, amount:amt, remark:rem) when neither pattern applies or the
 // user declines the prompt — i.e. save as a plain payment.
+// extraAmt (returned alongside kind/amtToRecord/finalRem): whenever the cash
+// received exceeds what's actually due this month (the move-out pro-rate
+// share, or the tenant's plain contract rent for an ordinary month), the
+// excess is carved off automatically — no confirm prompt, per explicit
+// instruction — into its own 'penalty'-tagged row the caller inserts
+// alongside the main one. A 'penalty' row is already invisible to the
+// Income Report / Rent Collection Status by construction (same mechanism
+// openSplitPenaltyModal uses), so the extra sits there, visible in the
+// ledger, until someone flips toggleExtraIncome() on it to recognize it as
+// real income after all — covers "paid more than due" generally, not just
+// the move-out case this was first reported for.
 async function _detectRoomPaymentKind(tenant, pid, amt, rem){
-  let kind = null, finalRem = rem, amtToRecord = amt;
-  if(!tenant) return {kind, amtToRecord, finalRem};
+  let kind = null, finalRem = rem, amtToRecord = amt, extraAmt = 0;
+  if(!tenant) return {kind, amtToRecord, finalRem, extraAmt};
   // ----- 2nd-month advance-covered detection -----
+  // Left as a confirm prompt — unlike a plain overpayment, this is a genuine
+  // reinterpretation of what the cash means (pro-rate-sized cash standing in
+  // for a full month via an advance), not just "paid too much."
   const pr = computeFirstMonthProRate(tenant);
   if(pr){
     const isSecondMonth =
@@ -12138,38 +12167,37 @@ async function _detectRoomPaymentKind(tenant, pid, amt, rem){
       }
     }
   }
-  // ----- LAST-MONTH (move-out) pro-rate detection -----
-  // Two scenarios both mean we should record the pro-rated income:
-  //   A. Receipt amount = pro-rate amount (tenant paid only what's due).
-  //   B. Receipt amount = full month rental (tenant overpaid; excess
-  //      can be refunded from deposit / next refund cycle).
-  // In BOTH cases the income recorded = pro-rate; remark notes scenario.
+  // ----- LAST-MONTH (move-out) pro-rate — paid more than the pro-rated
+  // share actually due -----
   if(!kind){
     const lp = computeLastMonthProRate(tenant);
     if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month){
-      const fullMonth = tenantRentForProperty(tenant, pid);
-      const isProRate = Math.abs(amt - lp.total)   < 0.5;
-      const isFull    = Math.abs(amt - fullMonth) < 0.5 && fullMonth>lp.total;
-      if(isProRate || isFull){
-        const scenarioLabel = isProRate
-          ? `Scenario A — receipt RM ${fmt(amt)} matches the move-out pro-rate (RM ${lp.total}).`
-          : `Scenario B — receipt RM ${fmt(amt)} is the full month (RM ${fullMonth}); only the pro-rate (RM ${lp.total}) is the actual income, the excess RM ${fullMonth-lp.total} should be refunded to ${tenant.name}.`;
-        if(await confirmModal(
-          `${tenant.name} is moving out this month.\n\n${scenarioLabel}\n\n`+
-          `Record income as pro-rate RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days?`,
-          {confirmText:'Record Pro-Rate',cancelText:'Cancel',danger:false}
-        )){
-          kind = 'last_month_prorate';
-          amtToRecord = lp.total;
-          const note = isFull
-            ? `🚪 Move-out pro-rate (Scenario B — full month received): cash RM ${fmt(amt)}, income RM ${lp.total}, refund RM ${fullMonth-lp.total} to tenant.`
-            : `🚪 Move-out pro-rate (Scenario A): RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days.`;
-          finalRem = rem ? (rem+' · '+note) : note;
-        }
+      if(Math.abs(amt - lp.total) < 0.5){
+        kind = 'last_month_prorate';
+        amtToRecord = lp.total;
+        const note = `🚪 Move-out pro-rate: RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days.`;
+        finalRem = rem ? (rem+' · '+note) : note;
+      } else if(amt > lp.total + 0.5){
+        kind = 'last_month_prorate';
+        amtToRecord = lp.total;
+        extraAmt = +(amt - lp.total).toFixed(2);
+        const note = `🚪 Move-out pro-rate: RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days — RM ${fmt(extraAmt)} extra kept as a separate row, excluded from income until included.`;
+        finalRem = rem ? (rem+' · '+note) : note;
       }
     }
   }
-  return {kind, amtToRecord, finalRem};
+  // ----- Plain overpayment — not a move-in/move-out/advance-covered month,
+  // just more cash than the tenant's contract rent for this property -----
+  if(!kind){
+    const fullExpected = tenantRentForProperty(tenant, pid);
+    if(fullExpected>0 && amt > fullExpected + 0.5){
+      amtToRecord = fullExpected;
+      extraAmt = +(amt - fullExpected).toFixed(2);
+      const note = `RM ${fmt(extraAmt)} extra received beyond contract rent — kept as a separate row, excluded from income until included.`;
+      finalRem = rem ? (rem+' · '+note) : note;
+    }
+  }
+  return {kind, amtToRecord, finalRem, extraAmt};
 }
 
 async function commitInlinePayment(tr){
@@ -12188,7 +12216,7 @@ async function commitInlinePayment(tr){
       (x.room_code||'').trim().toUpperCase()===code &&
       x.active!==false
     );
-    const {kind, amtToRecord, finalRem} = await _detectRoomPaymentKind(tenant, pid, amt, rem);
+    const {kind, amtToRecord, finalRem, extraAmt} = await _detectRoomPaymentKind(tenant, pid, amt, rem);
     // Stamp who manually keyed this row in — a receipt import already
     // self-identifies via "Imported from <filename>" in its remark, but a
     // row typed straight into the ledger (this inline Add Row, or the Add/
@@ -12218,11 +12246,21 @@ async function commitInlinePayment(tr){
           payment_kind: kind,
         });
     if(error) throw error;
+    if(extraAmt>0){
+      const { error: exErr } = await sb.from('rental_payments').insert({
+        property_id: pid, year: state.year, month: state.month,
+        item_type: 'penalty', room_code: code, amount: extraAmt,
+        paid_on: date || null,
+        remark: `Extra received beyond this month's due amount · Logged by ${who}`,
+        count_as_income: false,
+      });
+      if(exErr) toast('Main payment saved, but the extra row failed: '+exErr.message,'bad');
+    }
     await loadPayments();
     // Re-sync management fee + next-month BF since rental income changed.
     await syncDerivedExpenses();
     renderPayments();
-    toast('Added');
+    toast(extraAmt>0 ? `Added — RM${fmt(extraAmt)} extra kept separate` : 'Added');
     requestAnimationFrame(()=>{
       const next = document.querySelector('.pay-add-row .pay-add-code');
       if(next) next.focus();
@@ -12273,7 +12311,16 @@ function _tenantMonthRentStatus(t, y, m){
     // received, mirroring the same exclusion in the Income Report.
     const roomPaid = state.payments
       .filter(p=> p.property_id===t.property_id && p.item_type==='room' && (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase() && !p.prorate_unconfirmed)
-      .reduce((s,p)=>s+Number(p.amount||0),0);
+      .reduce((s,p)=>s+Number(p.amount||0),0)
+      // A 'penalty' row (a true late-fee split, or an auto-carved-off
+      // "extra beyond what's due" row — see _detectRoomPaymentKind) is cash
+      // that genuinely arrived, just not (yet) recognized as this month's
+      // rental income. This status tracks actual cash received, not income
+      // recognition, so it counts here regardless of count_as_income —
+      // unlike the Income Report, which only counts it once flipped on.
+      + state.payments
+        .filter(p=> p.property_id===t.property_id && p.item_type==='penalty' && (p.room_code||'').toUpperCase()===(t.room_code||'').toUpperCase())
+        .reduce((s,p)=>s+Number(p.amount||0),0);
     // Rent Collection Status tracks what the TENANT owes and pays in total
     // — not which property's income statement the money ends up booked
     // under. A carpark's cash is looked up under its OWN property
@@ -14319,22 +14366,24 @@ function openPaymentModal(id){
       // same confirm dialog pointlessly. payment_kind is left out of the
       // payload in that case so the UPDATE doesn't touch the existing tag.
       const alreadyTagged = id && r.payment_kind;
+      let extraAmt = 0;
       if(payload.item_type==='room' && !alreadyTagged){
         const tenant = state.tenants.find(x=>
           x.property_id===payload.property_id &&
           (x.room_code||'').trim().toUpperCase()===payload.room_code &&
           x.active!==false
         );
-        const {kind, amtToRecord, finalRem} = await _detectRoomPaymentKind(tenant, payload.property_id, payload.amount, payload.remark);
-        payload.amount = amtToRecord;
-        payload.remark = finalRem;
-        payload.payment_kind = kind;
+        const det = await _detectRoomPaymentKind(tenant, payload.property_id, payload.amount, payload.remark);
+        payload.amount = det.amtToRecord;
+        payload.remark = det.finalRem;
+        payload.payment_kind = det.kind;
+        extraAmt = det.extraAmt;
       }
       // Stamp who manually added this row — same attribution as the inline
       // Add Row quick-add. Only on a brand-new row, not every edit, so
       // fixing a typo later doesn't keep appending another "Logged by".
+      const who = _signoffNameLabel();
       if(!id){
-        const who = _signoffNameLabel();
         payload.remark = payload.remark ? payload.remark+' · Logged by '+who : 'Logged by '+who;
       }
       // Saving an edit on a row that was an unconfirmed move-out pro-rate
@@ -14346,6 +14395,16 @@ function openPaymentModal(id){
       if(id && r.prorate_unconfirmed) payload.prorate_unconfirmed = false;
       const q = id ? sb.from('rental_payments').update(payload).eq('id',id) : sb.from('rental_payments').insert(payload);
       const {error}=await q; if(error) throw error;
+      if(extraAmt>0){
+        const { error: exErr } = await sb.from('rental_payments').insert({
+          property_id: payload.property_id, year: payload.year, month: payload.month,
+          item_type: 'penalty', room_code: payload.room_code, amount: extraAmt,
+          paid_on: payload.paid_on,
+          remark: `Extra received beyond this month's due amount · Logged by ${who}`,
+          count_as_income: false,
+        });
+        if(exErr) toast('Payment saved, but the extra row failed: '+exErr.message,'bad');
+      }
       await loadPayments();
       await syncDerivedExpenses();
       renderTab('payments');
@@ -14359,6 +14418,25 @@ async function delPayment(id){
   await loadPayments();
   await syncDerivedExpenses();
   renderTab('payments'); toast('Deleted');
+}
+
+// Flips whether a 'penalty'-tagged row (an auto-carved-off "extra beyond
+// what's due" row, or a manually ✂ Split one) counts toward the Income
+// Report — see buildReportLineMap's dedicated pass for 'penalty' rows with
+// count_as_income set. item_type itself never changes, so this can never
+// collide with the room/carpark self-heal dedup or pro-rate kind-detection
+// logic, both of which only ever look at item_type 'room'/'carpark'.
+async function toggleExtraIncome(id){
+  const r = state.payments.find(x=>x.id===id);
+  if(!r || r.item_type!=='penalty') return;
+  try { requireReportEditable(r.property_id, r.year, r.month); } catch(e){ return toast(e.message,'bad'); }
+  const nowOn = !r.count_as_income;
+  const {error} = await sb.from('rental_payments').update({count_as_income: nowOn}).eq('id', id);
+  if(error) return toast(error.message,'bad');
+  await loadPayments();
+  await syncDerivedExpenses();
+  renderTab('payments');
+  toast(nowOn ? 'Now counted as income' : 'Excluded from income again');
 }
 
 // Splits a consolidated "rent + penalty" payment into two rows: the real
@@ -15324,6 +15402,19 @@ function buildReportLineMap(P, ctx, roomTenancies, year, month){
   // AIRCON top-ups always sit on the room line.
   (aircon||[]).forEach(a=>{
     ensureLine('room', a.room_code).aircond += Number(a.amount||0);
+  });
+
+  // 'penalty' rows are invisible to every pass above by construction (they
+  // only ever look at item_type 'room'/'carpark') — that's what keeps a
+  // true late-fee split, or an auto-carved-off "extra beyond what's due"
+  // row (see _detectRoomPaymentKind/saveAllReceipts), out of income by
+  // default. toggleExtraIncome() flips count_as_income on one of those
+  // rows when it turns out the extra really is income after all; this is
+  // the one place that credit actually lands, kept completely separate
+  // from the room/carpark passes above so it can never interact with
+  // their self-heal dedup or pro-rate kind-detection.
+  (payments||[]).filter(p=>p.item_type==='penalty' && p.count_as_income).forEach(p=>{
+    ensureLine('room', p.room_code).rental += Number(p.amount||0);
   });
 
   return lineMap;
@@ -17982,51 +18073,76 @@ async function saveAllReceipts(){
           kind = 'advance_covered_full';
           remark = `Imported from ${r.filename} · 🔄 Advance-covered: cash RM ${fmt(amt)} = 1st-month pro-rate. Full RM ${fullMonAC} income recognized.`;
         }
-        // Last-month move-out pro-rate detection (same logic as commitInlinePayment)
+        // Last-month move-out pro-rate — matches or exceeds the pro-rated
+        // share actually due. No confirm prompt (per explicit instruction):
+        // any amount beyond lp.total is carved off into its own 'penalty'
+        // row below instead of asking first.
+        let extraAmt = 0;
         if(!kind){
           const lp = computeLastMonthProRate(tenant);
-          if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month){
-            const fullMonth = tenantRentForProperty(tenant, r.property_id);
-            const isProRate = Math.abs(amt - lp.total) < 0.5;
-            const isFull    = Math.abs(amt - fullMonth) < 0.5 && fullMonth > lp.total;
-            if(isProRate || isFull){
-              const scenarioLabel = isProRate
-                ? `Scenario A — receipt RM ${fmt(amt)} matches the move-out pro-rate (RM ${lp.total}).`
-                : `Scenario B — receipt RM ${fmt(amt)} is the full month (RM ${fullMonth}); only the pro-rate (RM ${lp.total}) is the actual income, excess RM ${fullMonth-lp.total} should be refunded to ${tenant.name}.`;
-              if(await confirmModal(
-                `${tenant.name} is moving out this month.\n\n${scenarioLabel}\n\nRecord income as pro-rate RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days?`,
-                {confirmText:'Record Pro-Rate',cancelText:'Cancel',danger:false}
-              )){
-                kind = 'last_month_prorate';
-                const confirmRemark = `Imported from ${r.filename} · 🚪 Move-out pro-rate: RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days.`;
-                // An auto-computed unconfirmed placeholder for this exact
-                // tenant+room+month likely already exists (see
-                // _proRateInsertRows) — this receipt is the confirmation
-                // it's waiting for, so update that row in place rather than
-                // inserting a second one for the same event.
-                const placeholder = state.payments.find(p=>
-                  p.property_id===r.property_id && p.year===state.year && p.month===state.month &&
-                  (p.item_type||'room')===(r.item_type||'room') &&
-                  String(p.room_code||'').toUpperCase()===code &&
-                  p.prorate_unconfirmed
-                );
-                if(placeholder){
-                  await sb.from('rental_payments').update({
-                    amount: lp.total, paid_on: r.date||null, remark: confirmRemark,
-                    payment_kind: 'last_month_prorate', prorate_unconfirmed: false,
-                  }).eq('id', placeholder.id);
-                } else {
-                  rows.push({
-                    property_id:r.property_id, year:state.year, month:state.month,
-                    item_type:r.item_type||'room', room_code:code,
-                    amount: lp.total, paid_on: r.date||null,
-                    remark: confirmRemark,
-                    payment_kind: 'last_month_prorate'
-                  });
-                }
-                continue; // skip the generic push below — already handled above
-              }
+          if(lp && lp.moveOutYear===state.year && lp.moveOutMonth===state.month && amt >= lp.total - 0.5){
+            kind = 'last_month_prorate';
+            extraAmt = amt > lp.total + 0.5 ? +(amt - lp.total).toFixed(2) : 0;
+            const confirmRemark = `Imported from ${r.filename} · 🚪 Move-out pro-rate: RM ${lp.total} for ${lp.daysOccupied}/${lp.daysInMonth} days`
+              + (extraAmt>0 ? ` — RM ${fmt(extraAmt)} extra kept as a separate row, excluded from income until included.` : '.');
+            // An auto-computed unconfirmed placeholder for this exact
+            // tenant+room+month likely already exists (see
+            // _proRateInsertRows) — this receipt is the confirmation it's
+            // waiting for, so update that row in place rather than
+            // inserting a second one for the same event.
+            const placeholder = state.payments.find(p=>
+              p.property_id===r.property_id && p.year===state.year && p.month===state.month &&
+              (p.item_type||'room')===(r.item_type||'room') &&
+              String(p.room_code||'').toUpperCase()===code &&
+              p.prorate_unconfirmed
+            );
+            if(placeholder){
+              await sb.from('rental_payments').update({
+                amount: lp.total, paid_on: r.date||null, remark: confirmRemark,
+                payment_kind: 'last_month_prorate', prorate_unconfirmed: false,
+              }).eq('id', placeholder.id);
+            } else {
+              rows.push({
+                property_id:r.property_id, year:state.year, month:state.month,
+                item_type:r.item_type||'room', room_code:code,
+                amount: lp.total, paid_on: r.date||null,
+                remark: confirmRemark,
+                payment_kind: 'last_month_prorate'
+              });
             }
+            if(extraAmt>0){
+              rows.push({
+                property_id:r.property_id, year:state.year, month:state.month,
+                item_type:'penalty', room_code:code, amount: extraAmt,
+                paid_on: r.date||null,
+                remark: `Imported from ${r.filename} · Extra beyond move-out pro-rate`,
+                count_as_income: false,
+              });
+            }
+            continue; // skip the generic push below — already handled above
+          }
+        }
+        // Plain overpayment — not a move-out/advance-covered month, just
+        // more cash than the tenant's contract rent for this property.
+        if(!kind){
+          const fullExpected = tenantRentForProperty(tenant, r.property_id);
+          if(fullExpected>0 && amt > fullExpected + 0.5){
+            const over = +(amt - fullExpected).toFixed(2);
+            rows.push({
+              property_id:r.property_id, year:state.year, month:state.month,
+              item_type:'room', room_code:code, amount: fullExpected,
+              paid_on: r.date||null,
+              remark: `Imported from ${r.filename} · RM ${fmt(over)} extra kept as a separate row, excluded from income until included.`,
+              payment_kind: null,
+            });
+            rows.push({
+              property_id:r.property_id, year:state.year, month:state.month,
+              item_type:'penalty', room_code:code, amount: over,
+              paid_on: r.date||null,
+              remark: `Imported from ${r.filename} · Extra beyond contract rent`,
+              count_as_income: false,
+            });
+            continue;
           }
         }
       }
