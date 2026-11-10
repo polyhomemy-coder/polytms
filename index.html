@@ -2267,7 +2267,7 @@
             </div>
             <div class="flex-1 overflow-auto bg-[#F1F5F9]">
               <iframe id="recvPreviewFrame" style="width:100%;height:100%;border:0"></iframe>
-              <img id="recvPreviewImg" class="hidden" style="width:100%;display:block"/>
+              <img id="recvPreviewImg" class="hidden" style="width:100%;max-width:none;display:block"/>
             </div>
           </div>
           <div class="flex-1 overflow-auto border border-[color:var(--line)] rounded-xl min-w-0">
@@ -17437,7 +17437,6 @@ function classifyReceiptDup(r){
   const yy = state.year, mm = state.month;
   const room = String(r.room||'').toUpperCase();
   const itemType = r.item_type||'room';
-  const amt = Number(r.amount);
   // Excludes an unconfirmed move-out pro-rate placeholder — its amount is
   // only ever a computed guess, not an actual received payment, so a receipt
   // that happens to match it is the CONFIRMATION this app is waiting for,
@@ -17452,11 +17451,18 @@ function classifyReceiptDup(r){
   );
   if(!same.length) return;
   r.existingAmounts = same.map(p=>Number(p.amount||0));
-  if(same.some(p=> Math.abs(Number(p.amount||0)-amt) <= 0.01)){
-    r.dup = 'same';
-  } else {
-    r.dup = 'split';
-  }
+  // 'same' (auto-skipped, blocked outright) now means the exact FILE was
+  // already saved this month — see _rememberHash/_scanReceiptForTampering —
+  // not just a matching amount. Two separate, genuine payments for the same
+  // room very often share the identical RM figure (equal installments, or
+  // a tenant just paying the same rent twice on different days), so amount
+  // alone used to wrongly auto-block a real second payment as if it were
+  // the same receipt re-uploaded. Any amount match that isn't a confirmed
+  // same-file match now falls to 'split', which asks for one explicit
+  // confirm instead of silently refusing to save it at all.
+  const seenHash = r.hash ? _readSeenHashes()[r.hash] : null;
+  const sameFileAlreadySaved = !!(seenHash && seenHash.year===yy && seenHash.month===mm);
+  r.dup = sameFileAlreadySaved ? 'same' : 'split';
 }
 
 // --- UI ---------------------------------------------------
@@ -17807,7 +17813,12 @@ let _recvZoomPct = _RECV_DEFAULT_ZOOM;
 function recvZoom(dir){
   _recvZoomPct = dir===0 ? _RECV_DEFAULT_ZOOM : Math.max(25, Math.min(400, _recvZoomPct + dir*25));
   const img = $('#recvPreviewImg');
-  if(img) img.style.width = _recvZoomPct+'%';
+  // Tailwind Preflight resets every <img> to max-width:100% — that silently
+  // clamps any width% above 100 right back down regardless of what's set
+  // here, which is why zooming past 100% visibly did nothing. Overriding
+  // max-width inline (same specificity tier, set after Preflight's own
+  // stylesheet loads) lets the width actually grow past the container.
+  if(img){ img.style.maxWidth = 'none'; img.style.width = _recvZoomPct+'%'; }
   const pct = $('#recvZoomPct');
   if(pct) pct.textContent = _recvZoomPct+'%';
 }
@@ -17838,6 +17849,7 @@ function viewReceipt(i){
     img.classList.remove('hidden');
     img.src = url;
     _recvZoomPct = _RECV_DEFAULT_ZOOM;
+    img.style.maxWidth = 'none';
     img.style.width = _recvZoomPct+'%';
     $('#recvZoomPct').textContent = _recvZoomPct+'%';
     zoomCtrls.classList.remove('hidden'); zoomCtrls.classList.add('flex');
