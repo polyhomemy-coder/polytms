@@ -2611,6 +2611,7 @@ let state = {
   rentalSub: 'collection',    // 'collection' | 'ledger' | 'aircon' | 'extra' — Income parent sub-pane
   rentStatusFilter: 'all',    // 'all' | 'paid' | 'unmatch' | 'unpaid'
   tenantQuery: '',            // free-text search on tenants tab
+  tenantMoveOutSort: null,    // null (grouped by property) | 'desc' (latest first) | 'asc' (earliest first) — Moved Out sub-tab only
   expenseCat: 'all',          // 'all' | 'management_fee' | 'rent_commission' | 'cleaning' | 'maintenance' | 'other'
   mgrSub: 'dashboard',        // 'dashboard' | 'incomerpt' | 'feelist' | 'ownunit' | 'assign' — Manager tab sub-tab
   r2rYear: null,              // year shown in the R2R yearly matrix; null = follow state.year
@@ -8933,6 +8934,19 @@ function renderTenants(){
     return compareRoom(a.room_code, b.room_code);
   });
   const isMovedOut = sub==='movedout';
+  // On the Moved Out sub-tab, let the user override the default property
+  // grouping and sort purely by move-out date instead — so they can see at
+  // a glance who left most recently vs. longest ago.
+  if(isMovedOut && state.tenantMoveOutSort){
+    const moKey = t => t.move_out_date || t.agreement_end || '';
+    tenants.sort((a,b)=>{
+      const ka = moKey(a), kb = moKey(b);
+      if(!ka && !kb) return 0;
+      if(!ka) return 1;
+      if(!kb) return -1;
+      return state.tenantMoveOutSort==='asc' ? ka.localeCompare(kb) : kb.localeCompare(ka);
+    });
+  }
   // Track property groups for alternating row banding
   let _lastPropId = null, _propGrp = -1;
   const rows = tenants.map((t,i)=>{
@@ -9043,14 +9057,21 @@ function renderTenants(){
     cntEl.textContent = `· ${tenants.length} of ${totalForSub}` + (vacCount ? ` · ${vacCount} vacant` : '');
   }
   if(isMovedOut){
+    const moSortArrow = state.tenantMoveOutSort==='desc' ? ' ▼' : state.tenantMoveOutSort==='asc' ? ' ▲' : ' ↕';
     $('#tenantTable').innerHTML=`<thead><tr>
-      <th></th><th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th>Moved Out</th><th>Name</th><th>Contact</th><th class="text-center px-1">PPL</th><th></th>
+      <th></th><th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th>Tenancy</th><th class="cursor-pointer select-none" onclick="toggleTenantMoveOutSort()" title="Click to sort by Moved Out date (latest ↔ earliest)">Moved Out${moSortArrow}</th><th>Name</th><th>Contact</th><th class="text-center px-1">PPL</th><th></th>
     </tr></thead><tbody>${rows || `<tr><td colspan="11" class="text-center text-slate-400 py-10">No moved-out tenants on record.</td></tr>`}</tbody>`;
   } else {
     $('#tenantTable').innerHTML=`<thead><tr>
       <th></th><th>Condo</th><th>Unit</th><th>Room</th><th class="num">Rental</th><th>Carpark</th><th class="num">C. Rental</th><th>Tenancy</th><th>Tenure</th><th>Name</th><th>Contact</th><th class="text-center px-1">PPL</th><th></th>
     </tr></thead><tbody>${allRows || `<tr><td colspan="13" class="text-center text-slate-400 py-10">${q?'No tenants match your search.':'No tenants yet.'}</td></tr>`}</tbody>`;
   }
+}
+// Cycles the Moved Out sub-tab's date sort: grouped-by-property (default) →
+// latest move-out first → earliest move-out first → back to default.
+function toggleTenantMoveOutSort(){
+  state.tenantMoveOutSort = state.tenantMoveOutSort===null ? 'desc' : state.tenantMoveOutSort==='desc' ? 'asc' : null;
+  renderTenants();
 }
 
 // ----------------------------------------------------------------
