@@ -6399,7 +6399,8 @@ function renderAdminDashboard(){
   });
   const carpSearchTxt = (state.carpSearch||'').trim().toLowerCase();
   const carparkListFiltered = !carpSearchTxt ? carparkList : carparkList.filter(({t,prop,lot})=>{
-    const hay = [t.name, prop?prop.condo+' '+prop.unit:'', lot].filter(Boolean).join(' ').toLowerCase();
+    const tenantProp = state.properties.find(p=>p.id===t.property_id);
+    const hay = [t.name, prop?prop.condo+' '+prop.unit:'', lot, tenantProp?tenantProp.condo+' '+tenantProp.unit:'', t.room_code].filter(Boolean).join(' ').toLowerCase();
     return hay.includes(carpSearchTxt);
   });
 
@@ -6730,15 +6731,19 @@ function renderAdminDashboard(){
       </div>
     </div>
     ${carparkListFiltered.length===0 ? emptyMsg(carpSearchTxt ? 'No carpark assignments match your search' : 'No carpark assignments found') : tbl(
-      miniTh({label:'#'},{label:'Tenant'},{label:'Property'},{label:'Lot'},{label:'Rental/mo',right:true},{label:'',right:true}),
-      carparkListFiltered.map(({t,prop,lot,rental},i)=>`<tr>
+      miniTh({label:'#'},{label:'Tenant'},{label:'Tenant Unit · Room'},{label:'Carpark Property'},{label:'Lot'},{label:'Rental/mo',right:true},{label:'',right:true}),
+      carparkListFiltered.map(({t,prop,lot,rental},i)=>{
+        const tenantProp = state.properties.find(p=>p.id===t.property_id);
+        return `<tr>
         ${td(i+1,{muted:true})}
         ${td(esc(t.name||'—'),{bold:true})}
+        ${td((tenantProp?esc(tenantProp.condo+' '+tenantProp.unit):'—')+' · <b>'+esc(t.room_code||'?')+'</b>',{muted:true,wrap:true})}
         ${td(prop?esc(prop.condo+' '+prop.unit):'—',{muted:true})}
         ${td(`<span style="font-weight:800;color:var(--brand)">${esc(lot)}</span>`)}
         ${td(rental?'RM '+fmt(rental):'—',{right:true})}
         ${td(viewBtn(t.id),{right:true})}
-      </tr>`).join('')
+      </tr>`;
+      }).join('')
     )}`);
 
   // Open (unresolved) query notes this month, keyed by property
