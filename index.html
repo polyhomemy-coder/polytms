@@ -8088,6 +8088,11 @@ function renderDashboardMetrics(){
     //   Owner is still at a loss even with BF included.
     //   repayment = bfAmt + nett   (gross income before BF deduction)
     //   e.g. bfAmt=1500, nett=−300  →  1500 + (−300) = 1200
+    //   If this month's OWN performance (before even touching the BF debt)
+    //   was itself a big enough loss, bfAmt+nett can go negative — that's
+    //   not a real "negative repayment", so it's reported as a positive
+    //   magnitude (this card always shows a repayment figure, never a sign
+    //   that could be misread as money flowing the other way).
     //
     // Condition B — nett > 0 (Nett Rental Income is positive):
     //   This month's income covered everything; repayment = the BF amount itself.
@@ -8098,7 +8103,7 @@ function renderDashboardMetrics(){
     if(bfAmt > 0){
       balRepayHasData = true;
       if(nett < 0){
-        balRepay += bfAmt + nett;   // Condition A: bfAmt + nett (e.g. 1500 + (−300) = 1200)
+        balRepay += Math.abs(bfAmt + nett);   // Condition A: |bfAmt + nett| (e.g. 1500 + (−300) = 1200)
       } else {
         balRepay += bfAmt;          // Condition B: full BF amount (e.g. 1500 + 200 → 1500)
       }
