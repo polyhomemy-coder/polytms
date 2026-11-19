@@ -19454,7 +19454,13 @@ async function renderPropAssignPanel(container){
         <table class="data" style="font-size:12px">
           <thead><tr>
             <th>Condo</th><th>Unit</th><th>City</th><th class="text-center">Tenants</th>
-            ${admins.map(a=>`<th class="text-center" style="font-size:11px;white-space:nowrap">${esc(a.name||a.email)}</th>`).join('')}
+            ${admins.map(a=>`<th class="text-center" style="font-size:11px;white-space:nowrap">
+              ${esc(a.name||a.email)}
+              ${a.all_properties ? '' : `<div style="margin-top:3px;display:flex;gap:4px;justify-content:center">
+                <button type="button" onclick="bulkSetPropertyAdminAccess('${a.id}', true)" style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#065F46;border:none;cursor:pointer">☑ All</button>
+                <button type="button" onclick="bulkSetPropertyAdminAccess('${a.id}', false)" style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:#FEE2E2;color:#991B1B;border:none;cursor:pointer">☐ None</button>
+              </div>`}
+            </th>`).join('')}
           </tr></thead>
           <tbody>${rows || `<tr><td colspan="${4+admins.length}" class="text-center text-slate-400 py-6">No properties yet.</td></tr>`}</tbody>
         </table>
@@ -19497,6 +19503,28 @@ async function togglePropertyAdminAccess(propertyId, adminId, checked){
     }
     toast(`✓ ${name} removed from ${label}`);
   }
+}
+
+// Tick/untick every currently-VISIBLE property (respects the sidebar
+// city/type/model filter, same set the grid itself shows) for one admin
+// in a single round-trip, instead of clicking each checkbox individually.
+async function bulkSetPropertyAdminAccess(adminId, checked){
+  const admin = (state.adminProfiles||[]).find(a=>a.id===adminId);
+  const name = admin ? (admin.name||admin.email) : 'Admin';
+  const props = [...state.properties].filter(p=>_propPassesGlobalFilter(p));
+  if(!props.length) return;
+  if(!await confirmModal(`${checked?'Tick':'Untick'} all ${props.length} visible properties for <b>${esc(name)}</b>?`,{confirmText: checked?'Tick All':'Untick All'})) return;
+  if(checked){
+    const rows = props.map(p=>({admin_id: adminId, property_id: p.id}));
+    const {error} = await sb.from('admin_property_access').upsert(rows, {onConflict:'admin_id,property_id'});
+    if(error){ toast(error.message,'bad'); return; }
+  } else {
+    const ids = props.map(p=>p.id);
+    const {error} = await sb.from('admin_property_access').delete().eq('admin_id', adminId).in('property_id', ids);
+    if(error){ toast(error.message,'bad'); return; }
+  }
+  toast(`✓ ${name} ${checked?'granted':'removed from'} ${props.length} propert${props.length===1?'y':'ies'}`);
+  const c = document.getElementById('propAssignPanel'); if(c) await renderPropAssignPanel(c);
 }
 
 async function renderAnnouncementsPanel(container){
