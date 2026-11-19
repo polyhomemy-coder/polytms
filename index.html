@@ -19488,20 +19488,22 @@ async function togglePropertyAdminAccess(propertyId, adminId, checked){
   const name  = admin ? (admin.name||admin.email) : 'Admin';
   if(checked){
     const {error} = await sb.from('admin_property_access').insert({admin_id: adminId, property_id: propertyId});
-    if(error && error.code !== '23505'){
-      toast(error.message,'bad');
-      const c = document.getElementById('propAssignPanel'); if(c) await renderPropAssignPanel(c);
-      return;
-    }
-    toast(`✓ ${name} granted ${label}`);
+    if(error && error.code !== '23505'){ toast(error.message,'bad'); }
+    else toast(`✓ ${name} granted ${label}`);
   } else {
     const {error} = await sb.from('admin_property_access').delete().eq('admin_id', adminId).eq('property_id', propertyId);
-    if(error){
-      toast(error.message,'bad');
-      const c = document.getElementById('propAssignPanel'); if(c) await renderPropAssignPanel(c);
-      return;
-    }
-    toast(`✓ ${name} removed from ${label}`);
+    if(error){ toast(error.message,'bad'); }
+    else toast(`✓ ${name} removed from ${label}`);
+  }
+  // Re-render so the Admin Accounts "Property Access" tick-count updates
+  // immediately instead of only after a full page refresh — but keep the
+  // scroll position, since this panel can run to 60+ property rows and a
+  // jump back to the top after every single checkbox click is jarring.
+  const c = document.getElementById('propAssignPanel');
+  if(c){
+    const scrollY = window.scrollY;
+    await renderPropAssignPanel(c);
+    window.scrollTo(0, scrollY);
   }
 }
 
