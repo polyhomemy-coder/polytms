@@ -12171,7 +12171,25 @@ async function exportPaymentsPdf(){
 // ledger, until someone flips toggleExtraIncome() on it to recognize it as
 // real income after all — covers "paid more than due" generally, not just
 // the move-out case this was first reported for.
-async function _detectRoomPaymentKind(tenant, pid, amt, rem){
+// How much has already been recorded this month toward a tenant's room (+
+// any same-property carpark) — used to catch an overpayment that only shows
+// up once you add several separate receipts together (e.g. RM1050 + RM100
+// against an RM1100 contract: neither receipt alone looks overpaid, but the
+// second one pushes the running total over). excludeId lets a row being
+// edited leave itself out of its own "already paid" total.
+function _roomCarparkPaidSoFar(tenant, pid, year, month, excludeId){
+  if(!tenant) return 0;
+  const code = (tenant.room_code||'').trim().toUpperCase();
+  const cp1 = (tenant.carpark  && (tenant.carpark_property_id  || tenant.property_id)===pid) ? normCarpark(tenant.carpark)  : null;
+  const cp2 = (tenant.carpark2 && (tenant.carpark2_property_id || tenant.property_id)===pid) ? normCarpark(tenant.carpark2) : null;
+  return state.payments
+    .filter(p=> p.id!==excludeId && p.property_id===pid && p.year===year && p.month===month &&
+      ((p.item_type==='room' && String(p.room_code||'').trim().toUpperCase()===code) ||
+       (p.item_type==='carpark' && ((cp1 && normCarpark(p.room_code)===cp1) || (cp2 && normCarpark(p.room_code)===cp2))))
+    )
+    .reduce((s,p)=>s+Number(p.amount||0),0);
+}
+async function _detectRoomPaymentKind(tenant, pid, amt, rem, excludeId){
   let kind = null, finalRem = rem, amtToRecord = amt, extraAmt = 0, moveOutLp = null;
   if(!tenant) return {kind, amtToRecord, finalRem, extraAmt, moveOutLp};
   // ----- 2nd-month advance-covered detection -----
@@ -12226,13 +12244,21 @@ async function _detectRoomPaymentKind(tenant, pid, amt, rem){
     }
   }
   // ----- Plain overpayment — not a move-in/move-out/advance-covered month,
-  // just more cash than the tenant's contract rent for this property -----
+  // just more cash than the tenant's contract rent for this property.
+  // Checked against the RUNNING TOTAL for the month (already-recorded rows
+  // + this one), not just this one amount alone — otherwise two separate
+  // receipts that individually look fine (e.g. RM1050 then RM100 against an
+  // RM1100 contract) would never trigger the split. -----
   if(!kind){
     const fullExpected = tenantRentForProperty(tenant, pid);
-    if(fullExpected>0 && amt > fullExpected + 0.5){
-      amtToRecord = fullExpected;
-      extraAmt = +(amt - fullExpected).toFixed(2);
-      const note = `RM ${fmt(extraAmt)} extra received beyond contract rent — kept as a separate row, excluded from income until included.`;
+    const alreadyPaid = _roomCarparkPaidSoFar(tenant, pid, state.year, state.month, excludeId);
+    if(fullExpected>0 && (alreadyPaid + amt) > fullExpected + 0.5){
+      const budget = Math.max(0, +(fullExpected - alreadyPaid).toFixed(2));
+      amtToRecord = Math.min(amt, budget);
+      extraAmt = +(amt - amtToRecord).toFixed(2);
+      const note = `RM ${fmt(extraAmt)} extra received beyond contract rent`
+        + (alreadyPaid>0.5 ? ` (RM ${fmt(alreadyPaid)} already recorded this month)` : '')
+        + ` — kept as a separate row, excluded from income until included.`;
       finalRem = rem ? (rem+' · '+note) : note;
     }
   }
@@ -14441,7 +14467,7 @@ function openPaymentModal(id){
           (x.room_code||'').trim().toUpperCase()===payload.room_code &&
           x.active!==false
         );
-        const det = await _detectRoomPaymentKind(tenant, payload.property_id, payload.amount, payload.remark);
+        const det = await _detectRoomPaymentKind(tenant, payload.property_id, payload.amount, payload.remark, id);
         payload.amount = det.amtToRecord;
         payload.remark = det.finalRem;
         payload.payment_kind = det.kind;
@@ -18244,24 +18270,43 @@ async function saveAllReceipts(){
         }
         // Plain overpayment — not a move-out/advance-covered month, just
         // more cash than the tenant's contract rent for this property.
+        // Checked against the RUNNING TOTAL for the month — already-saved
+        // rows plus anything already queued earlier in THIS SAME batch —
+        // not just this one receipt alone, so two separate receipts that
+        // individually look fine (e.g. RM1050 then RM100 against an RM1100
+        // contract) still get caught and split on the second one.
         if(!kind){
           const fullExpected = tenantRentForProperty(tenant, r.property_id);
-          if(fullExpected>0 && amt > fullExpected + 0.5){
-            const over = +(amt - fullExpected).toFixed(2);
-            rows.push({
-              property_id:r.property_id, year:state.year, month:state.month,
-              item_type:'room', room_code:code, amount: fullExpected,
-              paid_on: r.date||null,
-              remark: `Imported from ${r.filename} · RM ${fmt(over)} extra kept as a separate row, excluded from income until included.`,
-              payment_kind: null,
-            });
-            rows.push({
-              property_id:r.property_id, year:state.year, month:state.month,
-              item_type:'penalty', room_code:code, amount: over,
-              paid_on: r.date||null,
-              remark: `Imported from ${r.filename} · Extra beyond contract rent`,
-              count_as_income: false,
-            });
+          const cp1 = (tenant.carpark  && (tenant.carpark_property_id  || tenant.property_id)===r.property_id) ? normCarpark(tenant.carpark)  : null;
+          const cp2 = (tenant.carpark2 && (tenant.carpark2_property_id || tenant.property_id)===r.property_id) ? normCarpark(tenant.carpark2) : null;
+          const alreadyPaid = _roomCarparkPaidSoFar(tenant, r.property_id, state.year, state.month)
+            + rows.filter(q=> q.property_id===r.property_id && q.year===state.year && q.month===state.month &&
+                ((q.item_type==='room' && q.room_code===code) ||
+                 (q.item_type==='carpark' && ((cp1 && q.room_code===cp1) || (cp2 && q.room_code===cp2))))
+              ).reduce((s,q)=>s+Number(q.amount||0),0);
+          if(fullExpected>0 && (alreadyPaid + amt) > fullExpected + 0.5){
+            const budget = Math.max(0, +(fullExpected - alreadyPaid).toFixed(2));
+            const amtToRecord = Math.min(amt, budget);
+            const over = +(amt - amtToRecord).toFixed(2);
+            const alreadyNote = alreadyPaid>0.5 ? ` (RM ${fmt(alreadyPaid)} already recorded this month)` : '';
+            if(amtToRecord>0){
+              rows.push({
+                property_id:r.property_id, year:state.year, month:state.month,
+                item_type:'room', room_code:code, amount: amtToRecord,
+                paid_on: r.date||null,
+                remark: `Imported from ${r.filename} · RM ${fmt(over)} extra kept as a separate row, excluded from income until included.${alreadyNote}`,
+                payment_kind: null,
+              });
+            }
+            if(over>0){
+              rows.push({
+                property_id:r.property_id, year:state.year, month:state.month,
+                item_type:'penalty', room_code:code, amount: over,
+                paid_on: r.date||null,
+                remark: `Imported from ${r.filename} · Extra beyond contract rent${alreadyNote}`,
+                count_as_income: false,
+              });
+            }
             continue;
           }
         }
@@ -18999,6 +19044,42 @@ function openInviteUserModal(){
   }, 'Send Invite');
 }
 
+// Calls the admin-set-password Edge Function (service-role, manager-only —
+// see Supabase project function of the same name) so a password can be
+// created/changed directly, with no invite/reset email and therefore no
+// exposure to Supabase's email rate limit.
+async function callAdminSetPassword(payload){
+  const {data, error} = await sb.functions.invoke('admin-set-password', {body: payload});
+  if(error){
+    // Supabase surfaces non-2xx responses as a generic error; try to pull
+    // the function's own JSON {error:"..."} message out of it for the user.
+    let msg = error.message || 'Request failed';
+    try { const body = await error.context?.json?.(); if(body?.error) msg = body.error; } catch(_){}
+    throw new Error(msg);
+  }
+  if(data?.error) throw new Error(data.error);
+  return data;
+}
+
+// Fills a password field with a random, readable-enough strong password
+// (mixed case + digits, no ambiguous look-alike characters) and un-masks it
+// so the manager can read it straight off screen to share with the admin.
+function _genStrongPassword(len=10){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  let out = '';
+  for(let i=0;i<len;i++) out += chars[Math.floor(Math.random()*chars.length)];
+  return out;
+}
+function _wireGenPasswordBtn(fieldId, btnId){
+  const btn = document.getElementById(btnId);
+  const field = document.getElementById(fieldId);
+  if(!btn || !field) return;
+  btn.onclick = ()=>{
+    field.type = 'text';
+    field.value = _genStrongPassword();
+  };
+}
+
 // ── Add Admin Modal ───────────────────────────────────────────
 function openAddAdminModal(){
   const bodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
@@ -19010,8 +19091,15 @@ function openAddAdminModal(){
       <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">DISPLAY NAME <span style="font-weight:400;font-style:italic">(optional)</span></label>
       <input id="addAdminName" type="text" class="input" placeholder="e.g. Irene Lu" style="width:100%;box-sizing:border-box">
     </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">PASSWORD</label>
+      <div style="display:flex;gap:8px">
+        <input id="addAdminPassword" type="password" class="input" placeholder="Min 6 characters" style="flex:1;box-sizing:border-box">
+        <button type="button" id="btnGenAddAdminPw" style="font-size:12px;font-weight:700;padding:0 14px;border-radius:9px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer;white-space:nowrap">🎲 Generate</button>
+      </div>
+    </div>
     <div style="font-size:12px;color:var(--muted);background:var(--th-bg);border-radius:10px;padding:10px 12px;line-height:1.7">
-      🗂️ A login link will be sent to their email.<br>
+      🗂️ The password is set immediately — no email sent, they can log in right away with it.<br>
       They'll have <strong>Admin</strong> role — able to manage tenants, income and expenses for assigned properties.<br>
       <span style="color:#1E5BB8">Assign properties via the <strong>Property Assignment</strong> panel below.</span>
     </div>
@@ -19020,28 +19108,22 @@ function openAddAdminModal(){
   openModal('Add New Admin', bodyHtml, async ()=>{
     const email = (document.getElementById('addAdminEmail')?.value||'').trim().toLowerCase();
     const name  = (document.getElementById('addAdminName')?.value||'').trim();
+    const password = document.getElementById('addAdminPassword')?.value||'';
     if(!email) throw new Error('Enter an email address');
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address');
+    if(password.length < 6) throw new Error('Password must be at least 6 characters');
 
-    // Use existing invite flow with role='admin'
-    const result = await inviteUser(email, 'admin');
+    await callAdminSetPassword({action:'create', email, password, name});
 
-    // Optionally stamp display name if provided
-    if(name){
-      await sb.from('profiles').update({ name }).eq('email', email);
-    }
-
-    if(result.restored){
-      // Restoring a previously-removed admin — leave tab_permissions as
-      // whatever it was (or NULL/full-access default), same as before.
-      toast(`✅ Admin access restored for ${email}`,'ok');
-    } else {
-      // A genuinely NEW admin starts seeing NOTHING until the manager
-      // explicitly grants tabs/sub-tabs via Property Assignment — {} means
-      // every key is absent, i.e. not granted (see _tabAllowed).
+    // A genuinely NEW admin starts seeing NOTHING until the manager
+    // explicitly grants tabs/sub-tabs via Property Assignment — {} means
+    // every key is absent, i.e. not granted (see _tabAllowed). If this
+    // email already had tab_permissions set (a restored admin), leave it.
+    const {data: existingProfile} = await sb.from('profiles').select('tab_permissions').eq('email', email).maybeSingle();
+    if(existingProfile && existingProfile.tab_permissions == null){
       await sb.from('profiles').update({ tab_permissions: {} }).eq('email', email);
-      toast(`📧 Admin invite sent to ${email} · starts with no tabs — configure access in Property Assignment`,'ok');
     }
+    toast(`✅ Admin created — password set, they can log in now · configure access in Property Assignment`,'ok');
 
     // Refresh admin list in sidebar + user management panel
     const {data:admins} = await sb.from('profiles').select('id,email,name,tab_permissions').eq('role','admin').order('email');
@@ -19050,6 +19132,31 @@ function openAddAdminModal(){
     const container = document.getElementById('userMgmtPanel');
     if(container) await renderUserManagementPanel(container);
   }, 'Create Admin');
+
+  setTimeout(()=>_wireGenPasswordBtn('addAdminPassword','btnGenAddAdminPw'), 50);
+}
+
+// ── Set Admin Password Modal (direct — no email) ─────────────────
+function openSetAdminPasswordModal(adminId){
+  const admin = (state.adminProfiles||[]).find(a=>a.id===adminId);
+  if(!admin) return;
+  const bodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:13px;color:var(--ink)">Set a new password for <strong>${esc(admin.name||admin.email)}</strong>. They can log in with it immediately — no email involved.</div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">NEW PASSWORD</label>
+      <div style="display:flex;gap:8px">
+        <input id="setAdminPwInput" type="password" class="input" placeholder="Min 6 characters" style="flex:1;box-sizing:border-box">
+        <button type="button" id="btnGenSetAdminPw" style="font-size:12px;font-weight:700;padding:0 14px;border-radius:9px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer;white-space:nowrap">🎲 Generate</button>
+      </div>
+    </div>
+  </div>`;
+  openModal('Set Password', bodyHtml, async ()=>{
+    const password = document.getElementById('setAdminPwInput')?.value||'';
+    if(password.length < 6) throw new Error('Password must be at least 6 characters');
+    await callAdminSetPassword({action:'set_password', user_id: adminId, password});
+    toast(`✅ Password updated for ${admin.name||admin.email}`,'ok');
+  }, 'Set Password');
+  setTimeout(()=>_wireGenPasswordBtn('setAdminPwInput','btnGenSetAdminPw'), 50);
 }
 
 // Labels for the tab/sub-tab access configuration modal — must stay in
@@ -19176,19 +19283,6 @@ function openConfigureAdminAccessModal(adminId){
   }, 50);
 }
 
-// Send a password-reset email to one admin — same mechanism as the Users
-// tab's Edit User modal.
-async function sendAdminPasswordReset(adminId){
-  const admin = (state.adminProfiles||[]).find(a=>a.id===adminId);
-  if(!admin) return;
-  if(!await confirmModal(`Send a password-reset email to ${esc(admin.email)}?`,{confirmText:'Send',danger:false})) return;
-  try {
-    const {error} = await sb.auth.resetPasswordForEmail(admin.email, { redirectTo: location.href });
-    if(error) throw error;
-    toast(`📧 Password reset email sent to ${admin.email}`);
-  } catch(e){ toast('Failed: '+e.message,'bad'); }
-}
-
 // Fully revoke an admin's access to polyTMS — deletes their profiles row,
 // which (combined with the "authenticated_only" RLS policies requiring an
 // active profile) immediately blocks them from every table, not just the
@@ -19237,7 +19331,7 @@ function renderPropAssignPanel(container){
     <td>${accessSummary(a.tab_permissions)}</td>
     <td class="text-right whitespace-nowrap">
       <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openConfigureAdminAccessModal('${a.id}')">⚙ Access</button>
-      <button class="px-2 py-1 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-semibold" onclick="sendAdminPasswordReset('${a.id}')">📧 Reset Password</button>
+      <button class="px-2 py-1 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-semibold" onclick="openSetAdminPasswordModal('${a.id}')">🔑 Set Password</button>
       <button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="removeAdminAccess('${a.id}')">🗑 Remove</button>
     </td>
   </tr>`).join('');
