@@ -2603,6 +2603,8 @@ let state = {
   realRole: null,               // stores true role during preview mode; null = not previewing
   currentUserId: null,          // logged-in user's Supabase auth UUID
   ownerPropertyId: null,        // for owner role: their assigned property UUID
+  myAllProperties: true,        // admin role only: true = sees every property; set for real in fetchUserRole()
+  myPropertyIds: [],            // admin role only: property ids granted via admin_property_access, when myAllProperties is false
   properties:[], tenants:[], payments:[], aircon:[], expenses:[], extras:[], pendingIsewa:[],
   reportStatus:[],            // sign-off records: {id,property_id,year,month,admin_checked_at,admin_checked_by,manager_verified_at,manager_verified_by,launched_at}
   annotations:[],             // query notes: {id,property_id,year,month,section,note,resolved,created_by,created_at}
@@ -3738,10 +3740,9 @@ async function refreshMonthData(){
 // --- loaders -------------------------------------------------
 async function loadProperties(){
   let q = sb.from('properties').select('*').order('condo').order('unit');
-  // Admins only see properties they created — enforced client-side and by RLS
-  if(state.role === 'admin' && state.currentUserId){
-    q = q.eq('created_by', state.currentUserId);
-  }
+  // Admins only see their assigned properties — see _scopeByMyProperties().
+  q = _scopeByMyProperties(q, 'id');
+  if(!q){ state.properties = []; return; }
   const {data,error}=await q;
   if(error){toast(error.message,'bad');return;}
   state.properties=data||[];
@@ -3751,7 +3752,8 @@ async function loadTenants({ includeMovedOut = false } = {}){
   // Moved-out tenants are lazy-loaded when the user opens the Moved Out sub-tab.
   let q = sb.from('tenants').select('*').order('name');
   if(!includeMovedOut) q = q.eq('active', true);
-  const {data,error}=await q;
+  q = _scopeByMyProperties(q);
+  const {data,error} = q ? await q : {data:[], error:null};
   if(error){toast(error.message,'bad');return;}
   if(includeMovedOut){
     state.tenants = data||[];
@@ -3762,12 +3764,16 @@ async function loadTenants({ includeMovedOut = false } = {}){
   }
 }
 async function loadPayments(){
-  const {data,error}=await sb.from('rental_payments').select('*').eq('year',state.year).eq('month',state.month);
+  let q = sb.from('rental_payments').select('*').eq('year',state.year).eq('month',state.month);
+  q = _scopeByMyProperties(q);
+  const {data,error} = q ? await q : {data:[], error:null};
   if(error){toast(error.message,'bad');return;}
   state.payments=data||[];
 }
 async function loadAircon(){
-  const {data,error}=await sb.from('aircon_topups').select('*').eq('year',state.year).eq('month',state.month);
+  let q = sb.from('aircon_topups').select('*').eq('year',state.year).eq('month',state.month);
+  q = _scopeByMyProperties(q);
+  const {data,error} = q ? await q : {data:[], error:null};
   if(error){toast(error.message,'bad');return;}
   state.aircon=data||[];
 }
@@ -3927,7 +3933,9 @@ async function autoAssignIsewa(pendingList){
   return assigned;
 }
 async function loadExpenses(){
-  const {data,error}=await sb.from('expenses').select('*').eq('year',state.year).eq('month',state.month);
+  let q = sb.from('expenses').select('*').eq('year',state.year).eq('month',state.month);
+  q = _scopeByMyProperties(q);
+  const {data,error} = q ? await q : {data:[], error:null};
   if(error){toast(error.message,'bad');return;}
   state.expenses=data||[];
 }
@@ -3996,19 +4004,25 @@ async function ensureCleaningExpenses(){
   return true;
 }
 async function loadExtras(){
-  const {data,error}=await sb.from('extra_incomes').select('*').eq('year',state.year).eq('month',state.month);
+  let q = sb.from('extra_incomes').select('*').eq('year',state.year).eq('month',state.month);
+  q = _scopeByMyProperties(q);
+  const {data,error} = q ? await q : {data:[], error:null};
   if(error){toast(error.message,'bad');return;}
   state.extras=data||[];
 }
 // All sign-off rows (small table — one per (property, year, month) at most). Loaded
 // once at boot so any tab can synchronously check whether a report is locked.
 async function loadReportStatus(){
-  const {data,error}=await sb.from('report_status').select('*');
+  let q = sb.from('report_status').select('*');
+  q = _scopeByMyProperties(q);
+  const {data,error} = q ? await q : {data:[], error:null};
   if(error){toast(error.message,'bad');return;}
   state.reportStatus=data||[];
 }
 async function loadAnnotations(){
-  const {data,error}=await sb.from('report_annotations').select('*').order('created_at',{ascending:true});
+  let q = sb.from('report_annotations').select('*').order('created_at',{ascending:true});
+  q = _scopeByMyProperties(q);
+  const {data,error} = q ? await q : {data:[], error:null};
   if(error){ console.warn('annotations load failed',error); return; }
   state.annotations=data||[];
 }
@@ -5890,7 +5904,7 @@ async function bootApp(){
   // Previously sequential (3 round-trips before first render).
   // Now everything races in parallel — boot is as fast as the slowest single query.
   const adminProfilesPromise = state.role === 'manager'
-    ? sb.from('profiles').select('id,email,name,tab_permissions').eq('role','admin').order('email')
+    ? sb.from('profiles').select('id,email,name,tab_permissions,all_properties').eq('role','admin').order('email')
         .then(({data}) => { state.adminProfiles = data || []; })
         .catch(() => {})
     : Promise.resolve();
@@ -18578,7 +18592,7 @@ function showUserBox(email){
 async function fetchUserRole(userId){
   if(!sb || !userId) return null;
   try {
-    const {data, error} = await sb.from('profiles').select('role,property_id,name,email,tab_permissions').eq('id', userId).single();
+    const {data, error} = await sb.from('profiles').select('role,property_id,name,email,tab_permissions,all_properties').eq('id', userId).single();
     if(error || !data) return null;
     if(data.property_id) state.ownerPropertyId = data.property_id;
     state.currentUserName  = data.name  || '';
@@ -18588,8 +18602,38 @@ async function fetchUserRole(userId){
     // A non-null object (even {}) means this admin has explicit tab/sub-tab
     // restrictions configured via Property Assignment.
     state.currentUserTabPerms = data.tab_permissions || null;
-    return (data.role || 'admin').toLowerCase();
+    const role = (data.role || 'admin').toLowerCase();
+    // Which properties (and therefore which tenants/payments/expenses/etc.)
+    // this admin can see. Managers/owners are untouched — this only ever
+    // narrows the 'admin' role, via Property Assignment's checkbox grid or
+    // an "All Properties" toggle, per [[admin_property_access_multi_assign]].
+    if(role === 'admin'){
+      state.myAllProperties = !!data.all_properties;
+      if(state.myAllProperties){
+        state.myPropertyIds = [];
+      } else {
+        const {data: access} = await sb.from('admin_property_access').select('property_id').eq('admin_id', userId);
+        state.myPropertyIds = (access||[]).map(r=>r.property_id);
+      }
+    } else {
+      state.myAllProperties = true;
+      state.myPropertyIds = [];
+    }
+    return role;
   } catch(_){ return null; }
+}
+
+// Scopes a query to the properties the CURRENT admin can see (via
+// state.myAllProperties / state.myPropertyIds, set in fetchUserRole()).
+// Managers/owners pass through unchanged. Returns null when an admin has
+// been assigned NO properties yet — callers must treat that as "empty
+// result", since `.in(col, [])` would otherwise send PostgREST invalid
+// filter syntax.
+function _scopeByMyProperties(q, propertyCol='property_id'){
+  if(state.role !== 'admin' || state.myAllProperties) return q;
+  const ids = state.myPropertyIds || [];
+  if(!ids.length) return null;
+  return q.in(propertyCol, ids);
 }
 
 // Default tab visibility per role when the current user has no explicit
@@ -19128,7 +19172,7 @@ function openAddAdminModal(){
     // Refresh admin list in sidebar + wherever the admin list is shown —
     // Property Assignment (Manager tab) and User Management (Admin tab)
     // are two separate panels/containers, both need the fresh list.
-    const {data:admins} = await sb.from('profiles').select('id,email,name,tab_permissions').eq('role','admin').order('email');
+    const {data:admins} = await sb.from('profiles').select('id,email,name,tab_permissions,all_properties').eq('role','admin').order('email');
     state.adminProfiles = admins || [];
     renderSidebarFilters();
     const userMgmtContainer = document.getElementById('userMgmtPanel');
@@ -19303,7 +19347,7 @@ async function removeAdminAccess(adminId){
   try {
     await deleteProfile(adminId);
     toast(`🗑 Removed ${admin.name||admin.email}`);
-    const {data:admins} = await sb.from('profiles').select('id,email,name,tab_permissions').eq('role','admin').order('email');
+    const {data:admins} = await sb.from('profiles').select('id,email,name,tab_permissions,all_properties').eq('role','admin').order('email');
     state.adminProfiles = admins || [];
     renderSidebarFilters();
     const container = document.getElementById('propAssignPanel');
@@ -19314,16 +19358,20 @@ async function removeAdminAccess(adminId){
 // ════════════════════════════════════════════════════════════════
 // ANNOUNCEMENTS MANAGEMENT (manager only)
 // ════════════════════════════════════════════════════════════════
-function renderPropAssignPanel(container){
+// Property Assignment is many-to-many (admin_property_access, [[admin_property_access_multi_assign]])
+// instead of the old one-admin-per-property `properties.created_by`: a
+// property can be ticked for several admins, and an admin with
+// profiles.all_properties=true sees every property regardless of ticks.
+async function renderPropAssignPanel(container){
   const admins = state.adminProfiles || [];
   const props  = [...state.properties]
     .filter(p => _propPassesGlobalFilter(p))
     .sort((a,b)=>(a.condo+' '+a.unit).localeCompare(b.condo+' '+b.unit));
 
-  const adminName = id => {
-    const a = admins.find(x=>x.id===id);
-    return a ? (a.name || a.email) : '<span style="color:var(--muted);font-style:italic">Unassigned</span>';
-  };
+  container.innerHTML = `<div class="text-sm text-slate-400 py-4">Loading…</div>`;
+  const {data: accessRows, error: accessErr} = await sb.from('admin_property_access').select('admin_id,property_id');
+  if(accessErr){ container.innerHTML = `<div style="color:#C0392B;font-size:13px;padding:8px">Could not load property access: ${esc(accessErr.message)}</div>`; return; }
+  const accessSet = new Set((accessRows||[]).map(r=>r.admin_id+'|'+r.property_id));
 
   // ── Admin Accounts: password reset, create new admin, tab access ────────
   const accessSummary = perms => {
@@ -19333,10 +19381,23 @@ function renderPropAssignPanel(container){
       ? `<span style="color:#065F46;font-weight:600">Custom — ${n} tab${n===1?'':'s'}</span>`
       : `<span style="color:#B91C1C;font-weight:600">No tabs granted yet</span>`;
   };
+  const propAccessSummary = a => {
+    if(a.all_properties) return `<span style="color:#065F46;font-weight:700">🌍 All Properties</span>`;
+    const n = (accessRows||[]).filter(r=>r.admin_id===a.id).length;
+    return n
+      ? `<span style="color:#065F46;font-weight:600">${n} propert${n===1?'y':'ies'} ticked</span>`
+      : `<span style="color:#B91C1C;font-weight:600">No properties ticked yet</span>`;
+  };
   const adminRows = admins.map(a=>`<tr>
     <td class="font-semibold">${esc(a.name||'—')}</td>
     <td class="text-slate-500">${esc(a.email)}</td>
     <td>${accessSummary(a.tab_permissions)}</td>
+    <td>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" ${a.all_properties?'checked':''} onchange="toggleAdminAllProperties('${a.id}', this.checked)">
+        ${propAccessSummary(a)}
+      </label>
+    </td>
     <td class="text-right whitespace-nowrap">
       <button class="px-2 py-1 rounded bg-[#EEF7F8] text-[color:var(--brand)] text-xs font-semibold" onclick="openConfigureAdminAccessModal('${a.id}')">⚙ Access</button>
       <button class="px-2 py-1 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-semibold" onclick="openSetAdminPasswordModal('${a.id}')">🔑 Set Password</button>
@@ -19346,16 +19407,19 @@ function renderPropAssignPanel(container){
 
   const rows = props.map(p=>{
     const tenantCount = state.tenants.filter(t=>t.property_id===p.id && t.active!==false).length;
-    const opts = `<option value="">— Unassigned —</option>`
-      + admins.map(a=>`<option value="${a.id}" ${p.created_by===a.id?'selected':''}>${esc(a.name||a.email)}</option>`).join('');
+    const adminCells = admins.map(a=>{
+      const checked = a.all_properties || accessSet.has(a.id+'|'+p.id);
+      const disabled = a.all_properties;
+      return `<td class="text-center" ${disabled?'title="Sees all properties — untick \'All Properties\' above to scope this admin"':''}>
+        <input type="checkbox" ${checked?'checked':''} ${disabled?'disabled':''} onchange="togglePropertyAdminAccess('${p.id}','${a.id}', this.checked)">
+      </td>`;
+    }).join('');
     return `<tr>
       <td class="font-semibold">${esc(p.condo)}</td>
       <td class="whitespace-nowrap">${esc(p.unit)}</td>
       <td><span style="font-size:11px;padding:2px 7px;border-radius:6px;background:${p.city==='JB'?'#EEF7F8':'#F3F4F6'};color:var(--ink)">${esc(p.city||'—')}</span></td>
       <td class="text-center text-slate-500">${tenantCount}</td>
-      <td style="min-width:220px">
-        <select class="input !py-1 !text-xs" onchange="reassignProperty('${p.id}', this.value, this)">${opts}</select>
-      </td>
+      ${adminCells}
     </tr>`;
   }).join('');
 
@@ -19371,9 +19435,9 @@ function renderPropAssignPanel(container){
       <div class="overflow-x-auto">
         <table class="data" style="font-size:12px">
           <thead><tr>
-            <th>Name</th><th>Email</th><th>Tab Access</th><th></th>
+            <th>Name</th><th>Email</th><th>Tab Access</th><th>Property Access</th><th></th>
           </tr></thead>
-          <tbody>${adminRows || '<tr><td colspan="4" class="text-center text-slate-400 py-6">No admins yet.</td></tr>'}</tbody>
+          <tbody>${adminRows || '<tr><td colspan="5" class="text-center text-slate-400 py-6">No admins yet.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -19382,36 +19446,57 @@ function renderPropAssignPanel(container){
       <div class="flex items-center justify-between mb-3">
         <div>
           <div class="font-extrabold text-[color:var(--brand)]">🏢 Property Assignment</div>
-          <div class="help mt-0.5">Assign or re-assign any property to an admin. All tenants and data follow automatically.</div>
+          <div class="help mt-0.5">Tick which admin(s) can see each property — tenants, payments, expenses and reports follow automatically. An admin marked "All Properties" above sees every row regardless of ticks here.</div>
         </div>
         <div class="help">${props.length} properties · ${admins.length} admins</div>
       </div>
       <div class="overflow-x-auto">
         <table class="data" style="font-size:12px">
           <thead><tr>
-            <th>Condo</th><th>Unit</th><th>City</th><th class="text-center">Tenants</th><th>Assigned Admin</th>
+            <th>Condo</th><th>Unit</th><th>City</th><th class="text-center">Tenants</th>
+            ${admins.map(a=>`<th class="text-center" style="font-size:11px;white-space:nowrap">${esc(a.name||a.email)}</th>`).join('')}
           </tr></thead>
-          <tbody>${rows || '<tr><td colspan="5" class="text-center text-slate-400 py-6">No properties yet.</td></tr>'}</tbody>
+          <tbody>${rows || `<tr><td colspan="${4+admins.length}" class="text-center text-slate-400 py-6">No properties yet.</td></tr>`}</tbody>
         </table>
       </div>
     </div>`;
 }
 
-async function reassignProperty(propId, adminId, selectEl){
-  const prop = state.properties.find(p=>p.id===propId);
-  const _ap = (state.adminProfiles||[]).find(a=>a.id===adminId);
-  const adminName = _ap ? (_ap.name||_ap.email) : 'Unassigned';
-  const label = prop ? `${prop.condo} · ${prop.unit}` : propId;
-  if(!await confirmModal(`Re-assign <b>${label}</b> to <b>${adminName}</b>?<br><span style="font-size:12px;color:var(--muted)">All tenants and data will move to this admin.</span>`, {confirmText:'Re-assign'})){
-    // revert dropdown
-    selectEl.value = prop?.created_by || '';
-    return;
+// Toggle an admin's blanket "sees every property" flag (profiles.all_properties).
+async function toggleAdminAllProperties(adminId, checked){
+  const admin = (state.adminProfiles||[]).find(a=>a.id===adminId);
+  if(!admin) return;
+  const {error} = await sb.from('profiles').update({all_properties: checked}).eq('id', adminId);
+  if(error){ toast(error.message,'bad'); return; }
+  admin.all_properties = checked;
+  toast(checked ? `✓ ${admin.name||admin.email} now sees all properties` : `✓ ${admin.name||admin.email} limited to ticked properties only`);
+  const container = document.getElementById('propAssignPanel');
+  if(container) await renderPropAssignPanel(container);
+}
+
+// Grant/revoke one admin's access to one property (admin_property_access row).
+async function togglePropertyAdminAccess(propertyId, adminId, checked){
+  const prop  = state.properties.find(p=>p.id===propertyId);
+  const admin = (state.adminProfiles||[]).find(a=>a.id===adminId);
+  const label = prop ? `${prop.condo} ${prop.unit}` : propertyId;
+  const name  = admin ? (admin.name||admin.email) : 'Admin';
+  if(checked){
+    const {error} = await sb.from('admin_property_access').insert({admin_id: adminId, property_id: propertyId});
+    if(error && error.code !== '23505'){
+      toast(error.message,'bad');
+      const c = document.getElementById('propAssignPanel'); if(c) await renderPropAssignPanel(c);
+      return;
+    }
+    toast(`✓ ${name} granted ${label}`);
+  } else {
+    const {error} = await sb.from('admin_property_access').delete().eq('admin_id', adminId).eq('property_id', propertyId);
+    if(error){
+      toast(error.message,'bad');
+      const c = document.getElementById('propAssignPanel'); if(c) await renderPropAssignPanel(c);
+      return;
+    }
+    toast(`✓ ${name} removed from ${label}`);
   }
-  const {error} = await sb.from('properties').update({created_by: adminId||null, updated_at: new Date().toISOString()}).eq('id', propId);
-  if(error){ toast(error.message,'bad'); selectEl.value = prop?.created_by||''; return; }
-  // Update local state
-  if(prop) prop.created_by = adminId || null;
-  toast(`✓ ${label} re-assigned to ${adminName}`,'ok');
 }
 
 async function renderAnnouncementsPanel(container){
