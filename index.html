@@ -19125,12 +19125,16 @@ function openAddAdminModal(){
     }
     toast(`✅ Admin created — password set, they can log in now · configure access in Property Assignment`,'ok');
 
-    // Refresh admin list in sidebar + user management panel
+    // Refresh admin list in sidebar + wherever the admin list is shown —
+    // Property Assignment (Manager tab) and User Management (Admin tab)
+    // are two separate panels/containers, both need the fresh list.
     const {data:admins} = await sb.from('profiles').select('id,email,name,tab_permissions').eq('role','admin').order('email');
     state.adminProfiles = admins || [];
     renderSidebarFilters();
-    const container = document.getElementById('userMgmtPanel');
-    if(container) await renderUserManagementPanel(container);
+    const userMgmtContainer = document.getElementById('userMgmtPanel');
+    if(userMgmtContainer) await renderUserManagementPanel(userMgmtContainer);
+    const propAssignContainer = document.getElementById('propAssignPanel');
+    if(propAssignContainer) renderPropAssignPanel(propAssignContainer);
   }, 'Create Admin');
 
   setTimeout(()=>_wireGenPasswordBtn('addAdminPassword','btnGenAddAdminPw'), 50);
@@ -19268,6 +19272,8 @@ function openConfigureAdminAccessModal(adminId){
     if(error) throw new Error(error.message);
     admin.tab_permissions = newPerms;
     toast(`✓ Access updated for ${admin.name||admin.email}`);
+    const propAssignContainer = document.getElementById('propAssignPanel');
+    if(propAssignContainer) renderPropAssignPanel(propAssignContainer);
   }, 'Save Access');
 
   setTimeout(()=>{
@@ -19279,6 +19285,8 @@ function openConfigureAdminAccessModal(adminId){
       admin.tab_permissions = null;
       toast(`✓ ${admin.name||admin.email} reset to default access`);
       closeModal();
+      const propAssignContainer = document.getElementById('propAssignPanel');
+      if(propAssignContainer) renderPropAssignPanel(propAssignContainer);
     };
   }, 50);
 }
