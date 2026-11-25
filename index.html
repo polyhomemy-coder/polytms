@@ -5983,11 +5983,18 @@ function _fillRptPropWithStatus(){
   const [y, m] = mv ? mv.split('-').map(Number) : [state.year, state.month];
   const filteredProps = (state.properties||[]).filter(p=>_propPassesGlobalFilter(p));
   const cur = el.value;
-  el.innerHTML = filteredProps.map(p=>{
+  // A native <select>'s options are plain text — there's no CSS column to
+  // right-align the admin/manager status against, so pad with a dot leader
+  // (like a restaurant menu) out to the longest label instead, so the
+  // status reads as a roughly-aligned column rather than drifting per row.
+  const labels = filteredProps.map(p => `${p.condo} · ${p.unit}`);
+  const maxLen = Math.max(0, ...labels.map(l=>l.length));
+  el.innerHTML = filteredProps.map((p,i)=>{
     const r = _findReportStatus(p.id, y, m);
     const a = r && r.admin_checked_at    ? '✅' : '⬜';
     const b = r && r.manager_verified_at ? '✅' : '⬜';
-    return `<option value="${p.id}">${esc(p.condo)} · ${esc(p.unit)} — admin${a} manager${b}</option>`;
+    const dots = '.'.repeat(Math.max(3, maxLen - labels[i].length + 4));
+    return `<option value="${p.id}">${esc(labels[i])} ${dots} admin${a} manager${b}</option>`;
   }).join('') || '<option value="">— no properties —</option>';
   if(cur) el.value = cur;
 }
