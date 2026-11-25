@@ -6852,24 +6852,27 @@ function renderAdminDashboard(){
     return `<tr>
       ${td(i+1,{muted:true})}
       ${td(esc(t.name||'—'),{bold:true})}
-      ${td(p?esc(p.condo+' '+p.unit+' · Room '+t.room_code):'—',{muted:true})}
+      ${td(p?esc(p.condo):'—',{muted:true})}
+      ${td(p?esc(p.unit):'—',{muted:true})}
+      ${td(esc(t.room_code||'—'),{muted:true})}
+      ${td(p?.city?`<span style="font-size:11px;padding:2px 7px;border-radius:6px;background:${p.city==='JB'?'#EEF7F8':'#F3F4F6'};color:var(--ink)">${esc(p.city)}</span>`:'—')}
       ${td(dateStr?fmtDate(dateStr):'—',{color:isIn?'#065F46':'#B91C1C'})}
       ${rentalCell}${formulaCell}${proRateCell}
       ${td(viewBtn(t.id),{right:true})}
     </tr>`;
   };
-  const moveTh = miniTh({label:'#'},{label:'Tenant'},{label:'Property · Room'},{label:'Date'},{label:'Rental/mo',right:true},{label:'Formula',right:true},{label:'Pro-Rate',right:true},{label:'',right:true});
+  const moveTh = isIn => miniTh({label:'#'},{label:'Tenant'},{label:'Condo'},{label:'Unit'},{label:'Room'},{label:'City'},{label:isIn?'Move In':'Move Out'},{label:'Rental/mo',right:true},{label:'Formula',right:true},{label:'Pro-Rate',right:true},{label:'',right:true});
   const paneMovements = panel(`
     ${secHead('📦','Movements This Month',moveIns.length+moveOuts.length)}
     ${moveIns.length===0&&moveOuts.length===0 ? emptyMsg('No move-ins or move-outs recorded this month') : ''}
     ${moveIns.length ? `
       <div style="font-size:11px;font-weight:800;color:#065F46;margin-bottom:6px">🆕 MOVE-INS (${moveIns.length}) <span style="font-size:10px;font-weight:500;color:var(--muted)">— pro-rate for first partial month</span></div>
-      ${tbl(moveTh, moveIns.map((t,i)=>buildProRow(t,true,i)).join(''))}
+      ${tbl(moveTh(true), moveIns.map((t,i)=>buildProRow(t,true,i)).join(''))}
       <div style="margin-top:5px;font-size:10.5px;color:var(--muted)">💡 Rent ÷ Days in Month × Days Remaining (from move-in, inclusive)</div>
     ` : ''}
     ${moveOuts.length ? `
       <div style="font-size:11px;font-weight:800;color:#B91C1C;margin-top:${moveIns.length?16:0}px;margin-bottom:6px">📦 MOVE-OUTS (${moveOuts.length}) <span style="font-size:10px;font-weight:500;color:var(--muted)">— pro-rate for last partial month</span></div>
-      ${tbl(moveTh, moveOuts.map((t,i)=>buildProRow(t,false,i)).join(''))}
+      ${tbl(moveTh(false), moveOuts.map((t,i)=>buildProRow(t,false,i)).join(''))}
       <div style="margin-top:5px;font-size:10.5px;color:var(--muted)">💡 Rent ÷ Days in Month × Days Occupied (up to move-out day)</div>
     ` : ''}`);
 
