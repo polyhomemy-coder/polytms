@@ -5993,7 +5993,7 @@ function _fillRptPropWithStatus(){
     const r = _findReportStatus(p.id, y, m);
     const a = r && r.admin_checked_at    ? '✅' : '⬜';
     const b = r && r.manager_verified_at ? '✅' : '⬜';
-    const dots = '.'.repeat(Math.max(3, maxLen - labels[i].length + 4));
+    const dots = ' ·'.repeat(Math.max(3, maxLen - labels[i].length + 4));
     return `<option value="${p.id}">${esc(labels[i])} ${dots} admin${a} manager${b}</option>`;
   }).join('') || '<option value="">— no properties —</option>';
   if(cur) el.value = cur;
