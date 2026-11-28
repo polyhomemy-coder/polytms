@@ -18932,11 +18932,14 @@ async function renderUserManagementPanel(container){
     container.innerHTML = `<div class="text-sm text-rose-500 py-2">Could not load users: ${esc(e.message)}</div>`;
     return;
   }
-  // Admin account management (add/edit/remove/tab access/password) now
+  // Admin AND manager account management (add/edit/remove/password) now
   // lives entirely in Manager tab → Property Assignment. This panel is
-  // Owner-only for both admins and managers — only show owner rows, plus
-  // the viewer's own row (whatever its role) so "✏️ My Name" still works.
-  profiles = profiles.filter(p => p.role === 'owner' || p.id === state.currentUserId);
+  // Owner-only — plus the viewer's own row when they're an admin (so
+  // "✏️ My Name" still works for them here, since admins have no other
+  // panel to edit their own display name from). A manager's own row is
+  // deliberately excluded — theirs now shows in the Manager Accounts card
+  // in Property Assignment instead.
+  profiles = profiles.filter(p => p.role === 'owner' || (p.id === state.currentUserId && state.role !== 'manager'));
   const props = state.properties || [];
 
   const roleChip = r => ({
@@ -19266,6 +19269,66 @@ function _wireGenPasswordBtn(fieldId, btnId){
   };
 }
 
+// ── Add Manager Modal ─────────────────────────────────────────
+function openAddManagerModal(){
+  const bodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">EMAIL ADDRESS</label>
+      <input id="addManagerEmail" type="email" class="input" placeholder="manager@example.com" style="width:100%;box-sizing:border-box">
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">DISPLAY NAME <span style="font-weight:400;font-style:italic">(optional)</span></label>
+      <input id="addManagerName" type="text" class="input" placeholder="e.g. Jane Tan" style="width:100%;box-sizing:border-box">
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">PASSWORD</label>
+      <div style="display:flex;gap:8px">
+        <input id="addManagerPassword" type="password" class="input" placeholder="Min 6 characters" style="flex:1;box-sizing:border-box">
+        <button type="button" id="btnGenAddManagerPw" style="font-size:12px;font-weight:700;padding:0 14px;border-radius:9px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer;white-space:nowrap">🎲 Generate</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#B91C1C;background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:10px 12px;line-height:1.7">
+      👑 Managers get FULL access to every tab and every property, and can create or remove other admins and managers. Only add one for someone fully trusted.<br>
+      The password is set immediately — no email sent, they can log in right away with it.
+    </div>
+  </div>`;
+
+  openModal('Add New Manager', bodyHtml, async ()=>{
+    const email    = (document.getElementById('addManagerEmail')?.value||'').trim().toLowerCase();
+    const name     = (document.getElementById('addManagerName')?.value||'').trim();
+    const password = document.getElementById('addManagerPassword')?.value||'';
+    if(!email) throw new Error('Enter an email address');
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address');
+    if(password.length < 6) throw new Error('Password must be at least 6 characters');
+
+    await _createUserConfirmingRoleChange({email, password, name, role:'manager'});
+    toast(`✅ Manager created — password set, they can log in now`,'ok');
+    const container = document.getElementById('propAssignPanel');
+    if(container) await renderPropAssignPanel(container);
+  }, 'Create Manager');
+
+  setTimeout(()=>_wireGenPasswordBtn('addManagerPassword','btnGenAddManagerPw'), 50);
+}
+
+// Remove a manager's access. Blocked for your own account (use another
+// manager to remove you, if ever needed) and when it's the last manager
+// left, so the Manager tab can never be locked out entirely.
+async function removeManagerAccount(managerId){
+  const managers = state.managerProfiles || [];
+  const mgr = managers.find(m=>m.id===managerId);
+  if(!mgr) return;
+  if(managerId === state.currentUserId){ toast("You can't remove your own manager access",'bad'); return; }
+  if(managers.length <= 1){ toast('At least one manager must remain','bad'); return; }
+  const ok = await confirmModal(`Remove manager access for ${mgr.name||mgr.email} (${mgr.email})?\n\nThey won't be able to log in to polyTMS or access any data.`,{confirmText:'Remove',danger:true});
+  if(!ok) return;
+  try {
+    await deleteProfile(managerId);
+    toast(`🗑 Removed ${mgr.name||mgr.email}`);
+    const container = document.getElementById('propAssignPanel');
+    if(container) await renderPropAssignPanel(container);
+  } catch(e){ toast('Remove failed: '+e.message,'bad'); }
+}
+
 // ── Add Admin Modal ───────────────────────────────────────────
 function openAddAdminModal(){
   const bodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
@@ -19537,9 +19600,28 @@ async function renderPropAssignPanel(container){
     .sort((a,b)=>(a.condo+' '+a.unit).localeCompare(b.condo+' '+b.unit));
 
   container.innerHTML = `<div class="text-sm text-slate-400 py-4">Loading…</div>`;
-  const {data: accessRows, error: accessErr} = await sb.from('admin_property_access').select('admin_id,property_id');
+  const [{data: accessRows, error: accessErr}, {data: managerRows, error: mgrErr}] = await Promise.all([
+    sb.from('admin_property_access').select('admin_id,property_id'),
+    sb.from('profiles').select('id,email,name').eq('role','manager').order('email'),
+  ]);
   if(accessErr){ container.innerHTML = `<div style="color:#C0392B;font-size:13px;padding:8px">Could not load property access: ${esc(accessErr.message)}</div>`; return; }
   const accessSet = new Set((accessRows||[]).map(r=>r.admin_id+'|'+r.property_id));
+  const managers = mgrErr ? [] : (managerRows||[]);
+  state.managerProfiles = managers;
+
+  // ── Manager Accounts: full-access logins, can create more managers ──────
+  const managerRowsHtml = managers.map(m=>{
+    const isMe = m.id === state.currentUserId;
+    return `<tr>
+      <td class="font-semibold">${esc(m.name||'—')}</td>
+      <td class="text-slate-500">${esc(m.email)}</td>
+      <td class="text-right whitespace-nowrap">
+        ${isMe ? '<span style="font-size:11px;color:var(--muted);font-style:italic;margin-right:6px">You</span>' : ''}
+        <button class="px-2 py-1 rounded bg-[#FFF4E5] text-[#F4811F] text-xs font-semibold" onclick="openSetUserPasswordModal('${m.id}','${esc(m.email)}','${esc(m.name||'')}')">🔑 Set Password</button>
+        ${!isMe ? `<button class="px-2 py-1 rounded bg-rose-50 text-rose-600 text-xs font-semibold" onclick="removeManagerAccount('${m.id}')">🗑 Remove</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
 
   // ── Admin Accounts: password reset, create new admin, tab access ────────
   const accessSummary = perms => {
@@ -19593,6 +19675,22 @@ async function renderPropAssignPanel(container){
 
   container.innerHTML = `
     <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="font-extrabold text-[color:var(--brand)]">👑 Manager Accounts</div>
+          <div class="help mt-0.5">Full access to every tab and property, including creating/removing admins and other managers. Only add one for someone fully trusted.</div>
+        </div>
+        <button class="btn-brand px-4 py-2 rounded-xl text-sm font-bold" onclick="openAddManagerModal()">+ Add Manager</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="data" style="font-size:12px">
+          <thead><tr><th>Name</th><th>Email</th><th></th></tr></thead>
+          <tbody>${managerRowsHtml || '<tr><td colspan="3" class="text-center text-slate-400 py-6">No managers yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card p-4" style="margin-top:0">
       <div class="flex items-center justify-between mb-3">
         <div>
           <div class="font-extrabold text-[color:var(--brand)]">👤 Admin Accounts</div>
