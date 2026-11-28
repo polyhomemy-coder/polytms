@@ -2325,17 +2325,36 @@ async function saveElecBills(){
   if(role!=='owner'&&!isPreview){window.location.href='index.html';return;}
 
   if(isPreview){
-    const{data:allProps}=await sb.from('properties').select('*').limit(5);
-    state.properties=allProps||[];
-    state.activePropId=state.properties[0]?.id||null;
+    // "uid" (set by the manager's "👁 View" button in TMS) previews exactly
+    // what ONE specific owner sees, scoped to their own assigned property —
+    // this still runs on the manager's own authenticated session (RLS is
+    // permissive for any authenticated profile), it just reads that owner's
+    // profile row to find which property to load, same as the owner's own
+    // boot would via getMyPropertyIds(). With no "uid" it falls back to the
+    // old generic preview (first 5 properties, used from elsewhere in TMS).
+    const targetUid=new URLSearchParams(location.search).get('uid');
+    let bannerLabel='Manager Preview Mode';
+    if(targetUid){
+      const{data:ownerProfile}=await sb.from('profiles').select('property_id,name,email').eq('id',targetUid).maybeSingle();
+      const propId=ownerProfile?.property_id||null;
+      const{data:props}=propId ? await sb.from('properties').select('*').eq('id',propId) : {data:[]};
+      state.properties=props||[];
+      state.activePropId=state.properties[0]?.id||null;
+      bannerLabel='Previewing as '+esc(ownerProfile?.name||ownerProfile?.email||'Owner');
+    } else {
+      const{data:allProps}=await sb.from('properties').select('*').limit(5);
+      state.properties=allProps||[];
+      state.activePropId=state.properties[0]?.id||null;
+    }
     const banner=document.createElement('div');
     banner.style.cssText='background:#004C56;color:#fff;text-align:center;padding:7px;font-size:12px;font-weight:700;position:sticky;top:60px;z-index:49';
-    banner.innerHTML='👁 Manager Preview Mode — <a href="index.html" style="color:#F4811F">← Back to TMS</a>';
+    banner.innerHTML='👁 '+bannerLabel+' — <a href="index.html" style="color:#F4811F">← Back to TMS</a>';
     $('tabnav').insertAdjacentElement('afterend',banner);
     $('topbarUser').textContent=sess.user.email+' (Preview)';
     renderPropBar();
     hideLoading();showApp();
-    await loadPropData();
+    if(state.activePropId){ await loadPropData(); }
+    else { $('paneReport').innerHTML='<div class="empty">⚠️ This owner has no property assigned yet.</div>'; }
     return;
   }
 

@@ -6490,7 +6490,7 @@ function renderAdminDashboard(){
     {id:'signoff',   label:'📋 Sign-off'+badge(reportPending.length, reportPending.length>0)},
     {id:'utilities', label:'🚿 Utilities'},
     {id:'track',     label:'🗓️ Payment Track'},
-    ...(state.role==='manager'||state.role==='admin' ? [{id:'users', label:'👥 Users'}] : []),
+    ...(state.role==='manager'||state.role==='admin' ? [{id:'users', label:'👥 Owner Login'}] : []),
     ...(state.role==='manager'||state.role==='admin' ? [{id:'notices', label:'📢 Notices'}, {id:'backup', label:'🗄️ Backup'}] : []),
   ].filter(t => _subtabAllowed('admin', t.id));
   // If the previously-active sub-tab isn't in this admin's allowed set
@@ -18973,6 +18973,14 @@ async function renderUserManagementPanel(container){
            ${p.portal_invited_at ? '🔁 Resend' : '📧 Send Invitation'}</button>`
       : '';
 
+    // For owner rows WITH a property assigned: let the manager/admin open
+    // the owner portal exactly as that owner would see it (read-only
+    // preview — see owner.html's ?preview=1&uid=... boot branch).
+    const viewBtn = (p.role === 'owner' && p.property_id)
+      ? `<button onclick="openOwnerPreview('${p.id}')"
+           style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer;white-space:nowrap">👁 View</button>`
+      : '';
+
     const actionCell = isMe
       ? `<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">
            <span style="font-size:11px;color:var(--muted);font-style:italic">You</span>
@@ -18981,11 +18989,12 @@ async function renderUserManagementPanel(container){
          </div>`
       : canEdit
         ? `<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;flex-wrap:wrap">
+             ${viewBtn}
              ${inviteBtn}
              <button onclick="openEditUserModal('${p.id}','${esc(p.email||'')}','${p.role}','${p.property_id||''}','${esc(p.name||'')}')"
                style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">Edit</button>
            </div>`
-        : `<span style="font-size:11px;color:var(--muted)">—</span>`;
+        : (viewBtn || `<span style="font-size:11px;color:var(--muted)">—</span>`);
 
     const statusCell = p.role === 'owner'
       ? `<td style="padding:10px 12px">${statusChip(p)}</td>`
@@ -19007,7 +19016,7 @@ async function renderUserManagementPanel(container){
     <div style="background:var(--card);border-radius:16px;border:1px solid var(--line);overflow:hidden;margin-bottom:24px">
       <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
         <div>
-          <div style="font-size:15px;font-weight:700;color:var(--ink)">👥 User Management</div>
+          <div style="font-size:15px;font-weight:700;color:var(--ink)">👥 Owner Login</div>
           <div style="font-size:12px;color:var(--muted);margin-top:2px">Manage who can access the Owner Portal. ${isManager ? 'Admin accounts are managed from Manager → Property Assignment.' : ''}</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -19036,6 +19045,14 @@ async function renderUserManagementPanel(container){
   if(_btnInvite) _btnInvite.onclick = openAddOwnerModal;
   const _btnBulk = document.getElementById('btnBulkAddOwners');
   if(_btnBulk) _btnBulk.onclick = openBulkAddOwnersModal;
+}
+
+// Opens owner.html in a new tab in read-only "preview as this owner" mode
+// (runs on the manager's OWN session — see owner.html's ?preview=1&uid=...
+// boot branch — so no owner credentials or session-switching is involved).
+function openOwnerPreview(ownerId){
+  const base = location.origin + location.pathname.replace(/index\.html$/, '');
+  window.open(`${base}owner.html?preview=1&uid=${encodeURIComponent(ownerId)}`, '_blank');
 }
 
 // Called from the "Send Invitation" / "Resend" button in the User Management table.
@@ -19345,7 +19362,7 @@ const SUBTAB_ACCESS_LABELS = {
   admin: {
     overview:'Overview', unpaid:'Unpaid', leases:'Leases', movements:'Movements',
     vacant:'Vacant', carpark:'Carpark', signoff:'Sign-off', utilities:'Utilities',
-    track:'Payment Track', users:'Users', notices:'Notices', backup:'Backup',
+    track:'Payment Track', users:'Owner Login', notices:'Notices', backup:'Backup',
   },
   income: { collection:'Rent Collection Status', ledger:'Payments Ledger', aircon:'Aircon Top-ups', extra:'Extra Income' },
 };
