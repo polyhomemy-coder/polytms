@@ -18921,33 +18921,6 @@ async function sendOwnerInvitation(email){
     .eq('email', email.toLowerCase());
 }
 
-// Smart invite-or-restore:
-// 1. Calls the DB function restore_or_invite_profile() which checks if
-//    the email already exists in auth.users.
-//    - If YES → silently restores the profile row. No email sent. ✅
-//    - If NO  → returns 'invite_needed' → we send a magic link email.
-// This fixes the "admin accidentally removed someone" case — re-adding
-// their email just restores access instantly with no email required.
-async function inviteUser(email, role='owner', propertyId=null){
-  const {data, error} = await sb.rpc('restore_or_invite_profile', {
-    p_email: email.toLowerCase(),
-    p_role: role,
-    p_property_id: propertyId || null,
-  });
-  if(error) throw new Error(error.message);
-  const result = data;
-  if(result?.action === 'restored'){
-    return {restored: true};
-  }
-  // User doesn't exist yet — send magic link
-  const {error: otpErr} = await sb.auth.signInWithOtp({
-    email,
-    options:{ shouldCreateUser: true, emailRedirectTo: location.href }
-  });
-  if(otpErr) throw new Error(otpErr.message);
-  return {restored: false};
-}
-
 // Render the User Management panel (injected into Admin dashboard, manager only).
 async function renderUserManagementPanel(container){
   const isManager = state.role === 'manager';
@@ -19038,7 +19011,9 @@ async function renderUserManagementPanel(container){
           <div style="font-size:12px;color:var(--muted);margin-top:2px">Manage who can access the Owner Portal. ${isManager ? 'Admin accounts are managed from Manager → Property Assignment.' : ''}</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          ${(isManager || _editAllowed('admin','users')) ? `<button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Add Owner</button>` : ''}
+          ${(isManager || _editAllowed('admin','users')) ? `
+            <button id="btnBulkAddOwners" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer">📋 Bulk Add</button>
+            <button id="btnInviteUser" style="font-size:13px;font-weight:700;padding:8px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer">+ Add Owner</button>` : ''}
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -19058,7 +19033,9 @@ async function renderUserManagementPanel(container){
     </div>`;
 
   const _btnInvite = document.getElementById('btnInviteUser');
-  if(_btnInvite) _btnInvite.onclick = openInviteUserModal;
+  if(_btnInvite) _btnInvite.onclick = openAddOwnerModal;
+  const _btnBulk = document.getElementById('btnBulkAddOwners');
+  if(_btnBulk) _btnBulk.onclick = openBulkAddOwnersModal;
 }
 
 // Called from the "Send Invitation" / "Resend" button in the User Management table.
@@ -19076,32 +19053,136 @@ async function doSendOwnerInvitation(email){
   }
 }
 
-// ── Invite User Modal ─────────────────────────────────────────
-function openInviteUserModal(){
+// ── Add Owner Modal (direct password set — no email) ──────────
+function openAddOwnerModal(){
+  const props = state.properties || [];
+  const propOptions = props.map(p=>`<option value="${p.id}">${esc(p.condo)} ${esc(p.unit)}</option>`).join('');
   const bodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
     <div>
       <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">EMAIL ADDRESS</label>
-      <input id="inviteEmail" type="email" class="input" placeholder="user@example.com" style="width:100%;box-sizing:border-box">
+      <input id="addOwnerEmail" type="email" class="input" placeholder="owner@example.com" style="width:100%;box-sizing:border-box">
     </div>
-    <div style="font-size:12px;color:var(--muted);background:var(--th-bg);border-radius:10px;padding:10px 12px;line-height:1.6">
-      A magic link will be sent to their email. They'll be added as <strong>Owner</strong> by default —
-      use <strong>Edit</strong> to change their role after they sign in.
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">DISPLAY NAME <span style="font-weight:400;font-style:italic">(optional)</span></label>
+      <input id="addOwnerName" type="text" class="input" placeholder="e.g. Tan Wei Ming" style="width:100%;box-sizing:border-box">
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">PROPERTY</label>
+      <select id="addOwnerProp" class="input" style="width:100%">
+        <option value="">— Select property —</option>
+        ${propOptions}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">PASSWORD</label>
+      <div style="display:flex;gap:8px">
+        <input id="addOwnerPassword" type="password" class="input" placeholder="Min 6 characters" style="flex:1;box-sizing:border-box">
+        <button type="button" id="btnGenAddOwnerPw" style="font-size:12px;font-weight:700;padding:0 14px;border-radius:9px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer;white-space:nowrap">🎲 Generate</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);background:var(--th-bg);border-radius:10px;padding:10px 12px;line-height:1.7">
+      🏠 The password is set immediately — no email sent, they can log in right away with it.<br>
+      <span style="color:#B91C1C">Write the password down now</span> — once you close this window it can't be viewed again (only reset) from here.
     </div>
   </div>`;
-  openModal('Invite New User', bodyHtml, async ()=>{
-    const email = (document.getElementById('inviteEmail')?.value||'').trim();
-    if(!email){ toast('Enter an email address','bad'); return; }
-    try {
-      const result = await inviteUser(email);
-      if(result.restored){
-        toast(`✅ Access restored for ${email} — they can log in now`);
-      } else {
-        toast(`✉️ Invite sent to ${email}`);
+  openModal('Add New Owner', bodyHtml, async ()=>{
+    const email    = (document.getElementById('addOwnerEmail')?.value||'').trim().toLowerCase();
+    const name     = (document.getElementById('addOwnerName')?.value||'').trim();
+    const propId   = document.getElementById('addOwnerProp')?.value || null;
+    const password = document.getElementById('addOwnerPassword')?.value||'';
+    if(!email) throw new Error('Enter an email address');
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address');
+    if(password.length < 6) throw new Error('Password must be at least 6 characters');
+
+    await callAdminSetPassword({action:'create', email, password, name, role:'owner', property_id: propId});
+    toast(`✅ Owner created — password set, they can log in now`,'ok');
+    const container = document.getElementById('userMgmtPanel');
+    if(container) await renderUserManagementPanel(container);
+  }, 'Create Owner');
+
+  setTimeout(()=>_wireGenPasswordBtn('addOwnerPassword','btnGenAddOwnerPw'), 50);
+}
+
+// ── Bulk Add Owners Modal ──────────────────────────────────────
+// Paste one owner per line: email, name, condo unit (name/property optional).
+// Property text is matched against each property's "condo unit" (case-
+// insensitive, substring match) — ambiguous or no match just leaves that
+// owner unassigned (fix later via Edit). A strong password is generated
+// per row and shown in a results table at the end so the manager can copy
+// them down before closing — they can't be viewed again after that.
+function openBulkAddOwnersModal(){
+  const bodyHtml = `<div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:12px;color:var(--muted);background:var(--th-bg);border-radius:10px;padding:10px 12px;line-height:1.7">
+      One owner per line: <code>email, name, property</code> — name and property are optional.<br>
+      Example: <code>tan@example.com, Tan Wei Ming, Amberside 8A-09-3A</code><br>
+      Property text is matched against Condo + Unit; leave it off to assign later. A password is generated for each.
+    </div>
+    <textarea id="bulkOwnerText" rows="8" class="input" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px" placeholder="tan@example.com, Tan Wei Ming, Amberside 8A-09-3A
+lim@example.com, Lim Siew Hoon"></textarea>
+    <button type="button" id="btnRunBulkOwners" style="font-size:13px;font-weight:700;padding:9px 16px;border-radius:10px;background:linear-gradient(135deg,#004C56,#00626E);color:#fff;border:none;cursor:pointer;align-self:flex-start">Create Owners</button>
+    <div id="bulkOwnerResults"></div>
+  </div>`;
+  // Informational modal (no onSave/Save-Cancel pair) — the in-body button
+  // below runs the batch itself and keeps the modal open afterwards so the
+  // generated passwords stay visible to copy down; only "Close" dismisses it.
+  openModal('Bulk Add Owners', bodyHtml, null);
+
+  setTimeout(()=>{
+    const runBtn = document.getElementById('btnRunBulkOwners');
+    if(!runBtn) return;
+    runBtn.onclick = async ()=>{
+      const raw = (document.getElementById('bulkOwnerText')?.value||'').trim();
+      if(!raw){ toast('Paste at least one owner line','bad'); return; }
+      const props = state.properties || [];
+      const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
+      const rows = lines.map(line=>{
+        const parts = line.split(',').map(s=>s.trim());
+        const email = (parts[0]||'').toLowerCase();
+        const name  = parts[1]||'';
+        const propText = (parts[2]||'').toLowerCase();
+        let propId = null;
+        if(propText){
+          const match = props.find(p=>`${p.condo} ${p.unit}`.toLowerCase().includes(propText));
+          if(match) propId = match.id;
+        }
+        return {email, name, propId, password: _genStrongPassword()};
+      }).filter(r=>r.email);
+      if(!rows.length){ toast('No valid email addresses found','bad'); return; }
+
+      runBtn.disabled = true; runBtn.style.opacity='.6'; runBtn.textContent = '⏳ Creating…';
+      const results = [];
+      for(const r of rows){
+        try {
+          if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email)) throw new Error('Invalid email');
+          await callAdminSetPassword({action:'create', email:r.email, password:r.password, name:r.name, role:'owner', property_id:r.propId});
+          results.push({...r, ok:true});
+        } catch(e){ results.push({...r, ok:false, err:e.message}); }
       }
+      runBtn.disabled = false; runBtn.style.opacity=''; runBtn.textContent = 'Create Owners';
+
+      const okCount = results.filter(r=>r.ok).length;
+      const resultsHtml = `
+        <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:6px">${okCount}/${results.length} created — copy passwords below, they can't be viewed again after you close this:</div>
+        <div style="max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:10px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:var(--th-bg)">
+              <th style="padding:6px 10px;text-align:left">Email</th><th style="padding:6px 10px;text-align:left">Password</th><th style="padding:6px 10px;text-align:left">Status</th>
+            </tr></thead>
+            <tbody>${results.map(r=>`<tr>
+              <td style="padding:6px 10px">${esc(r.email)}</td>
+              <td style="padding:6px 10px;font-family:monospace">${r.ok?esc(r.password):'—'}</td>
+              <td style="padding:6px 10px;color:${r.ok?'#065F46':'#B91C1C'}">${r.ok?'✅ Created':'❌ '+esc(r.err||'Failed')}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>`;
+      const resEl = document.getElementById('bulkOwnerResults');
+      if(resEl) resEl.innerHTML = resultsHtml;
+
+      toast(`✅ Created ${okCount} of ${results.length} owners`, okCount===results.length?'ok':'bad');
       const container = document.getElementById('userMgmtPanel');
       if(container) await renderUserManagementPanel(container);
-    } catch(e){ toast('Failed: '+e.message,'bad'); }
-  }, 'Send Invite');
+    };
+  }, 50);
 }
 
 // Calls the admin-set-password Edge Function (service-role, manager-only —
@@ -19221,6 +19302,32 @@ function openSetAdminPasswordModal(adminId){
     toast(`✅ Password updated for ${admin.name||admin.email}`,'ok');
   }, 'Set Password');
   setTimeout(()=>_wireGenPasswordBtn('setAdminPwInput','btnGenSetAdminPw'), 50);
+}
+
+// ── Set Password Modal (generic — any user, e.g. owner) ───────
+// Same direct no-email flow as openSetAdminPasswordModal, usable for any
+// profile id/email/display-name (currently wired from the Owner "Edit User"
+// modal). Passwords are hashed by Supabase and can never be read back —
+// this only ever sets a NEW one; there is no way to view an existing one.
+function openSetUserPasswordModal(uid, email, displayName){
+  const label = displayName || email;
+  const bodyHtml = `<div style="display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:13px;color:var(--ink)">Set a new password for <strong>${esc(label)}</strong>. They can log in with it immediately — no email involved.</div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin-bottom:5px">NEW PASSWORD</label>
+      <div style="display:flex;gap:8px">
+        <input id="setUserPwInput" type="password" class="input" placeholder="Min 6 characters" style="flex:1;box-sizing:border-box">
+        <button type="button" id="btnGenSetUserPw" style="font-size:12px;font-weight:700;padding:0 14px;border-radius:9px;background:#F0F9FB;color:#007B8A;border:1px solid #B3E3EA;cursor:pointer;white-space:nowrap">🎲 Generate</button>
+      </div>
+    </div>
+  </div>`;
+  openModal('Set Password', bodyHtml, async ()=>{
+    const password = document.getElementById('setUserPwInput')?.value||'';
+    if(password.length < 6) throw new Error('Password must be at least 6 characters');
+    await callAdminSetPassword({action:'set_password', user_id: uid, password});
+    toast(`✅ Password updated for ${label}`,'ok');
+  }, 'Set Password');
+  setTimeout(()=>_wireGenPasswordBtn('setUserPwInput','btnGenSetUserPw'), 50);
 }
 
 // Labels for the tab/sub-tab access configuration modal — must stay in
@@ -19702,7 +19809,7 @@ function openEditUserModal(uid, email, currentRole, currentPropId, currentName='
       </select>
     </div>
     <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
-      <button id="btnResetPw" style="font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#FFF4E5;color:#F4811F;border:1px solid #F8C893;cursor:pointer">📧 Send Password Reset</button>
+      <button id="btnSetUserPw" style="font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#FFF4E5;color:#F4811F;border:1px solid #F8C893;cursor:pointer">🔑 Set Password</button>
       <button id="btnRemoveUser" style="font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;cursor:pointer">🗑 Remove Access</button>
     </div>
   </div>`;
@@ -19724,20 +19831,9 @@ function openEditUserModal(uid, email, currentRole, currentPropId, currentName='
     const roleEl = document.getElementById('editUserRole');
     const propRow = document.getElementById('ownerPropRow');
     if(roleEl && propRow) roleEl.onchange = ()=>{ propRow.style.display = roleEl.value==='owner' ? 'block' : 'none'; };
-    // Wire password reset button
-    const resetBtn = document.getElementById('btnResetPw');
-    if(resetBtn) resetBtn.onclick = async ()=>{
-      resetBtn.disabled = true; resetBtn.textContent = 'Sending…';
-      try {
-        const {error} = await sb.auth.resetPasswordForEmail(email, {
-          redirectTo: location.origin + location.pathname.replace('index.html','') + 'owner.html'
-        });
-        if(error) throw error;
-        toast(`📧 Password reset email sent to ${email}`);
-        closeModal();
-      } catch(e){ toast('Failed: '+e.message,'bad'); }
-      finally { resetBtn.disabled=false; resetBtn.textContent='📧 Send Password Reset'; }
-    };
+    // Wire set-password button — opens a direct password-set modal (no email)
+    const setPwBtn = document.getElementById('btnSetUserPw');
+    if(setPwBtn) setPwBtn.onclick = ()=> openSetUserPasswordModal(uid, email, currentName);
     // Wire remove button
     const removeBtn = document.getElementById('btnRemoveUser');
     if(removeBtn) removeBtn.onclick = async ()=>{
