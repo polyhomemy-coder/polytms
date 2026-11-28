@@ -19111,7 +19111,7 @@ function openAddOwnerModal(){
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address');
     if(password.length < 6) throw new Error('Password must be at least 6 characters');
 
-    await callAdminSetPassword({action:'create', email, password, name, role:'owner', property_id: propId});
+    await _createUserConfirmingRoleChange({email, password, name, role:'owner', property_id: propId});
     toast(`✅ Owner created — password set, they can log in now`,'ok');
     const container = document.getElementById('userMgmtPanel');
     if(container) await renderUserManagementPanel(container);
@@ -19171,7 +19171,7 @@ lim@example.com, Lim Siew Hoon"></textarea>
       for(const r of rows){
         try {
           if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email)) throw new Error('Invalid email');
-          await callAdminSetPassword({action:'create', email:r.email, password:r.password, name:r.name, role:'owner', property_id:r.propId});
+          await _createUserConfirmingRoleChange({email:r.email, password:r.password, name:r.name, role:'owner', property_id:r.propId});
           results.push({...r, ok:true});
         } catch(e){ results.push({...r, ok:false, err:e.message}); }
       }
@@ -19210,13 +19210,41 @@ async function callAdminSetPassword(payload){
   const {data, error} = await sb.functions.invoke('admin-set-password', {body: payload});
   if(error){
     // Supabase surfaces non-2xx responses as a generic error; try to pull
-    // the function's own JSON {error:"..."} message out of it for the user.
-    let msg = error.message || 'Request failed';
-    try { const body = await error.context?.json?.(); if(body?.error) msg = body.error; } catch(_){}
-    throw new Error(msg);
+    // the function's own JSON {error:"..."} body out of it for the user.
+    // On the "exists_different_role" guard, the body carries extra fields
+    // (existing_role/existing_name) — preserve them on the thrown Error so
+    // callers can show a specific confirm dialog instead of a flat message.
+    let body = null;
+    try { body = await error.context?.json?.(); } catch(_){}
+    const err = new Error(body?.error || error.message || 'Request failed');
+    if(body?.existing_role) err.existingRole = body.existing_role;
+    if(body?.existing_name) err.existingName = body.existing_name;
+    throw err;
   }
   if(data?.error) throw new Error(data.error);
   return data;
+}
+
+// Calls callAdminSetPassword({action:'create', ...}); if the server reports
+// the email already belongs to a different-role account (exists_different_
+// role), asks the manager to confirm before retrying with force:true. This
+// is the guard that stops "Add Owner"/"Add Admin" from silently repurposing
+// someone else's existing login (it hard-blocks manager accounts outright —
+// see the Edge Function — and only asks for admin/owner mismatches).
+async function _createUserConfirmingRoleChange(payload){
+  try {
+    return await callAdminSetPassword({action:'create', ...payload});
+  } catch(e){
+    if(e.message === 'exists_different_role'){
+      const ok = await confirmModal(
+        `${payload.email} already exists as a ${e.existingRole} account (${e.existingName||''}).\n\nContinuing will change its role to ${payload.role||'admin'} and reset its password. This cannot be undone here.`,
+        {confirmText:'Yes, change it', danger:true}
+      );
+      if(!ok) throw new Error('Cancelled — no account was changed');
+      return await callAdminSetPassword({action:'create', ...payload, force:true});
+    }
+    throw e;
+  }
 }
 
 // Fills a password field with a random, readable-enough strong password
@@ -19271,7 +19299,7 @@ function openAddAdminModal(){
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address');
     if(password.length < 6) throw new Error('Password must be at least 6 characters');
 
-    await callAdminSetPassword({action:'create', email, password, name});
+    await _createUserConfirmingRoleChange({email, password, name, role:'admin'});
 
     // A genuinely NEW admin starts seeing NOTHING until the manager
     // explicitly grants tabs/sub-tabs via Property Assignment — {} means
